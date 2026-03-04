@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hyxi-cloud-api"
-dynamic = ["version"]
+version = "0.0.0"
 authors = [
   { name="Veldkornet", email="veldkornet@outlook.com" },
 ]
@@ -14,5 +14,3 @@ requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.8.0",
 ]
-
-[tool.setuptools_scm]

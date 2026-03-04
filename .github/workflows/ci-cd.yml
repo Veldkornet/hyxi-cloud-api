@@ -10,10 +10,9 @@ on:
 
 permissions:
   contents: read
-  security-events: write # Required for CodeQL
+  security-events: write 
 
 jobs:
-  # 1. LINTING JOB
   lint:
     name: Lint Code (Ruff)
     runs-on: ubuntu-latest
@@ -31,7 +30,6 @@ jobs:
           pip install ruff
           ruff check .
 
-  # 2. SECURITY JOB
   security:
     name: Security Scan (CodeQL)
     runs-on: ubuntu-latest
@@ -47,18 +45,14 @@ jobs:
       - name: 🔍 Perform Analysis
         uses: github/codeql-action/analyze@v4
 
-  # 3. PUBLISH JOB (Only runs on Release!)
   publish:
     name: Build and Publish to PyPI
-    needs: [lint, security] # 🛑 Wait for lint & security to pass first!
+    needs: [lint, security] 
     if: github.event_name == 'release' && github.event.action == 'published'
     runs-on: ubuntu-latest
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
 
       - name: 🐍 Set up Python
         uses: actions/setup-python@v6
@@ -68,19 +62,18 @@ jobs:
       - name: 📦 Install Build Tools
         run: python -m pip install --upgrade pip build
 
-      - name: 🏗️ Build Package
+      - name: 🏗️ Inject Version & Build
         run: |
-          # 1. Grab the tag (e.g., v0.1.1)
           TAG_NAME="${{ github.event.release.tag_name }}"
-          # 2. Strip the 'v' (becomes 0.1.1)
           CLEAN_VERSION="${TAG_NAME#v}"
           
-          echo "Forcing setuptools-scm to use version: $CLEAN_VERSION"
+          echo "Injecting version $CLEAN_VERSION into pyproject.toml..."
+          sed -i "s/^version = .*/version = \"$CLEAN_VERSION\"/" pyproject.toml
           
-          # 3. Export the override variable
-          export SETUPTOOLS_SCM_PRETEND_VERSION=$CLEAN_VERSION
+          echo "--- VERIFYING FILE CONTENTS ---"
+          grep "^version" pyproject.toml
+          echo "-------------------------------"
           
-          # 4. Build the package!
           python -m build
 
       - name: 🚀 Publish to PyPI
