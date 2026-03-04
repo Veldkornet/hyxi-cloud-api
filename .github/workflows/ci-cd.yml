@@ -1,0 +1,74 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  security-events: write # Required for CodeQL
+
+jobs:
+  # 1. LINTING JOB
+  lint:
+    name: Lint Code (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 🧹 Install & Run Ruff
+        run: |
+          pip install ruff
+          ruff check .
+
+  # 2. SECURITY JOB
+  security:
+    name: Security Scan (CodeQL)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - name: 🔍 Perform Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # 3. PUBLISH JOB (Only runs on Release!)
+  publish:
+    name: Build and Publish to PyPI
+    needs: [lint, security] # 🛑 Wait for lint & security to pass first!
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 📦 Install Build Tools
+        run: python -m pip install --upgrade pip build
+
+      - name: 🏗️ Build Package
+        run: python -m build
+
+      - name: 🚀 Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
