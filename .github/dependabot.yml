@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Keep Python dependencies (from pyproject.toml) updated
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    
+  # Keep GitHub Actions updated
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

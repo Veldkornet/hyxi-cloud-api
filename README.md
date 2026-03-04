@@ -1,8 +1,13 @@
 # hyxi-cloud-api
 
+[![PyPI version](https://badge.fury.io/py/hyxi-cloud-api.svg)](https://badge.fury.io/py/hyxi-cloud-api)
+[![CI/CD Pipeline](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml)
+[![Python Versions](https://img.shields.io/pypi/pyversions/hyxi-cloud-api.svg)](https://pypi.org/project/hyxi-cloud-api/)
+
 An asynchronous Python client for interacting with the HYXi Cloud API. 
 
-This library was primarily built to power the [HYXi Cloud Home Assistant Integration](LINK_TO_YOUR_HA_REPO_HERE), but it can be used in any Python 3.11+ project to fetch telemetry data from HYXi solar inverters and battery systems.
+
+This library was primarily built to power the [HYXi Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.11+ project to fetch telemetry data from HYXi solar inverters and battery systems.
 
 ## 📦 Installation
 
