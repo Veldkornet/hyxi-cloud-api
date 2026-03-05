@@ -1,0 +1,32 @@
+name: API Tests
+
+# Run on pushes and PRs to main/master
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      
+      # Set up modern Python
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14' 
+          
+      # Install the API requirements and test tools
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Installs pytest, pytest-asyncio, and any API requirements (like aiohttp)
+          pip install -r requirements_test.txt
+          
+      # Run the tests!
+      - name: Run Pytest
+        run: pytest tests/ -v
