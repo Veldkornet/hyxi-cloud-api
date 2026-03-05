@@ -1,0 +1,53 @@
+name: "Security Shield"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '30 4 * * 1' # Weekly deep scan
+
+permissions:
+  contents: read
+  security-events: write 
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          # In 2026, 'block' is recommended for stable APIs to prevent data exfiltration
+          egress-policy: audit 
+
+      - name: Checkout Code
+        uses: actions/checkout@v4 
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks (Secret Scan)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bandit (Python Security)
+        run: |
+          pip install bandit
+          # 🚀 Path Adjustment: We scan the 'src' folder for the API library logic
+          bandit -r src/ -ll
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Review Dependencies
+        uses: actions/dependency-review-action@v4
