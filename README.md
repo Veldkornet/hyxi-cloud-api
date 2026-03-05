@@ -1,5 +1,6 @@
 # hyxi-cloud-api
 
+[![Security Shield](https://img.shields.io/badge/Security-Shield--Audited-green?logo=github&style=flat-square)](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/security.yml)
 [![PyPI version](https://badge.fury.io/py/hyxi-cloud-api.svg)](https://badge.fury.io/py/hyxi-cloud-api)
 [![CI/CD Pipeline](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml)
 [![Python Versions](https://img.shields.io/pypi/pyversions/hyxi-cloud-api.svg)](https://pypi.org/project/hyxi-cloud-api/)
