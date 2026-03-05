@@ -254,7 +254,7 @@ class HyxiApiClient:
         # Wait for them to finish
         if tasks:
             await asyncio.gather(*tasks)
-            
+
         return sn, entry
 
     async def get_all_device_data(self):
