@@ -245,14 +245,16 @@ class HyxiApiClient:
             _LOGGER.error("Error fetching device info for %s: %s", sn, e)
 
     async def _fetch_all_for_device(self, sn, entry, dev_type):
-        """Fires off concurrent requests for Data and Info, merging the results."""
-        tasks = [self._fetch_device_info(sn, entry)]
+        """Fires off concurrent tasks for Data and Info, merging the results."""
+        tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
 
-        # Only fetch metrics for devices that actually generate live power data
         if dev_type != "COLLECTOR":
-            tasks.append(self._fetch_device_metrics(sn, entry))
+            tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
 
-        await asyncio.gather(*tasks)
+        # Wait for them to finish
+        if tasks:
+            await asyncio.gather(*tasks)
+            
         return sn, entry
 
     async def get_all_device_data(self):
