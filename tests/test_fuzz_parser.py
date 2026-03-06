@@ -10,7 +10,7 @@ def test_metric_parsing_never_crashes(data):
     We mock the client to avoid actual network calls.
     """
     # 1. Create a dummy client (we won't actually use the session)
-    client = HyxiApiClient("key", "secret", "http://localhost", None)
+    _client = HyxiApiClient("key", "secret", "http://localhost", None)
     
     # 2. Create a dummy entry structure like the one in your _execute_fetch_all
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
