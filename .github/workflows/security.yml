@@ -20,12 +20,12 @@ jobs:
     permissions:
       contents: read       # To scan the code
       security-events: write # To upload results to the Security tab
-    
+
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
-          egress-policy: audit 
+          egress-policy: audit
 
       - name: Checkout Code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -39,13 +39,11 @@ jobs:
 
       - name: Bandit (Python Security)
         run: |
-          pip install "bandit[sarif]"
-          # Scanning the 'src' folder as per your adjustment
-          bandit -r src/ -ll -f sarif -o bandit-results.sarif
+          pipx run --spec "bandit[sarif]" bandit -r src/ -ll -f sarif -o bandit-results.sarif
 
       - name: Upload Bandit Results
         uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6
-        if: always() 
+        if: always()
         with:
           sarif_file: bandit-results.sarif
 
@@ -56,7 +54,7 @@ jobs:
     # ✅ 3. This job only needs to read the dependency files
     permissions:
       contents: read
-      
+
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
