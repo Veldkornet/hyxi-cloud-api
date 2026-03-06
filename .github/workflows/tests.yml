@@ -29,7 +29,6 @@ jobs:
       - name: Run Pytest
         run: |
           PYTHONPATH=. pipx run \
-            --spec "pytest" \
             --spec "pytest-asyncio" \
             --spec "hypothesis" \
             --spec "aiohttp" \
