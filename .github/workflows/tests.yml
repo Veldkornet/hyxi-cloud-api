@@ -27,6 +27,10 @@ jobs:
           python-version: '3.14' 
 
       - name: Run Pytest
-        # --spec ensures all required plugins are injected into the temporary pipx env
         run: |
-          PYTHONPATH=. pipx run --spec "pytest pytest-asyncio hypothesis aiohttp" pytest tests/ -v
+          PYTHONPATH=. pipx run \
+            --spec "pytest" \
+            --spec "pytest-asyncio" \
+            --spec "hypothesis" \
+            --spec "aiohttp" \
+            pytest tests/ -v
