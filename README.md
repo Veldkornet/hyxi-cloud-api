@@ -4,6 +4,7 @@
 [![PyPI version](https://badge.fury.io/py/hyxi-cloud-api.svg)](https://badge.fury.io/py/hyxi-cloud-api)
 [![CI/CD Pipeline](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml)
 [![Python Versions](https://img.shields.io/pypi/pyversions/hyxi-cloud-api.svg)](https://pypi.org/project/hyxi-cloud-api/)
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/12101/baseline)](https://www.bestpractices.dev/projects/12101)
 
 An asynchronous Python client for interacting with the HYXi Cloud API. 
 
