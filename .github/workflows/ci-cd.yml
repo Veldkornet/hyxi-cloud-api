@@ -8,15 +8,16 @@ on:
   release:
     types: [published]
 
+# 🛑 1. Baseline: No global permissions
 permissions:
-  contents: read
-  security-events: write 
-  id-token: write
+  contents: none
 
 jobs:
   lint:
     name: Lint Code (Ruff)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # Only needs to read code to lint it
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
@@ -39,6 +40,10 @@ jobs:
   security:
     name: Security Scan (CodeQL)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read       # To scan code
+      security-events: write # To upload CodeQL results
+      actions: read        # Required for CodeQL internal metadata
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
@@ -65,6 +70,9 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/hyxi-cloud-api
+    permissions:
+      contents: write # To modify pyproject.toml and build
+      id-token: write # REQUIRED for Trusted Publishing (OIDC) to PyPI
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
@@ -89,14 +97,15 @@ jobs:
           
           echo "Injecting version $CLEAN_VERSION into pyproject.toml..."
           sed -i "s/^version = .*/version = \"$CLEAN_VERSION\"/" pyproject.toml
-          
+
           echo "--- VERIFYING FILE CONTENTS ---"
           grep "^version" pyproject.toml
           echo "-------------------------------"
-          
+
           python -m build
 
       - name: 🚀 Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
+        # Using OIDC for passwordless publishing
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
         with:
           attestations: true
