@@ -8,21 +8,27 @@ on:
   release:
     types: [published]
 
+# 🛑 1. Baseline: No global permissions
 permissions:
-  contents: read
-  security-events: write 
-  id-token: write
+  contents: none
 
 jobs:
   lint:
     name: Lint Code (Ruff)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # Only needs to read code to lint it
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+
       - name: 📥 Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 #v6.0.2
 
       - name: 🐍 Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.14"
 
@@ -34,18 +40,27 @@ jobs:
   security:
     name: Security Scan (CodeQL)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read       # To scan code
+      security-events: write # To upload CodeQL results
+      actions: read        # Required for CodeQL internal metadata
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+
       - name: 📥 Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 #v6.0.2
 
       - name: 🛠️ Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@0d579ffd059c29b07949a3cce3983f0780820c98 # v3.28.10
         with:
           languages: python
           build-mode: none
 
       - name: 🔍 Perform Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@0d579ffd059c29b07949a3cce3983f0780820c98 # v3.28.10
 
   publish:
     name: Build and Publish to PyPI
@@ -55,12 +70,20 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/hyxi-cloud-api
+    permissions:
+      contents: write # To modify pyproject.toml and build
+      id-token: write # REQUIRED for Trusted Publishing (OIDC) to PyPI
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit # Important to audit traffic to pypi.org
+
       - name: 📥 Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 #v6.0.2
 
       - name: 🐍 Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.14"
 
@@ -74,14 +97,15 @@ jobs:
           
           echo "Injecting version $CLEAN_VERSION into pyproject.toml..."
           sed -i "s/^version = .*/version = \"$CLEAN_VERSION\"/" pyproject.toml
-          
+
           echo "--- VERIFYING FILE CONTENTS ---"
           grep "^version" pyproject.toml
           echo "-------------------------------"
-          
+
           python -m build
 
       - name: 🚀 Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        # Using OIDC for passwordless publishing
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
         with:
           attestations: true
