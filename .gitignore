@@ -3,17 +3,24 @@
 .venv
 env/
 venv/
+.pixi/
 
 # Builds and Distribution
 dist/
 build/
 *.egg-info/
 
-# Cache
+# Cache and Testing
 __pycache__/
 *.pyc
 .pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
 # IDEs
 .vscode/
 .idea/
+.DS_Store
