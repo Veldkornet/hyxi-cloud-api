@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import os
+import pathlib
 import time
 from datetime import UTC
 from datetime import datetime
@@ -356,11 +357,14 @@ class HyxiApiClient:
         """The actual fetching logic moved to a private method for the retry loop."""
 
         # 🧪 MOCK OVERRIDE START
-        mock_file = os.path.join(os.path.dirname(__file__), "mock_data.json")
+
+        # Safely resolve the mock file relative to this script's actual directory
+        current_dir = pathlib.Path(__file__).parent.resolve()
+        mock_file = current_dir / "mock_data.json"
 
         # Helper function to read the file synchronously
         def load_mock():
-            if os.path.exists(mock_file):
+            if mock_file.exists():
                 with open(mock_file, encoding="utf-8") as f:
                     return json.load(f)
             return "NOT_FOUND"
