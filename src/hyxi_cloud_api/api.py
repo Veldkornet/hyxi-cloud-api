@@ -1,3 +1,5 @@
+"""HYXi Cloud API Client for retrieving inverter and battery data."""
+
 import asyncio
 import base64
 import hashlib
@@ -17,13 +19,31 @@ _LOGGER = logging.getLogger(__name__)
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number)
 
+# Precomputed hashes for HMAC signature
+_GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
+_EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
+
+
+def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
+    """Helper to safely extract and multiply float values."""
+    try:
+        val = data_map.get(key)
+        if val is None or val == "":
+            return 0.0
+        return round(float(val) * mult, 2)
+    except (ValueError, TypeError):
+        return 0.0
+
 
 class HyxiApiClient:
+    """Client for interacting with the HYXi Cloud API."""
+
     def __init__(
         self, access_key, secret_key, base_url, session: aiohttp.ClientSession
     ):
         self.access_key = access_key
         self.secret_key = secret_key
+        self._secret_key_bytes = secret_key.encode("utf-8")
         self.base_url = base_url.rstrip("/")
         self.session = session
         self.token = None
@@ -37,21 +57,16 @@ class HyxiApiClient:
         # 🚀 Generate a truly unique Nonce for concurrent requests
         nonce = os.urandom(4).hex()
 
-        content_str = "grantType:1" if is_token_request else ""
-        hex_hash = hashlib.sha512(content_str.encode("utf-8")).hexdigest()
-
+        hex_hash = _GRANT_TYPE_HASH if is_token_request else _EMPTY_STR_HASH
         string_to_sign = f"{path}\n{method.upper()}\n{hex_hash}\n"
 
         # 🚀 Do not poison the signature with an expired token!
-        if is_token_request:
-            token_str = ""
-        else:
-            token_str = self.token if self.token else ""
+        token_str = "" if is_token_request else (self.token or "")
 
         # Build the final string
         sign_string = f"{self.access_key}{token_str}{timestamp}{nonce}{string_to_sign}"
         hmac_bytes = hmac.new(
-            self.secret_key.encode("utf-8"), sign_string.encode("utf-8"), hashlib.sha512
+            self._secret_key_bytes, sign_string.encode("utf-8"), hashlib.sha512
         ).digest()
         signature = base64.b64encode(hmac_bytes).decode("utf-8")
 
@@ -158,30 +173,21 @@ class HyxiApiClient:
                 )
                 entry["metrics"].update(m_raw)
 
-                def get_f(key, data_map, mult=1.0):
-                    try:
-                        val = data_map.get(key)
-                        if val is None or val == "":
-                            return 0.0
-                        return round(float(val) * mult, 2)
-                    except (ValueError, TypeError):
-                        return 0.0
-
                 if "gridP" in m_raw or "pbat" in m_raw:
-                    grid = get_f("gridP", m_raw, 1000.0)
-                    pbat = get_f("pbat", m_raw)
+                    grid = _get_f("gridP", m_raw, 1000.0)
+                    pbat = _get_f("pbat", m_raw)
 
                     entry["metrics"].update(
                         {
-                            "home_load": get_f("ph1Loadp", m_raw)
-                            + get_f("ph2Loadp", m_raw)
-                            + get_f("ph3Loadp", m_raw),
+                            "home_load": _get_f("ph1Loadp", m_raw)
+                            + _get_f("ph2Loadp", m_raw)
+                            + _get_f("ph3Loadp", m_raw),
                             "grid_import": abs(grid) if grid < 0 else 0,
                             "grid_export": grid if grid > 0 else 0,
                             "bat_charging": abs(pbat) if pbat < 0 else 0,
                             "bat_discharging": pbat if pbat > 0 else 0,
-                            "bat_charge_total": get_f("batCharge", m_raw),
-                            "bat_discharge_total": get_f("batDisCharge", m_raw),
+                            "bat_charge_total": _get_f("batCharge", m_raw),
+                            "bat_discharge_total": _get_f("batDisCharge", m_raw),
                         }
                     )
             else:
@@ -257,6 +263,56 @@ class HyxiApiClient:
 
         return sn, entry
 
+    async def _fetch_devices_for_plant(self, plant_id, now, metric_tasks):
+        """Helper to fetch devices for a single plant concurrently."""
+        d_path = "/api/plant/v1/devicePage"
+        try:
+            async with self.session.post(
+                f"{self.base_url}{d_path}",
+                json={"plantId": plant_id, "pageSize": 50, "currentPage": 1},
+                headers=self._generate_headers(d_path, "POST"),
+                timeout=15,
+            ) as resp_d:
+                resp_d.raise_for_status()
+                res_d = await resp_d.json()
+
+            if not res_d.get("success"):
+                _LOGGER.error(
+                    "HYXi API Device Fetch Rejected for Plant %s: %s", plant_id, res_d
+                )
+                return
+
+            data_val = res_d.get("data", {})
+            devices = (
+                data_val
+                if isinstance(data_val, list)
+                else data_val.get("deviceList", [])
+                if isinstance(data_val, dict)
+                else []
+            )
+
+            for d in devices:
+                sn = d.get("deviceSn")
+                if not sn:
+                    continue
+
+                dev_type = d.get("deviceType") or "UNKNOWN"
+                friendly_name = dev_type.replace("_", " ").title()
+
+                entry = {
+                    "sn": sn,
+                    "device_name": d.get("deviceName") or f"{friendly_name} {sn}",
+                    "model": friendly_name,
+                    "device_type_code": dev_type,
+                    "sw_version": d.get("swVer"),
+                    "hw_version": d.get("hwVer"),
+                    "metrics": {"last_seen": now},
+                }
+
+                metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+        except Exception as e:
+            _LOGGER.error("Error fetching devices for plant %s: %s", plant_id, e)
+
     async def get_all_device_data(self):
         """Fetches data with built-in retry logic and returns attempt count."""
 
@@ -289,8 +345,9 @@ class HyxiApiClient:
                         MAX_RETRIES,
                         err,
                     )
-            except Exception:
-                _LOGGER.exception("HYXi Unexpected Code Crash:")
+            except Exception as e:
+                _LOGGER.error("HYXi Unexpected Code Crash: %s", e)
+                _LOGGER.debug("Traceback:", exc_info=True)
                 break
 
         return None
@@ -350,7 +407,8 @@ class HyxiApiClient:
             # 🚀 If the server rejects the token, wipe it and force a retry!
             if res_p.get("code") in ["A000002", "A000005"]:
                 _LOGGER.debug(
-                    "HYXi Server rejected our token (A000002/A000005). Forcing immediate token refresh..."
+                    "HYXi Server rejected our token (A000002/A000005). "
+                    "Forcing immediate token refresh..."
                 )
                 self.token = None
                 self.token_expires_at = 0
@@ -363,57 +421,19 @@ class HyxiApiClient:
         data_p = res_p.get("data", {})
         plants = data_p.get("list", []) if isinstance(data_p, dict) else []
         metric_tasks = []
+        device_fetch_tasks = []
 
         for p in plants:
             plant_id = p.get("plantId")
             if not plant_id:
                 continue
 
-            # 2. Get Devices
-            d_path = "/api/plant/v1/devicePage"
-            async with self.session.post(
-                f"{self.base_url}{d_path}",
-                json={"plantId": plant_id, "pageSize": 50, "currentPage": 1},
-                headers=self._generate_headers(d_path, "POST"),
-                timeout=15,
-            ) as resp_d:
-                resp_d.raise_for_status()
-                res_d = await resp_d.json()
-
-            if not res_d.get("success"):
-                _LOGGER.error(
-                    "HYXi API Device Fetch Rejected for Plant %s: %s", plant_id, res_d
-                )
-                continue
-
-            data_val = res_d.get("data", {})
-            devices = (
-                data_val
-                if isinstance(data_val, list)
-                else data_val.get("deviceList", [])
-                if isinstance(data_val, dict)
-                else []
+            device_fetch_tasks.append(
+                self._fetch_devices_for_plant(plant_id, now, metric_tasks)
             )
 
-            for d in devices:
-                sn = d.get("deviceSn")
-                if not sn:
-                    continue
-
-                dev_type = d.get("deviceType") or "UNKNOWN"
-                friendly_name = dev_type.replace("_", " ").title()
-
-                entry = {
-                    "sn": sn,
-                    "device_name": d.get("deviceName") or f"{friendly_name} {sn}",
-                    "model": friendly_name,
-                    "device_type_code": dev_type,
-                    "sw_version": d.get("swVer"),
-                    "hw_version": d.get("hwVer"),
-                    "metrics": {"last_seen": now},
-                }
-
-                metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+        if device_fetch_tasks:
+            await asyncio.gather(*device_fetch_tasks)
 
         # 3. Concurrent Metrics
         if metric_tasks:
