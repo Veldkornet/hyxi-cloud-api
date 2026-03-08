@@ -1,7 +1,10 @@
-import pytest
-from unittest.mock import AsyncMock
+"""Tests for the HYXi Cloud API client."""
 
-# Import your actual API client
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from src.hyxi_cloud_api.api import HyxiApiClient
 
 
@@ -50,3 +53,87 @@ async def test_get_all_device_data_success():
     assert result is not None
     assert result["attempts"] == 1
     assert result["data"]["SN12345"]["metrics"]["totalE"] == 2731.90
+
+
+# --- TEST 3: Header Generation and Hashes ---
+def test_generate_headers():
+    """Verify that _generate_headers constructs the dictionary and signature properly."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("test_ak", "test_sk", "https://api.com", fake_session)
+    api.token = "Bearer fake_token"
+
+    # Test standard request
+    headers = api._generate_headers(
+        path="/api/test", method="GET", is_token_request=False
+    )
+
+    assert headers["accessKey"] == "test_ak"
+    assert "timestamp" in headers
+    assert "nonce" in headers
+    assert "sign" in headers
+    assert headers["Content-Type"] == "application/json"
+    assert headers["Authorization"] == "Bearer fake_token"
+    assert "sign-headers" not in headers
+
+    # Test token request
+    token_headers = api._generate_headers(
+        path="/api/token", method="POST", is_token_request=True
+    )
+
+    assert token_headers["accessKey"] == "test_ak"
+    assert "sign" in token_headers
+    assert token_headers["sign-headers"] == "grantType"
+    assert "Authorization" not in token_headers
+
+
+# --- TEST 4: Concurrent Execution of Fetch All ---
+@pytest.mark.asyncio
+async def test_execute_fetch_all_concurrent():
+    """Verify that _execute_fetch_all handles multiple plants correctly."""
+
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    # Bypass token validation and mock file
+    api._refresh_token = AsyncMock(return_value=True)
+
+    fake_plants_response = {
+        "success": True,
+        "data": {"list": [{"plantId": "plant_1"}, {"plantId": "plant_2"}]},
+    }
+
+    # Mock the _fetch_devices_for_plant internal call
+    # It must return an awaitable AND add an awaitable to metric_tasks
+    async def mock_fetch_devices(plant_id, now, metric_tasks):
+        async def mock_metric_task():
+            return (f"SN_{plant_id}", {"device_name": f"Device {plant_id}"})
+
+        metric_tasks.append(mock_metric_task())
+        return None
+
+    api._fetch_devices_for_plant = MagicMock(side_effect=mock_fetch_devices)
+
+    # Need to override asyncio.to_thread so it returns NOT_FOUND for the mock check
+    original_to_thread = asyncio.to_thread
+
+    async def fake_to_thread(func, *args, **kwargs):
+        if func.__name__ == "load_mock":
+            return "NOT_FOUND"
+        return await original_to_thread(func, *args, **kwargs)
+
+    asyncio.to_thread = fake_to_thread
+
+    # Make session.post an AsyncMock that returns an object where
+    # __aenter__ returns an object where json() returns our dict.
+    mock_response = AsyncMock()
+    mock_response.__aenter__.return_value.json.return_value = fake_plants_response
+    api.session.post = MagicMock(return_value=mock_response)
+
+    try:
+        results = await api._execute_fetch_all()
+        # Verify both plants were called
+        assert api._fetch_devices_for_plant.call_count == 2
+        # Verify the results are parsed properly (our dummy tuples are keys/values)
+        assert "SN_plant_1" in results
+        assert "SN_plant_2" in results
+    finally:
+        asyncio.to_thread = original_to_thread

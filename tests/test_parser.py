@@ -1,10 +1,15 @@
-import pytest
+"""Tests for data parser logic in the API."""
+
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from src.hyxi_cloud_api.api import HyxiApiClient
 
 
 @pytest.mark.asyncio
 async def test_api_parsing():
+    """Verify that _fetch_device_metrics successfully parses and extracts expected values."""
     # 1. Fake the exact list structure the HYXi cloud actually returns
     fake_json = {
         "success": True,
