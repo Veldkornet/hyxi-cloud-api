@@ -24,3 +24,7 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+# Local Mock Overrides
+mock_data.json
+mock_data_example.json
