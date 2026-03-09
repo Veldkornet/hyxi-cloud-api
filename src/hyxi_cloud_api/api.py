@@ -292,6 +292,13 @@ class HyxiApiClient:
                 else []
             )
 
+            # 👇 Log the devices discovered for this plant
+            _LOGGER.debug(
+                "HYXi Discovered Devices for Plant %s: %s",
+                plant_id,
+                [d.get("deviceSn", "UNKNOWN") for d in devices],
+            )
+
             for d in devices:
                 sn = d.get("deviceSn")
                 if not sn:
@@ -335,10 +342,10 @@ class HyxiApiClient:
 
             data_val = res_a.get("data", {})
             alarms = data_val.get("pageData", []) if isinstance(data_val, dict) else []
-            
+
             # 👇 Dump the EXACT active alarms the cloud sends back
             _LOGGER.debug("HYXi Raw ALARMS for Plant %s: %s", plant_id, alarms)
-            
+
             return alarms
         except Exception as e:
             _LOGGER.error("Error fetching alarms for plant %s: %s", plant_id, e)
@@ -383,16 +390,11 @@ class HyxiApiClient:
 
         return None
 
-    async def _execute_fetch_all(self):
-        """The actual fetching logic moved to a private method for the retry loop."""
-
-        # 🧪 MOCK OVERRIDE START
-
-        # Safely resolve the mock file relative to this script's actual directory
+    async def _check_mock_override(self):
+        """Check if local mock data exists and return it."""
         current_dir = pathlib.Path(__file__).parent.resolve()
         mock_file = current_dir / "mock_data.json"
 
-        # Helper function to read the file synchronously
         def load_mock():
             if mock_file.exists():
                 with open(mock_file, encoding="utf-8") as f:
@@ -410,10 +412,17 @@ class HyxiApiClient:
             _LOGGER.error(
                 "HYXi API 🧪: MOCK FILE FOUND, BUT JSON IS INVALID! Error: %s", e
             )
-            return None
         except Exception as e:
             _LOGGER.error("HYXi API 🧪: Unexpected error reading mock file: %s", e)
-            return None
+        return None
+
+    async def _execute_fetch_all(self):
+        """The actual fetching logic moved to a private method for the retry loop."""
+
+        # 🧪 MOCK OVERRIDE START
+        mock_override = await self._check_mock_override()
+        if mock_override is not None:
+            return mock_override
         # 🧪 MOCK OVERRIDE END
 
         token_status = await self._refresh_token()
@@ -454,6 +463,12 @@ class HyxiApiClient:
 
         data_p = res_p.get("data", {})
         plants = data_p.get("list", []) if isinstance(data_p, dict) else []
+
+        # 👇 Log the discovered plants
+        _LOGGER.debug(
+            "HYXi Discovered Plants: %s", [p.get("plantId", "UNKNOWN") for p in plants]
+        )
+
         metric_tasks = []
         device_fetch_tasks = []
         alarm_fetch_tasks = []
