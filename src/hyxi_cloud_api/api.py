@@ -314,6 +314,36 @@ class HyxiApiClient:
         except Exception as e:
             _LOGGER.error("Error fetching devices for plant %s: %s", plant_id, e)
 
+    async def _fetch_alarms_for_plant(self, plant_id):
+        """Helper to fetch active alarms for a single plant."""
+        a_path = "/api/alarm/v1/plantAlarmPage"
+        try:
+            async with self.session.post(
+                f"{self.base_url}{a_path}",
+                json={"plantId": plant_id, "pageSize": 100, "currentPage": 1},
+                headers=self._generate_headers(a_path, "POST"),
+                timeout=15,
+            ) as resp_a:
+                resp_a.raise_for_status()
+                res_a = await resp_a.json()
+
+            if not res_a.get("success"):
+                _LOGGER.error(
+                    "HYXi API Alarm Fetch Rejected for Plant %s: %s", plant_id, res_a
+                )
+                return []
+
+            data_val = res_a.get("data", {})
+            alarms = data_val.get("pageData", []) if isinstance(data_val, dict) else []
+            
+            # 👇 Dump the EXACT active alarms the cloud sends back
+            _LOGGER.debug("HYXi Raw ALARMS for Plant %s: %s", plant_id, alarms)
+            
+            return alarms
+        except Exception as e:
+            _LOGGER.error("Error fetching alarms for plant %s: %s", plant_id, e)
+            return []
+
     async def get_all_device_data(self):
         """Fetches data with built-in retry logic and returns attempt count."""
 
@@ -426,6 +456,7 @@ class HyxiApiClient:
         plants = data_p.get("list", []) if isinstance(data_p, dict) else []
         metric_tasks = []
         device_fetch_tasks = []
+        alarm_fetch_tasks = []
 
         for p in plants:
             plant_id = p.get("plantId")
@@ -435,15 +466,26 @@ class HyxiApiClient:
             device_fetch_tasks.append(
                 self._fetch_devices_for_plant(plant_id, now, metric_tasks)
             )
+            alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
 
         if device_fetch_tasks:
             await asyncio.gather(*device_fetch_tasks)
+
+        plant_alarms = []
+        if alarm_fetch_tasks:
+            alarm_results = await asyncio.gather(*alarm_fetch_tasks)
+            for alarms in alarm_results:
+                plant_alarms.extend(alarms)
 
         # 3. Concurrent Metrics
         if metric_tasks:
             updated_entries = await asyncio.gather(*metric_tasks)
             for sn, entry in updated_entries:
                 if sn:
+                    # Map the relevant active alarms to this specific device
+                    entry["alarms"] = [
+                        a for a in plant_alarms if a.get("deviceSn") == sn
+                    ]
                     results[sn] = entry
 
         return results
