@@ -125,7 +125,12 @@ async def test_execute_fetch_all_concurrent():
     # Make session.post an AsyncMock that returns an object where
     # __aenter__ returns an object where json() returns our dict.
     mock_response = AsyncMock()
-    mock_response.__aenter__.return_value.json.return_value = fake_plants_response
+
+    # 🎯 The Context Manager Fix
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.json.return_value = fake_plants_response
+    yielded_response.raise_for_status = MagicMock()
+
     api.session.post = MagicMock(return_value=mock_response)
 
     try:
