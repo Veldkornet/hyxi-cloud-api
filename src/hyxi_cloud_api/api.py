@@ -530,7 +530,8 @@ class HyxiApiClient:
 
         # 👇 Log the discovered plants
         _LOGGER.debug(
-            "HYXi Discovered Plants: %s", [p.get("plantId", "UNKNOWN") for p in plants]
+            "HYXi Discovered Plants: %s",
+            [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
         )
 
         metric_tasks = []
