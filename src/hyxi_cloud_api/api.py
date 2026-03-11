@@ -36,6 +36,16 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         return 0.0
 
 
+def _mask_sn(sn: str) -> str:
+    """Mask a serial number for logs, showing only first and last 3 characters."""
+    if not sn:
+        return "****"
+    sn_str = str(sn)
+    if len(sn_str) < 6:
+        return "****"
+    return f"{sn_str[:3]}...{sn_str[-3:]}"
+
+
 class HyxiApiClient:
     """Client for interacting with the HYXi Cloud API."""
 
@@ -168,7 +178,7 @@ class HyxiApiClient:
                 }
                 _LOGGER.debug(
                     "HYXi Raw Metrics for %s (%s): %s",
-                    sn,
+                    _mask_sn(sn),
                     entry.get("device_type_code"),
                     m_raw,
                 )
@@ -193,10 +203,12 @@ class HyxiApiClient:
                     )
             else:
                 _LOGGER.warning(
-                    "HYXi API metrics rejected for %s: %s", sn, res_q.get("message")
+                    "HYXi API metrics rejected for %s: %s",
+                    _mask_sn(sn),
+                    res_q.get("message"),
                 )
         except Exception as e:
-            _LOGGER.error("Error fetching metrics for %s: %s", sn, e)
+            _LOGGER.error("Error fetching metrics for %s: %s", _mask_sn(sn), e)
 
     async def _fetch_device_info(self, sn, entry):
         """Helper to fetch static device info (firmware, capacity, limits)."""
@@ -218,7 +230,7 @@ class HyxiApiClient:
                 }
 
                 # 👇 This will dump the EXACT info the cloud sends back
-                _LOGGER.debug("HYXi Raw INFO for %s: %s", sn, i_raw)
+                _LOGGER.debug("HYXi Raw INFO for %s: %s", _mask_sn(sn), i_raw)
 
                 # Smart Firmware Finder
                 sw_ver = (
@@ -245,11 +257,13 @@ class HyxiApiClient:
                 )
             else:
                 _LOGGER.warning(
-                    "HYXi INFO API Rejected for %s: %s", sn, res_i.get("message")
+                    "HYXi INFO API Rejected for %s: %s",
+                    _mask_sn(sn),
+                    res_i.get("message"),
                 )
 
         except Exception as e:
-            _LOGGER.error("Error fetching device info for %s: %s", sn, e)
+            _LOGGER.error("Error fetching device info for %s: %s", _mask_sn(sn), e)
 
     async def _fetch_all_for_device(self, sn, entry, dev_type):
         """Fires off concurrent tasks for Data and Info, merging the results."""
@@ -296,7 +310,7 @@ class HyxiApiClient:
             _LOGGER.debug(
                 "HYXi Discovered Devices for Plant %s: %s",
                 plant_id,
-                [d.get("deviceSn", "UNKNOWN") for d in devices],
+                [_mask_sn(d.get("deviceSn", "UNKNOWN")) for d in devices],
             )
 
             for d in devices:
