@@ -36,6 +36,54 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         return 0.0
 
 
+def _mask_id(value: str) -> str:
+    """Mask an identifier (SN, plant ID, etc.) for logs.
+
+    Replaces middle characters with 'X' to preserve the true length while
+    hiding the sensitive portion. IDs shorter than 8 characters are fully
+    redacted as '****' to prevent short numeric IDs from being revealed.
+
+    Example: '10602251600016' -> '106XXXXXXXX016'
+    """
+    if not value:
+        return "****"
+    id_str = str(value)
+    if len(id_str) < 8:
+        return "****"
+    middle_len = len(id_str) - 6
+    return f"{id_str[:3]}{'X' * middle_len}{id_str[-3:]}"
+
+
+# Keys in raw API response dicts that contain identifying or personal information.
+_SENSITIVE_KEYS = frozenset(
+    {
+        "deviceSn",
+        "parentSn",
+        "batSn",
+        "plantId",
+        "gprsImei",
+        "plantAddress",  # Full home/site address — hard-redact
+    }
+)
+
+
+def _sanitize_dict(raw: dict) -> dict:
+    """Return a copy of a raw API response dict with sensitive fields masked.
+
+    Used before logging raw API payloads so that SNs, plant IDs, and personal
+    details (e.g. home address) are never written to the log in plain text.
+    """
+    result = {}
+    for k, v in raw.items():
+        if k == "plantAddress":
+            result[k] = "[REDACTED]"
+        elif k in _SENSITIVE_KEYS and v:
+            result[k] = _mask_id(str(v))
+        else:
+            result[k] = v
+    return result
+
+
 class HyxiApiClient:
     """Client for interacting with the HYXi Cloud API."""
 
@@ -168,9 +216,9 @@ class HyxiApiClient:
                 }
                 _LOGGER.debug(
                     "HYXi Raw Metrics for %s (%s): %s",
-                    sn,
+                    _mask_id(sn),
                     entry.get("device_type_code"),
-                    m_raw,
+                    _sanitize_dict(m_raw),
                 )
                 entry["metrics"].update(m_raw)
 
@@ -193,10 +241,12 @@ class HyxiApiClient:
                     )
             else:
                 _LOGGER.warning(
-                    "HYXi API metrics rejected for %s: %s", sn, res_q.get("message")
+                    "HYXi API metrics rejected for %s: %s",
+                    _mask_id(sn),
+                    res_q.get("message"),
                 )
         except Exception as e:
-            _LOGGER.error("Error fetching metrics for %s: %s", sn, e)
+            _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
 
     async def _fetch_device_info(self, sn, entry):
         """Helper to fetch static device info (firmware, capacity, limits)."""
@@ -218,7 +268,9 @@ class HyxiApiClient:
                 }
 
                 # 👇 This will dump the EXACT info the cloud sends back
-                _LOGGER.debug("HYXi Raw INFO for %s: %s", sn, i_raw)
+                _LOGGER.debug(
+                    "HYXi Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
+                )
 
                 # Smart Firmware Finder
                 sw_ver = (
@@ -245,11 +297,13 @@ class HyxiApiClient:
                 )
             else:
                 _LOGGER.warning(
-                    "HYXi INFO API Rejected for %s: %s", sn, res_i.get("message")
+                    "HYXi INFO API Rejected for %s: %s",
+                    _mask_id(sn),
+                    res_i.get("message"),
                 )
 
         except Exception as e:
-            _LOGGER.error("Error fetching device info for %s: %s", sn, e)
+            _LOGGER.error("Error fetching device info for %s: %s", _mask_id(sn), e)
 
     async def _fetch_all_for_device(self, sn, entry, dev_type):
         """Fires off concurrent tasks for Data and Info, merging the results."""
@@ -279,7 +333,9 @@ class HyxiApiClient:
 
             if not res_d.get("success"):
                 _LOGGER.error(
-                    "HYXi API Device Fetch Rejected for Plant %s: %s", plant_id, res_d
+                    "HYXi API Device Fetch Rejected for Plant %s: %s",
+                    _mask_id(plant_id),
+                    res_d,
                 )
                 return
 
@@ -295,8 +351,8 @@ class HyxiApiClient:
             # 👇 Log the devices discovered for this plant
             _LOGGER.debug(
                 "HYXi Discovered Devices for Plant %s: %s",
-                plant_id,
-                [d.get("deviceSn", "UNKNOWN") for d in devices],
+                _mask_id(plant_id),
+                [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
             )
 
             for d in devices:
@@ -319,7 +375,9 @@ class HyxiApiClient:
 
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
         except Exception as e:
-            _LOGGER.error("Error fetching devices for plant %s: %s", plant_id, e)
+            _LOGGER.error(
+                "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
+            )
 
     async def _fetch_alarms_for_plant(self, plant_id):
         """Helper to fetch active alarms for a single plant."""
@@ -336,7 +394,9 @@ class HyxiApiClient:
 
             if not res_a.get("success"):
                 _LOGGER.error(
-                    "HYXi API Alarm Fetch Rejected for Plant %s: %s", plant_id, res_a
+                    "HYXi API Alarm Fetch Rejected for Plant %s: %s",
+                    _mask_id(plant_id),
+                    res_a,
                 )
                 return []
 
@@ -344,11 +404,15 @@ class HyxiApiClient:
             alarms = data_val.get("pageData", []) if isinstance(data_val, dict) else []
 
             # 👇 Dump the EXACT active alarms the cloud sends back
-            _LOGGER.debug("HYXi Raw ALARMS for Plant %s: %s", plant_id, alarms)
+            _LOGGER.debug(
+                "HYXi Raw ALARMS for Plant %s: %s", _mask_id(plant_id), alarms
+            )
 
             return alarms
         except Exception as e:
-            _LOGGER.error("Error fetching alarms for plant %s: %s", plant_id, e)
+            _LOGGER.error(
+                "Error fetching alarms for plant %s: %s", _mask_id(plant_id), e
+            )
             return []
 
     async def get_all_device_data(self):
@@ -466,7 +530,8 @@ class HyxiApiClient:
 
         # 👇 Log the discovered plants
         _LOGGER.debug(
-            "HYXi Discovered Plants: %s", [p.get("plantId", "UNKNOWN") for p in plants]
+            "HYXi Discovered Plants: %s",
+            [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
         )
 
         metric_tasks = []
