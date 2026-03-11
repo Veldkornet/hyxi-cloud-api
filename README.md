@@ -6,10 +6,9 @@
 [![Python Versions](https://img.shields.io/pypi/pyversions/hyxi-cloud-api.svg)](https://pypi.org/project/hyxi-cloud-api/)
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/12101/baseline)](https://www.bestpractices.dev/projects/12101)
 
-An asynchronous Python client for interacting with the HYXi Cloud API. 
+An asynchronous Python client for interacting with the HYXI Cloud API.
 
-
-This library was primarily built to power the [HYXi Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.11+ project to fetch telemetry data from HYXi solar inverters and battery systems.
+This library was primarily built to power the [HYXI Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.11+ project to fetch telemetry data from HYXI solar inverters and battery systems.
 
 ## 📦 Installation
 
@@ -21,7 +20,7 @@ pip install hyxi-cloud-api
 
 ## 🚀 Quick Start
 
-This library uses `aiohttp` for non-blocking network requests. You will need to provide your HYXi Cloud Access Key and Secret Key, along with an active `aiohttp.ClientSession`.
+This library uses `aiohttp` for non-blocking network requests. You will need to provide your HYXI Cloud Access Key and Secret Key, along with an active `aiohttp.ClientSession`.
 
 ```python
 import asyncio
@@ -32,7 +31,7 @@ async def main():
     # Replace with your actual HYXi Cloud credentials
     ACCESS_KEY = "your_access_key"
     SECRET_KEY = "your_secret_key"
-    BASE_URL = "[https://open.hyxicloud.com](https://open.hyxicloud.com)"
+    BASE_URL = "https://open.hyxicloud.com"
 
     async with aiohttp.ClientSession() as session:
         # 1. Initialize the client
@@ -57,7 +56,20 @@ if __name__ == "__main__":
 
 ## 🛠️ Requirements
 * Python 3.11 or newer
-* `aiohttp` >= 3.8.0
+* `aiohttp` >= 3.13.3
+
+## 🔐 Privacy & Debug Logging
+
+When debug logging is enabled, this library automatically masks sensitive identifiers before writing them to the log — no manual redaction needed.
+
+| Field | Behaviour |
+| :--- | :--- |
+| Serial numbers (`deviceSn`, `parentSn`, `batSn`) | Middle characters replaced with `X` — length preserved for cross-device tracing, e.g. `106XXXXXXXX016` |
+| Plant IDs (`plantId`) | Same X-padding format |
+| Home/site address (`plantAddress`) | Fully redacted → `[REDACTED]` |
+| IMEI (`gprsImei`) | X-padded |
+
+Masking is deterministic, so parent/child device relationships remain traceable across log lines.
 
 ## ⚠️ Disclaimer
 This is an unofficial, community-driven project. It is not affiliated with, endorsed by, or connected to HYXiPower in any official capacity. Use this software at your own risk.
