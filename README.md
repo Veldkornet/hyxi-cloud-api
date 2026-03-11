@@ -6,9 +6,9 @@
 [![Python Versions](https://img.shields.io/pypi/pyversions/hyxi-cloud-api.svg)](https://pypi.org/project/hyxi-cloud-api/)
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/12101/baseline)](https://www.bestpractices.dev/projects/12101)
 
-An asynchronous Python client for interacting with the HYXi Cloud API.
+An asynchronous Python client for interacting with the HYXI Cloud API.
 
-This library was primarily built to power the [HYXi Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.11+ project to fetch telemetry data from HYXi solar inverters and battery systems.
+This library was primarily built to power the [HYXI Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.11+ project to fetch telemetry data from HYXI solar inverters and battery systems.
 
 ## 📦 Installation
 
@@ -20,7 +20,7 @@ pip install hyxi-cloud-api
 
 ## 🚀 Quick Start
 
-This library uses `aiohttp` for non-blocking network requests. You will need to provide your HYXi Cloud Access Key and Secret Key, along with an active `aiohttp.ClientSession`.
+This library uses `aiohttp` for non-blocking network requests. You will need to provide your HYXI Cloud Access Key and Secret Key, along with an active `aiohttp.ClientSession`.
 
 ```python
 import asyncio
