@@ -39,16 +39,49 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
 
-    Shows the first 3 and last 3 characters with '...' in between.
-    IDs shorter than 8 characters are fully redacted as '****' to prevent
-    short numeric IDs from being fully revealed.
+    Replaces middle characters with 'X' to preserve the true length while
+    hiding the sensitive portion. IDs shorter than 8 characters are fully
+    redacted as '****' to prevent short numeric IDs from being revealed.
+
+    Example: '10602251600016' -> '106XXXXXXXX016'
     """
     if not value:
         return "****"
     id_str = str(value)
     if len(id_str) < 8:
         return "****"
-    return f"{id_str[:3]}...{id_str[-3:]}"
+    middle_len = len(id_str) - 6
+    return f"{id_str[:3]}{'X' * middle_len}{id_str[-3:]}"
+
+
+# Keys in raw API response dicts that contain identifying or personal information.
+_SENSITIVE_KEYS = frozenset(
+    {
+        "deviceSn",
+        "parentSn",
+        "batSn",
+        "plantId",
+        "gprsImei",
+        "plantAddress",  # Full home/site address — hard-redact
+    }
+)
+
+
+def _sanitize_dict(raw: dict) -> dict:
+    """Return a copy of a raw API response dict with sensitive fields masked.
+
+    Used before logging raw API payloads so that SNs, plant IDs, and personal
+    details (e.g. home address) are never written to the log in plain text.
+    """
+    result = {}
+    for k, v in raw.items():
+        if k == "plantAddress":
+            result[k] = "[REDACTED]"
+        elif k in _SENSITIVE_KEYS and v:
+            result[k] = _mask_id(str(v))
+        else:
+            result[k] = v
+    return result
 
 
 class HyxiApiClient:
@@ -185,7 +218,7 @@ class HyxiApiClient:
                     "HYXi Raw Metrics for %s (%s): %s",
                     _mask_id(sn),
                     entry.get("device_type_code"),
-                    m_raw,
+                    _sanitize_dict(m_raw),
                 )
                 entry["metrics"].update(m_raw)
 
@@ -235,7 +268,9 @@ class HyxiApiClient:
                 }
 
                 # 👇 This will dump the EXACT info the cloud sends back
-                _LOGGER.debug("HYXi Raw INFO for %s: %s", _mask_id(sn), i_raw)
+                _LOGGER.debug(
+                    "HYXi Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
+                )
 
                 # Smart Firmware Finder
                 sw_ver = (
