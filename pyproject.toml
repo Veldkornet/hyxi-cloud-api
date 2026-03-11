@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hyxi-cloud-api"
-version = "0.0.0"
+version = "0.1.6"
 authors = [
   { name="Veldkornet", email="veldkornet@outlook.com" },
 ]
