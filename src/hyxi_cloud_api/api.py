@@ -1,6 +1,7 @@
 """HYXi Cloud API Client for retrieving inverter and battery data."""
 
 import asyncio
+from typing import Any
 import base64
 import hashlib
 import hmac
@@ -65,9 +66,6 @@ _SENSITIVE_KEYS = frozenset(
         "plantAddress",  # Full home/site address — hard-redact
     }
 )
-
-
-from typing import Any
 
 
 def _sanitize_dict(obj: Any) -> Any:
