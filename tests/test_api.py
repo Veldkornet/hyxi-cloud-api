@@ -142,3 +142,60 @@ async def test_execute_fetch_all_concurrent():
         assert "SN_plant_2" in results
     finally:
         asyncio.to_thread = original_to_thread
+
+# --- TEST 5: Fetch Alarms For Plant ---
+@pytest.mark.asyncio
+async def test_fetch_alarms_for_plant():
+    """Verify that _fetch_alarms_for_plant correctly parses the pageData array."""
+
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.token = "Bearer fake_token"
+
+    # Test 1: Successful response with alarms
+    fake_alarms_response = {
+        "success": True,
+        "data": {
+            "pageData": [
+                {"alarmId": 101, "deviceSn": "SN123", "alarmName": "Voltage High"},
+                {"alarmId": 102, "deviceSn": "SN456", "alarmName": "Temperature High"}
+            ]
+        }
+    }
+
+    mock_response = AsyncMock()
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.json.return_value = fake_alarms_response
+    yielded_response.raise_for_status = MagicMock()
+
+    api.session.post = MagicMock(return_value=mock_response)
+
+    alarms = await api._fetch_alarms_for_plant("plant_1")
+    assert len(alarms) == 2
+    assert alarms[0]["alarmId"] == 101
+    assert alarms[0]["deviceSn"] == "SN123"
+    assert alarms[1]["alarmName"] == "Temperature High"
+
+    # Test 2: Successful response but empty alarms
+    fake_empty_response = {
+        "success": True,
+        "data": {}
+    }
+    yielded_response.json.return_value = fake_empty_response
+
+    empty_alarms = await api._fetch_alarms_for_plant("plant_2")
+    assert empty_alarms == []
+
+    # Test 3: Unsuccessful response (success: False)
+    fake_error_response = {
+        "success": False,
+        "message": "Plant not found"
+    }
+    yielded_response.json.return_value = fake_error_response
+
+    failed_alarms = await api._fetch_alarms_for_plant("plant_3")
+    assert failed_alarms == []
+
+    # Test 4: Exception raised during request
+    api.session.post.side_effect = Exception("Network error")
+    exception_alarms = await api._fetch_alarms_for_plant("plant_4")
+    assert exception_alarms == []
