@@ -1,7 +1,8 @@
 """Tests for the HYXi Cloud API client."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+import json
 
 import pytest
 
@@ -142,3 +143,52 @@ async def test_execute_fetch_all_concurrent():
         assert "SN_plant_2" in results
     finally:
         asyncio.to_thread = original_to_thread
+
+
+# --- TEST 5: Mock Override Checks ---
+@pytest.mark.asyncio
+async def test_check_mock_override_not_found():
+    """Verify _check_mock_override returns None when mock_data.json does not exist."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    with patch("pathlib.Path.exists", return_value=False):
+        result = await api._check_mock_override()
+        assert result is None
+
+
+@pytest.mark.asyncio
+async def test_check_mock_override_valid_json():
+    """Verify _check_mock_override parses and returns valid JSON data."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    fake_data = {"success": True, "data": "test"}
+    fake_json = json.dumps(fake_data)
+
+    with patch("pathlib.Path.exists", return_value=True), patch("builtins.open", mock_open(read_data=fake_json)):
+        result = await api._check_mock_override()
+        assert result == fake_data
+
+
+@pytest.mark.asyncio
+async def test_check_mock_override_invalid_json():
+    """Verify _check_mock_override catches JSONDecodeError and returns None."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    invalid_json = "{not_a_json}"
+
+    with patch("pathlib.Path.exists", return_value=True), patch("builtins.open", mock_open(read_data=invalid_json)):
+        result = await api._check_mock_override()
+        assert result is None
+
+
+@pytest.mark.asyncio
+async def test_check_mock_override_read_error():
+    """Verify _check_mock_override catches general exceptions (like OSError) and returns None."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    mocked_open = mock_open()
+    mocked_open.side_effect = OSError("Permission denied")
+
+    with patch("pathlib.Path.exists", return_value=True), patch("builtins.open", mocked_open):
+        result = await api._check_mock_override()
+        assert result is None
