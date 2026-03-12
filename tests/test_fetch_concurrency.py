@@ -1,6 +1,5 @@
-import sys
-import asyncio
 import os
+import sys
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import MagicMock
 
