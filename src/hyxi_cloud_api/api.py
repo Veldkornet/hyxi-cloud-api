@@ -67,6 +67,17 @@ _SENSITIVE_KEYS = frozenset(
 )
 
 
+def _parse_data_list(data_list: list) -> dict:
+    """Extract key-value pairs from a list of dicts with dataKey and dataValue."""
+    if not isinstance(data_list, list):
+        return {}
+    return {
+        item.get("dataKey"): item.get("dataValue")
+        for item in data_list
+        if isinstance(item, dict) and item.get("dataKey")
+    }
+
+
 def _sanitize_dict(raw: dict) -> dict:
     """Return a copy of a raw API response dict with sensitive fields masked.
 
@@ -209,11 +220,7 @@ class HyxiApiClient:
 
             if res_q.get("success"):
                 data_list = res_q.get("data", [])
-                m_raw = {
-                    item.get("dataKey"): item.get("dataValue")
-                    for item in data_list
-                    if isinstance(item, dict) and item.get("dataKey")
-                }
+                m_raw = _parse_data_list(data_list)
                 _LOGGER.debug(
                     "HYXi Raw Metrics for %s (%s): %s",
                     _mask_id(sn),
@@ -261,11 +268,7 @@ class HyxiApiClient:
 
             if res_i.get("success"):
                 data_list = res_i.get("data", [])
-                i_raw = {
-                    item.get("dataKey"): item.get("dataValue")
-                    for item in data_list
-                    if isinstance(item, dict) and item.get("dataKey")
-                }
+                i_raw = _parse_data_list(data_list)
 
                 # 👇 This will dump the EXACT info the cloud sends back
                 _LOGGER.debug(
