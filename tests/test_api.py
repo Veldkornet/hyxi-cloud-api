@@ -142,3 +142,61 @@ async def test_execute_fetch_all_concurrent():
         assert "SN_plant_2" in results
     finally:
         asyncio.to_thread = original_to_thread
+
+
+# --- TEST 5: Fetch Device Info ---
+@pytest.mark.asyncio
+async def test_fetch_device_info_success():
+    """Verify that _fetch_device_info correctly parses and merges info into entry."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    fake_response = {
+        "success": True,
+        "data": [
+            {"dataKey": "swVer", "dataValue": "v1.0.0"},
+            {"dataKey": "batCap", "dataValue": "100"},
+            {"dataKey": "signalIntensity", "dataValue": "strong"},
+        ],
+    }
+
+    # Mock the aiohttp get context manager to yield our fake response
+    mock_response = AsyncMock()
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.json.return_value = fake_response
+    api.session.get = MagicMock(return_value=mock_response)
+
+    entry = {"metrics": {}}
+    await api._fetch_device_info("test_sn", entry)
+
+    # Assertions
+    assert entry.get("sw_version") == "v1.0.0"
+    assert entry["metrics"].get("batCap") == "100"
+    assert entry["metrics"].get("signalIntensity") == "strong"
+    assert api.session.get.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_info_failure():
+    """Verify that _fetch_device_info handles API failure gracefully."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    fake_response = {
+        "success": False,
+        "message": "error",
+    }
+
+    # Mock the aiohttp get context manager to yield our fake error response
+    mock_response = AsyncMock()
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.json.return_value = fake_response
+    api.session.get = MagicMock(return_value=mock_response)
+
+    entry = {"metrics": {}}
+    await api._fetch_device_info("test_sn", entry)
+
+    # Assertions
+    assert "sw_version" not in entry
+    assert entry["metrics"] == {}
+    assert api.session.get.call_count == 1
