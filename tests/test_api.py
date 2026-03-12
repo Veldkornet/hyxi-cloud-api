@@ -142,3 +142,19 @@ async def test_execute_fetch_all_concurrent():
         assert "SN_plant_2" in results
     finally:
         asyncio.to_thread = original_to_thread
+
+@pytest.mark.asyncio
+async def test_fetch_alarms_for_plant_exception():
+    """Verify that _fetch_alarms_for_plant handles exceptions gracefully."""
+    fake_session = MagicMock()
+    # Mock __aenter__ to raise TimeoutError
+    mock_post = MagicMock()
+    mock_post.__aenter__.side_effect = TimeoutError("Connection timed out")
+    fake_session.post.return_value = mock_post
+
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    # Calling the method should return an empty list when an exception occurs
+    alarms = await api._fetch_alarms_for_plant("fake_plant_id")
+
+    assert alarms == []
