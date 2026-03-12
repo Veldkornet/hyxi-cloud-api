@@ -86,7 +86,126 @@ def test_generate_headers():
     assert "Authorization" not in token_headers
 
 
-# --- TEST 4: Concurrent Execution of Fetch All ---
+# --- TEST 4: Token Refresh ---
+@pytest.mark.asyncio
+async def test_refresh_token_already_valid():
+    """Verify that if token is valid, it returns True immediately."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+    api.token = "Bearer valid_token"
+    # Set expiration to far in the future
+    import time
+    api.token_expires_at = time.time() + 3600
+
+    result = await api._refresh_token()
+    assert result is True
+    # Session post should not be called
+    fake_session.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_success():
+    """Verify that _refresh_token successfully retrieves and stores a token."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    mock_response = AsyncMock()
+
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.status = 200
+    yielded_response.json.return_value = {
+        "success": True,
+        "data": {
+            "token": "new_fake_token",
+            "expiresIn": 7200
+        }
+    }
+    yielded_response.raise_for_status = MagicMock()
+
+    # Needs to be a MagicMock since we want it to return the mock_response
+    # as a context manager and not a coroutine when calling .post()
+    fake_session.post = MagicMock(return_value=mock_response)
+
+    import time
+    from unittest.mock import patch
+
+    with patch('time.time', return_value=10000.0):
+        result = await api._refresh_token()
+
+    assert result is True
+    assert api.token == "Bearer new_fake_token"
+    # expires_at = 10000.0 + 7200 - 300 = 16900.0
+    assert api.token_expires_at == 16900.0
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_auth_failed_status():
+    """Verify that _refresh_token returns 'auth_failed' if HTTP status is 401/403."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    mock_response = AsyncMock()
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.status = 401
+    fake_session.post = MagicMock(return_value=mock_response)
+
+    result = await api._refresh_token()
+    assert result == "auth_failed"
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_auth_failed_code():
+    """Verify that _refresh_token returns 'auth_failed' if JSON code is 401/403."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    mock_response = AsyncMock()
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.status = 200
+    yielded_response.json.return_value = {"success": False, "code": "401"}
+    yielded_response.raise_for_status = MagicMock()
+    fake_session.post = MagicMock(return_value=mock_response)
+
+    result = await api._refresh_token()
+    assert result == "auth_failed"
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_generic_error():
+    """Verify that _refresh_token returns False on a generic error payload."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    mock_response = AsyncMock()
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.status = 200
+    yielded_response.json.return_value = {"success": False, "code": "500"}
+    yielded_response.raise_for_status = MagicMock()
+    fake_session.post = MagicMock(return_value=mock_response)
+
+    result = await api._refresh_token()
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_exception():
+    """Verify that _refresh_token returns False on an exception."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    # MagicMock since we want post() to act like a context manager but error out
+    mock_post = MagicMock()
+    # It must return an object where __aenter__ raises an Exception
+    mock_context_manager = MagicMock()
+    mock_context_manager.__aenter__ = AsyncMock(side_effect=Exception("Network error"))
+    mock_post.return_value = mock_context_manager
+    fake_session.post = mock_post
+
+    result = await api._refresh_token()
+    assert result is False
+
+
+# --- TEST 5: Concurrent Execution of Fetch All ---
 @pytest.mark.asyncio
 async def test_execute_fetch_all_concurrent():
     """Verify that _execute_fetch_all handles multiple plants correctly."""
