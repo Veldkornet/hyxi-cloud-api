@@ -126,7 +126,6 @@ async def test_refresh_token_success():
     # as a context manager and not a coroutine when calling .post()
     fake_session.post = MagicMock(return_value=mock_response)
 
-    import time
     from unittest.mock import patch
 
     with patch('time.time', return_value=10000.0):
