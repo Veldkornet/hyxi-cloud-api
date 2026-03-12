@@ -499,33 +499,7 @@ class HyxiApiClient:
         results = {}
         now = datetime.now(UTC).isoformat()
 
-        plants = await self._fetch_plants()
-        if plants is None:
-            return None
-
-        metric_tasks = []
-        plant_alarms = await self._schedule_device_fetches(plants, now, metric_tasks)
-
-        # 3. Concurrent Metrics
-        if metric_tasks:
-            # Pre-group alarms by device serial number for O(1) lookup
-            alarms_by_sn = {}
-            for a in plant_alarms:
-                a_sn = a.get("deviceSn")
-                if a_sn:
-                    alarms_by_sn.setdefault(a_sn, []).append(a)
-
-            updated_entries = await asyncio.gather(*metric_tasks)
-            for sn, entry in updated_entries:
-                if sn:
-                    # Map the relevant active alarms to this specific device
-                    entry["alarms"] = alarms_by_sn.get(sn, [])
-                    results[sn] = entry
-
-        return results
-
-    async def _fetch_plants(self):
-        """Helper to fetch all plants for the user."""
+        # 1. Get Plants
         p_path = "/api/plant/v1/page"
         async with self.session.post(
             f"{self.base_url}{p_path}",
@@ -559,10 +533,8 @@ class HyxiApiClient:
             "HYXi Discovered Plants: %s",
             [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
         )
-        return plants
 
-    async def _schedule_device_fetches(self, plants, now, metric_tasks):
-        """Helper to schedule device and alarm fetches for all plants concurrently."""
+        metric_tasks = []
         device_fetch_tasks = []
         alarm_fetch_tasks = []
 
@@ -585,4 +557,15 @@ class HyxiApiClient:
             for alarms in alarm_results:
                 plant_alarms.extend(alarms)
 
-        return plant_alarms
+        # 3. Concurrent Metrics
+        if metric_tasks:
+            updated_entries = await asyncio.gather(*metric_tasks)
+            for sn, entry in updated_entries:
+                if sn:
+                    # Map the relevant active alarms to this specific device
+                    entry["alarms"] = [
+                        a for a in plant_alarms if a.get("deviceSn") == sn
+                    ]
+                    results[sn] = entry
+
+        return results
