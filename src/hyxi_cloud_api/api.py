@@ -346,13 +346,12 @@ class HyxiApiClient:
                 return
 
             data_val = res_d.get("data", {})
-            devices = (
-                data_val
-                if isinstance(data_val, list)
-                else data_val.get("deviceList", [])
-                if isinstance(data_val, dict)
-                else []
-            )
+            if isinstance(data_val, list):
+                devices = data_val
+            elif isinstance(data_val, dict):
+                devices = data_val.get("deviceList", [])
+            else:
+                devices = []
 
             # 👇 Log the devices discovered for this plant
             _LOGGER.debug(
