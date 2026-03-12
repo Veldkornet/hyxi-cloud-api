@@ -1,8 +1,6 @@
-import asyncio
 from unittest.mock import AsyncMock, patch, mock_open
 import pytest
 from src.hyxi_cloud_api.api import HyxiApiClient
-import json
 
 @pytest.mark.asyncio
 async def test_check_mock_override_invalid_json():
