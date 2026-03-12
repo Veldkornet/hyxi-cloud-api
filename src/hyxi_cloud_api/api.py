@@ -200,7 +200,8 @@ class HyxiApiClient:
         q_path = "/api/device/v1/queryDeviceData"
         try:
             async with self.session.get(
-                f"{self.base_url}{q_path}?deviceSn={sn}",
+                f"{self.base_url}{q_path}",
+                params={"deviceSn": sn},
                 headers=self._generate_headers(q_path, "GET"),
                 timeout=15,
             ) as resp_q:
@@ -253,7 +254,8 @@ class HyxiApiClient:
         i_path = "/api/device/v1/queryDeviceInfo"
         try:
             async with self.session.get(
-                f"{self.base_url}{i_path}?deviceSn={sn}",
+                f"{self.base_url}{i_path}",
+                params={"deviceSn": sn},
                 headers=self._generate_headers(i_path, "GET"),
                 timeout=15,
             ) as resp_i:
