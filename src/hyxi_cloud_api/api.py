@@ -405,7 +405,9 @@ class HyxiApiClient:
 
             # 👇 Dump the EXACT active alarms the cloud sends back
             _LOGGER.debug(
-                "HYXi Raw ALARMS for Plant %s: %s", _mask_id(plant_id), alarms
+                "HYXi Raw ALARMS for Plant %s: %s",
+                _mask_id(plant_id),
+                [_sanitize_dict(a) if isinstance(a, dict) else a for a in alarms],
             )
 
             return alarms
