@@ -142,3 +142,23 @@ async def test_execute_fetch_all_concurrent():
         assert "SN_plant_2" in results
     finally:
         asyncio.to_thread = original_to_thread
+
+
+# --- TEST 5: Exception Handling in _refresh_token ---
+@pytest.mark.asyncio
+async def test_refresh_token_exception_handling(caplog):
+    """Test that _refresh_token catches exceptions during the aiohttp POST."""
+
+    # Set up client with a Mock session
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.token = None  # Force a fetch
+
+    # Set up the mock to raise an Exception when session.post is called
+    api.session.post.side_effect = Exception("Simulated network or connection error")
+
+    # Run the method
+    result = await api._refresh_token()
+
+    # Verify that the exception was caught, logged, and False was returned
+    assert result is False
+    assert "HYXi Token Request Failed: Simulated network or connection error" in caplog.text
