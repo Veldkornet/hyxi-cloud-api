@@ -2,6 +2,7 @@
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
+import aiohttp
 
 import pytest
 
@@ -139,3 +140,61 @@ async def test_execute_fetch_all_concurrent():
         assert "SN_plant_2" in results
     finally:
         asyncio.to_thread = original_to_thread
+
+# --- TEST 5: Token Refresh Failures ---
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status, payload, expected_result",
+    [
+        (401, {}, "auth_failed"),
+        (403, {}, "auth_failed"),
+        (200, {"success": False, "code": "401"}, "auth_failed"),
+        (200, {"success": False, "code": 403}, "auth_failed"),
+        (200, {"success": False, "code": "500"}, False),
+        (500, {"success": False}, False),
+    ],
+)
+async def test_refresh_token_failures(status, payload, expected_result):
+    """Test _refresh_token handles various failure conditions correctly."""
+
+    mock_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api.token = None
+
+    # Mock the response context manager correctly
+    mock_response = AsyncMock()
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.status = status
+
+    # Needs to be an async method for res = await response.json()
+    yielded_response.json = AsyncMock(return_value=payload)
+
+    if status >= 400 and status not in [401, 403]:
+        # In actual code, raise_for_status is not awaited, it's a synchronous call that raises Exception
+        yielded_response.raise_for_status = MagicMock(
+            side_effect=aiohttp.ClientResponseError(
+                request_info=MagicMock(), history=(), status=status
+            )
+        )
+    else:
+        yielded_response.raise_for_status = MagicMock()
+
+    api.session.post = MagicMock(return_value=mock_response)
+
+    result = await api._refresh_token()
+    assert result == expected_result
+
+@pytest.mark.asyncio
+async def test_refresh_token_network_exception():
+    """Test _refresh_token handles network exceptions gracefully."""
+    mock_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api.token = None
+
+    # The session.post method needs to return a context manager,
+    # but the act of calling it or entering it raises the exception.
+    # The simplest way to trigger the exception is side_effect on request.
+    api.session.post = MagicMock(side_effect=aiohttp.ClientError("Network error"))
+
+    result = await api._refresh_token()
+    assert result is False
