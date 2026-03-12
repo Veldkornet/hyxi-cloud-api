@@ -198,3 +198,49 @@ async def test_refresh_token_network_exception():
 
     result = await api._refresh_token()
     assert result is False
+
+# --- TEST 5: Alarm Log Sanitization ---
+@pytest.mark.asyncio
+async def test_fetch_alarms_for_plant_sanitization(caplog):
+    """Verify that _fetch_alarms_for_plant sanitizes sensitive fields in logs."""
+    import logging
+    caplog.set_level(logging.DEBUG)
+
+    # Use a MagicMock for the session to handle context managers
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    mock_response = AsyncMock()
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.json.return_value = {
+        "success": True,
+        "data": {
+            "pageData": [
+                {"deviceSn": "10602251600016", "alarmName": "Fault 1", "plantId": "12345678"},
+                {"deviceSn": "60701251900927", "alarmName": "Fault 2"}
+            ]
+        }
+    }
+    yielded_response.raise_for_status = MagicMock()
+    yielded_response.status = 200
+
+    # Mock session.post to return the mock_response context manager
+    mock_session.post.return_value = mock_response
+
+    alarms = await api._fetch_alarms_for_plant("12345678")
+
+    assert len(alarms) == 2
+    assert alarms[0]["deviceSn"] == "10602251600016" # Ensure return value is intact
+
+    log_text = caplog.text
+
+    # Assert logs do NOT contain sensitive IDs in plain text
+    assert "10602251600016" not in log_text
+    assert "60701251900927" not in log_text
+
+    # Assert logs contain the masked versions
+    assert "106XXXXXXXX016" in log_text
+    assert "607XXXXXXXX927" in log_text
+
+    # Ensure plant ID itself is masked
+    assert "123XX678" in log_text
