@@ -25,9 +25,10 @@ async def test_api_parsing():
     mock_response.json.return_value = fake_json
     mock_response.raise_for_status = MagicMock()  # Pretend we got a 200 OK
 
-    # 👇 THE FIX: Use MagicMock here so .get() returns a context manager, not a coroutine!
+    # 👇 THE FIX: Use MagicMock here so .request() returns a context manager, not a coroutine!
     mock_session = MagicMock()
-    mock_session.get.return_value.__aenter__.return_value = mock_response
+    mock_response.status = 200
+    mock_session.request.return_value.__aenter__.return_value = mock_response
 
     # 3. Initialize your API with the fake session
     api = HyxiApiClient(
