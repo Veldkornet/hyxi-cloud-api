@@ -129,8 +129,8 @@ async def test_execute_fetch_all_concurrent():
     mock_response.status = 200
     mock_response.raise_for_status = MagicMock()
 
-    api.session.request = MagicMock()
-    api.session.request.return_value.__aenter__.return_value = mock_response
+    api.session.post = MagicMock()
+    api.session.post.return_value.__aenter__.return_value = mock_response
 
     try:
         results = await api._execute_fetch_all()
