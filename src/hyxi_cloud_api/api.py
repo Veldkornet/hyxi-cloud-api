@@ -97,6 +97,7 @@ class HyxiApiClient:
         self.session = session
         self.token = None
         self.token_expires_at = 0
+        self._mock_cache = None
 
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXi's official Java SDK implementation."""
@@ -456,6 +457,9 @@ class HyxiApiClient:
 
     async def _check_mock_override(self):
         """Check if local mock data exists and return it."""
+        if self._mock_cache is not None:
+            return None if self._mock_cache == "NOT_FOUND" else self._mock_cache
+
         current_dir = pathlib.Path(__file__).parent.resolve()
         mock_file = current_dir / "mock_data.json"
 
@@ -467,6 +471,7 @@ class HyxiApiClient:
 
         try:
             mock_data = await asyncio.to_thread(load_mock)
+            self._mock_cache = mock_data
             if mock_data != "NOT_FOUND":
                 _LOGGER.warning(
                     "HYXi API 🧪: MOCK MODE ACTIVE - Successfully loaded %s", mock_file
