@@ -447,10 +447,6 @@ class HyxiApiClient:
                         MAX_RETRIES,
                         err,
                     )
-            except Exception as e:
-                _LOGGER.error("HYXi Unexpected Code Crash: %s", e)
-                _LOGGER.debug("Traceback:", exc_info=True)
-                break
 
         return None
 
