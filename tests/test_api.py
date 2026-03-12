@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient
+from src.hyxi_cloud_api.api import MAX_RETRIES, HyxiApiClient
 
 
 # --- TEST 1: Basic Initialization ---
@@ -53,6 +53,31 @@ async def test_get_all_device_data_success():
     assert result is not None
     assert result["attempts"] == 1
     assert result["data"]["SN12345"]["metrics"]["totalE"] == 2731.90
+
+
+@pytest.mark.asyncio
+async def test_get_all_device_data_retry_timeout(monkeypatch):
+    """Test that get_all_device_data retries on TimeoutError and ultimately fails."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    # Make _execute_fetch_all raise TimeoutError every time
+    api._execute_fetch_all = AsyncMock(side_effect=TimeoutError("Connection timed out"))
+
+    # Mock asyncio.sleep so the test doesn't actually pause
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", mock_sleep)
+
+    result = await api.get_all_device_data()
+
+    # If it fails every time, it should ultimately return None
+    assert result is None
+
+    # Verify _execute_fetch_all was called MAX_RETRIES times
+    assert api._execute_fetch_all.call_count == MAX_RETRIES
+
+    # Verify sleep was called MAX_RETRIES - 1 times (it doesn't sleep after the final failure)
+    assert mock_sleep.call_count == MAX_RETRIES - 1
 
 
 # --- TEST 3: Header Generation and Hashes ---
