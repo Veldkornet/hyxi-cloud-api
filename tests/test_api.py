@@ -122,16 +122,15 @@ async def test_execute_fetch_all_concurrent():
 
     asyncio.to_thread = fake_to_thread
 
-    # Make session.post an AsyncMock that returns an object where
-    # __aenter__ returns an object where json() returns our dict.
+    # Configure the mock response to simulate aiohttp's async context manager.
+    # __aenter__ should return the mock_response object itself.
     mock_response = AsyncMock()
+    mock_response.json.return_value = fake_plants_response
+    mock_response.status = 200
+    mock_response.raise_for_status = MagicMock()
 
-    # 🎯 The Context Manager Fix
-    yielded_response = mock_response.__aenter__.return_value
-    yielded_response.json.return_value = fake_plants_response
-    yielded_response.raise_for_status = MagicMock()
-
-    api.session.post = MagicMock(return_value=mock_response)
+    api.session.request = MagicMock()
+    api.session.request.return_value.__aenter__.return_value = mock_response
 
     try:
         results = await api._execute_fetch_all()
