@@ -138,6 +138,24 @@ class HyxiApiClient:
 
         return headers
 
+    async def _request(self, method: str, path: str, is_token_request=False, **kwargs):
+        """Centralized helper for making API requests to HYXi Cloud."""
+        url = f"{self.base_url}{path}"
+        headers = self._generate_headers(
+            path, method, is_token_request=is_token_request
+        )
+        timeout = kwargs.pop("timeout", 15)
+
+        async with self.session.request(
+            method, url, headers=headers, timeout=timeout, **kwargs
+        ) as response:
+            if is_token_request and response.status in [401, 403]:
+                return None, response.status
+
+            response.raise_for_status()
+            res_json = await response.json()
+            return res_json, response.status
+
     async def _refresh_token(self):
         """Async version of token refresh."""
         if self.token and time.time() < self.token_expires_at:
@@ -146,55 +164,50 @@ class HyxiApiClient:
         path = "/api/authorization/v1/token"
 
         try:
-            async with self.session.post(
-                f"{self.base_url}{path}",
-                json={"grantType": 1},
-                headers=self._generate_headers(path, "POST", is_token_request=True),
-                timeout=15,
-            ) as response:
-                if response.status in [401, 403]:
-                    _LOGGER.error("HYXi API: Token request unauthorized (401/403)")
+            res, status = await self._request(
+                "POST", path, is_token_request=True, json={"grantType": 1}
+            )
+
+            if status in [401, 403]:
+                _LOGGER.error("HYXi API: Token request unauthorized (401/403)")
+                return "auth_failed"
+
+            if not res.get("success"):
+                _LOGGER.error("HYXi API Token Rejected: %s", _sanitize_dict(res))
+                if res.get("code") in [401, 403, "401", "403"]:
                     return "auth_failed"
+                return False
 
-                response.raise_for_status()
-                res = await response.json()
+            data = res.get("data", {})
+            token_val = data.get("token") or data.get("access_token")
 
-                if not res.get("success"):
-                    _LOGGER.error("HYXi API Token Rejected: %s", _sanitize_dict(res))
-                    if res.get("code") in [401, 403, "401", "403"]:
-                        return "auth_failed"
-                    return False
+            if token_val:
+                self.token = f"Bearer {token_val}"
 
-                data = res.get("data", {})
-                token_val = data.get("token") or data.get("access_token")
+                # 1. Grab the raw expiration value exactly as the API sent it
+                raw_expires_in = data.get("expiresIn") or data.get("expires_in")
+                _LOGGER.debug(
+                    "HYXi API returned raw token expiration: %s seconds",
+                    raw_expires_in,
+                )
 
-                if token_val:
-                    self.token = f"Bearer {token_val}"
+                # 2. Default to 6600 if the API didn't provide one
+                expires_in = raw_expires_in or 6600
 
-                    # 1. Grab the raw expiration value exactly as the API sent it
-                    raw_expires_in = data.get("expiresIn") or data.get("expires_in")
-                    _LOGGER.debug(
-                        "HYXi API returned raw token expiration: %s seconds",
-                        raw_expires_in,
-                    )
+                # 3. Apply the 5-minute (300s) safety buffer
+                buffer_secs = 300
+                self.token_expires_at = time.time() + int(expires_in) - buffer_secs
 
-                    # 2. Default to 6600 if the API didn't provide one
-                    expires_in = raw_expires_in or 6600
-
-                    # 3. Apply the 5-minute (300s) safety buffer
-                    buffer_secs = 300
-                    self.token_expires_at = time.time() + int(expires_in) - buffer_secs
-
-                    # 4. Log the actual scheduled refresh time
-                    refresh_time_str = datetime.fromtimestamp(
-                        self.token_expires_at
-                    ).strftime("%Y-%m-%d %H:%M:%S")
-                    _LOGGER.debug(
-                        "HYXi Token proactive refresh scheduled in %s seconds (at %s)",
-                        int(expires_in) - buffer_secs,
-                        refresh_time_str,
-                    )
-                    return True
+                # 4. Log the actual scheduled refresh time
+                refresh_time_str = datetime.fromtimestamp(
+                    self.token_expires_at
+                ).strftime("%Y-%m-%d %H:%M:%S")
+                _LOGGER.debug(
+                    "HYXi Token proactive refresh scheduled in %s seconds (at %s)",
+                    int(expires_in) - buffer_secs,
+                    refresh_time_str,
+                )
+                return True
         except Exception as e:
             _LOGGER.error("HYXi Token Request Failed: %s", e)
         return False
@@ -203,14 +216,9 @@ class HyxiApiClient:
         """Helper to fetch detailed metrics for a single device."""
         q_path = "/api/device/v1/queryDeviceData"
         try:
-            async with self.session.get(
-                f"{self.base_url}{q_path}",
-                params={"deviceSn": sn},
-                headers=self._generate_headers(q_path, "GET"),
-                timeout=15,
-            ) as resp_q:
-                resp_q.raise_for_status()
-                res_q = await resp_q.json()
+            res_q, _ = await self._request(
+                "GET", q_path, params={"deviceSn": sn}
+            )
 
             if res_q.get("success"):
                 data_list = res_q.get("data", [])
@@ -257,13 +265,9 @@ class HyxiApiClient:
         """Helper to fetch static device info (firmware, capacity, limits)."""
         i_path = "/api/device/v1/queryDeviceInfo"
         try:
-            async with self.session.get(
-                f"{self.base_url}{i_path}",
-                params={"deviceSn": sn},
-                headers=self._generate_headers(i_path, "GET"),
-                timeout=15,
-            ) as resp_i:
-                res_i = await resp_i.json()
+            res_i, _ = await self._request(
+                "GET", i_path, params={"deviceSn": sn}
+            )
 
             if res_i.get("success"):
                 data_list = res_i.get("data", [])
@@ -328,14 +332,11 @@ class HyxiApiClient:
         """Helper to fetch devices for a single plant concurrently."""
         d_path = "/api/plant/v1/devicePage"
         try:
-            async with self.session.post(
-                f"{self.base_url}{d_path}",
+            res_d, _ = await self._request(
+                "POST",
+                d_path,
                 json={"plantId": plant_id, "pageSize": 50, "currentPage": 1},
-                headers=self._generate_headers(d_path, "POST"),
-                timeout=15,
-            ) as resp_d:
-                resp_d.raise_for_status()
-                res_d = await resp_d.json()
+            )
 
             if not res_d.get("success"):
                 _LOGGER.error(
@@ -388,14 +389,11 @@ class HyxiApiClient:
         """Helper to fetch active alarms for a single plant."""
         a_path = "/api/alarm/v1/plantAlarmPage"
         try:
-            async with self.session.post(
-                f"{self.base_url}{a_path}",
+            res_a, _ = await self._request(
+                "POST",
+                a_path,
                 json={"plantId": plant_id, "pageSize": 100, "currentPage": 1},
-                headers=self._generate_headers(a_path, "POST"),
-                timeout=15,
-            ) as resp_a:
-                resp_a.raise_for_status()
-                res_a = await resp_a.json()
+            )
 
             if not res_a.get("success"):
                 _LOGGER.error(
@@ -476,14 +474,9 @@ class HyxiApiClient:
 
         # 1. Get Plants
         p_path = "/api/plant/v1/page"
-        async with self.session.post(
-            f"{self.base_url}{p_path}",
-            json={"pageSize": 10, "currentPage": 1},
-            headers=self._generate_headers(p_path, "POST"),
-            timeout=15,
-        ) as resp_p:
-            resp_p.raise_for_status()
-            res_p = await resp_p.json()
+        res_p, _ = await self._request(
+            "POST", p_path, json={"pageSize": 10, "currentPage": 1}
+        )
 
         if not res_p.get("success"):
             # 🚀 If the server rejects the token, wipe it and force a retry!
