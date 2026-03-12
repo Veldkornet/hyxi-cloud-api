@@ -1,6 +1,6 @@
 """Tests for the _mask_id and _sanitize_dict log sanitisation helpers in api.py."""
 
-from hyxi_cloud_api.api import _mask_id, _sanitize_dict
+from src.hyxi_cloud_api.api import _mask_id, _sanitize_dict
 
 
 class TestMaskId:
