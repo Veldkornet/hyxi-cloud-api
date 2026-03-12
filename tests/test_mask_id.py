@@ -132,3 +132,54 @@ class TestSanitizeDict:
         raw = {"gprsImei": "", "model": "HYX-DCS-WL"}
         result = _sanitize_dict(raw)
         assert result["gprsImei"] == ""
+
+    def test_nested_dict_sanitization(self):
+        """Sensitive fields in nested dictionaries must be masked."""
+        raw = {
+            "success": True,
+            "data": {
+                "deviceSn": "10602251600016",
+                "plantId": "Pl1970106681857806336",
+                "nested": {"deviceSn": "60701251900927"},
+            },
+        }
+        result = _sanitize_dict(raw)
+        assert result["data"]["deviceSn"] != "10602251600016"
+        assert "X" in result["data"]["deviceSn"]
+        assert result["data"]["plantId"] != "Pl1970106681857806336"
+        assert "X" in result["data"]["plantId"]
+        assert result["data"]["nested"]["deviceSn"] != "60701251900927"
+        assert "X" in result["data"]["nested"]["deviceSn"]
+
+    def test_list_sanitization(self):
+        """Sensitive fields in lists of dictionaries must be masked."""
+        raw = [
+            {"deviceSn": "10602251600016", "type": "inverter"},
+            {"deviceSn": "60701251900927", "type": "battery"},
+        ]
+        result = _sanitize_dict(raw)
+        assert isinstance(result, list)
+        assert result[0]["deviceSn"] != "10602251600016"
+        assert "X" in result[0]["deviceSn"]
+        assert result[1]["deviceSn"] != "60701251900927"
+        assert "X" in result[1]["deviceSn"]
+
+    def test_complex_nested_structure(self):
+        """Deeply nested structures with mixed dicts and lists must be sanitized."""
+        raw = {
+            "plants": [
+                {
+                    "plantId": "P001",
+                    "devices": [
+                        {"deviceSn": "SN001", "address": "Some Address"},
+                        {"deviceSn": "SN002", "plantAddress": "123 Main St"},
+                    ],
+                }
+            ]
+        }
+        result = _sanitize_dict(raw)
+        # plantId "P001" is too short, so it should be fully redacted as ****
+        assert result["plants"][0]["plantId"] == "****"
+        assert result["plants"][0]["devices"][0]["deviceSn"] == "****"
+        assert result["plants"][0]["devices"][1]["deviceSn"] == "****"
+        assert result["plants"][0]["devices"][1]["plantAddress"] == "[REDACTED]"

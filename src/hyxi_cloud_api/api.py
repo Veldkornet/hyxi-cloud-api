@@ -67,21 +67,29 @@ _SENSITIVE_KEYS = frozenset(
 )
 
 
-def _sanitize_dict(raw: dict) -> dict:
-    """Return a copy of a raw API response dict with sensitive fields masked.
+from typing import Any
 
-    Used before logging raw API payloads so that SNs, plant IDs, and personal
-    details (e.g. home address) are never written to the log in plain text.
+
+def _sanitize_dict(obj: Any) -> Any:
+    """Return a copy of the object with sensitive fields masked.
+
+    Handles dictionaries and lists recursively. Used before logging raw API
+    payloads so that SNs, plant IDs, and personal details (e.g. home address)
+    are never written to the log in plain text.
     """
-    result = {}
-    for k, v in raw.items():
-        if k == "plantAddress":
-            result[k] = "[REDACTED]"
-        elif k in _SENSITIVE_KEYS and v:
-            result[k] = _mask_id(str(v))
-        else:
-            result[k] = v
-    return result
+    if isinstance(obj, dict):
+        result = {}
+        for k, v in obj.items():
+            if k == "plantAddress":
+                result[k] = "[REDACTED]"
+            elif k in _SENSITIVE_KEYS and v:
+                result[k] = _mask_id(str(v))
+            else:
+                result[k] = _sanitize_dict(v)
+        return result
+    if isinstance(obj, list):
+        return [_sanitize_dict(item) for item in obj]
+    return obj
 
 
 class HyxiApiClient:
@@ -156,7 +164,7 @@ class HyxiApiClient:
                 res = await response.json()
 
                 if not res.get("success"):
-                    _LOGGER.error("HYXi API Token Rejected: %s", res)
+                    _LOGGER.error("HYXi API Token Rejected: %s", _sanitize_dict(res))
                     if res.get("code") in [401, 403, "401", "403"]:
                         return "auth_failed"
                     return False
@@ -335,7 +343,7 @@ class HyxiApiClient:
                 _LOGGER.error(
                     "HYXi API Device Fetch Rejected for Plant %s: %s",
                     _mask_id(plant_id),
-                    res_d,
+                    _sanitize_dict(res_d),
                 )
                 return
 
@@ -396,7 +404,7 @@ class HyxiApiClient:
                 _LOGGER.error(
                     "HYXi API Alarm Fetch Rejected for Plant %s: %s",
                     _mask_id(plant_id),
-                    res_a,
+                    _sanitize_dict(res_a),
                 )
                 return []
 
@@ -405,7 +413,9 @@ class HyxiApiClient:
 
             # 👇 Dump the EXACT active alarms the cloud sends back
             _LOGGER.debug(
-                "HYXi Raw ALARMS for Plant %s: %s", _mask_id(plant_id), alarms
+                "HYXi Raw ALARMS for Plant %s: %s",
+                _mask_id(plant_id),
+                _sanitize_dict(alarms),
             )
 
             return alarms
@@ -522,7 +532,7 @@ class HyxiApiClient:
                 # Raising this error kicks it back up to the retry loop
                 raise aiohttp.ClientError("Server rejected token")
 
-            _LOGGER.error("HYXi API Plant Fetch Rejected: %s", res_p)
+            _LOGGER.error("HYXi API Plant Fetch Rejected: %s", _sanitize_dict(res_p))
             return None
 
         data_p = res_p.get("data", {})
