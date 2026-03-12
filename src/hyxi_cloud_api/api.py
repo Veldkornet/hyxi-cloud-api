@@ -25,6 +25,17 @@ _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
 _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
 
 
+def _parse_data_list(data_list: list) -> dict:
+    """Extract a map of dataKey -> dataValue from a list of dicts."""
+    if not isinstance(data_list, list):
+        return {}
+    return {
+        item.get("dataKey"): item.get("dataValue")
+        for item in data_list
+        if isinstance(item, dict) and item.get("dataKey")
+    }
+
+
 def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
     """Helper to safely extract and multiply float values."""
     try:
@@ -208,12 +219,7 @@ class HyxiApiClient:
                 res_q = await resp_q.json()
 
             if res_q.get("success"):
-                data_list = res_q.get("data", [])
-                m_raw = {
-                    item.get("dataKey"): item.get("dataValue")
-                    for item in data_list
-                    if isinstance(item, dict) and item.get("dataKey")
-                }
+                m_raw = _parse_data_list(res_q.get("data", []))
                 _LOGGER.debug(
                     "HYXi Raw Metrics for %s (%s): %s",
                     _mask_id(sn),
@@ -260,12 +266,7 @@ class HyxiApiClient:
                 res_i = await resp_i.json()
 
             if res_i.get("success"):
-                data_list = res_i.get("data", [])
-                i_raw = {
-                    item.get("dataKey"): item.get("dataValue")
-                    for item in data_list
-                    if isinstance(item, dict) and item.get("dataKey")
-                }
+                i_raw = _parse_data_list(res_i.get("data", []))
 
                 # 👇 This will dump the EXACT info the cloud sends back
                 _LOGGER.debug(
