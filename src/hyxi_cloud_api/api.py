@@ -484,9 +484,10 @@ class HyxiApiClient:
         """The actual fetching logic moved to a private method for the retry loop."""
 
         # 🧪 MOCK OVERRIDE START
-        mock_override = await self._check_mock_override()
-        if mock_override is not None:
-            return mock_override
+        if os.getenv("HYXI_ALLOW_MOCK") == "true":
+            mock_override = await self._check_mock_override()
+            if mock_override is not None:
+                return mock_override
         # 🧪 MOCK OVERRIDE END
 
         token_status = await self._refresh_token()
