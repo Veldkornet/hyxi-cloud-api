@@ -27,7 +27,7 @@ async def test_api_parsing():
 
     # 👇 THE FIX: Use MagicMock here so .get() returns a context manager, not a coroutine!
     mock_session = MagicMock()
-    mock_session.request.return_value.__aenter__.return_value = mock_response
+    mock_session.get.return_value.__aenter__.return_value = mock_response
 
     # 3. Initialize your API with the fake session
     api = HyxiApiClient(
