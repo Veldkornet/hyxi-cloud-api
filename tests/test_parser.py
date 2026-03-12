@@ -54,3 +54,87 @@ async def test_api_parsing():
     # Did your battery logic correctly assign the negative number to the 'charging' sensor?
     assert entry["metrics"]["bat_charging"] == 500.0
     assert entry["metrics"]["bat_discharging"] == 0
+
+
+@pytest.mark.asyncio
+async def test_api_info_parsing():
+    """Verify that _fetch_device_info successfully parses and extracts static device info."""
+    fake_json = {
+        "success": True,
+        "data": [
+            {"dataKey": "swVerSys", "dataValue": "V1.0.0"},
+            {"dataKey": "signalIntensity", "dataValue": "Good"},
+            {"dataKey": "signalVal", "dataValue": "4"},
+            {"dataKey": "wifiVer", "dataValue": "W1.2.3"},
+            {"dataKey": "comMode", "dataValue": "WiFi"},
+            {"dataKey": "batCap", "dataValue": "100.0"},
+            {"dataKey": "maxChargePower", "dataValue": "5000"},
+            {"dataKey": "maxDischargePower", "dataValue": "6000"},
+        ],
+    }
+
+    mock_response = AsyncMock()
+    mock_response.json.return_value = fake_json
+    mock_response.raise_for_status = MagicMock()
+
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+
+    api = HyxiApiClient(
+        access_key="test_ak",
+        secret_key="test_sk",
+        base_url="https://test.com",
+        session=mock_session,
+    )
+
+    entry = {"metrics": {}}
+
+    await api._fetch_device_info("SN123", entry)
+
+    assert entry.get("sw_version") == "V1.0.0"
+    assert entry["metrics"]["signalIntensity"] == "Good"
+    assert entry["metrics"]["signalVal"] == "4"
+    assert entry["metrics"]["wifiVer"] == "W1.2.3"
+    assert entry["metrics"]["comMode"] == "WiFi"
+    assert entry["metrics"]["batCap"] == "100.0"
+    assert entry["metrics"]["maxChargePower"] == "5000"
+    assert entry["metrics"]["maxDischargePower"] == "6000"
+
+
+@pytest.mark.asyncio
+async def test_api_info_parsing_fallbacks():
+    """Verify that _fetch_device_info correctly uses fallback keys for device info."""
+    fake_json = {
+        "success": True,
+        "data": [
+            # swVerSys is absent, but swVerMaster is present
+            {"dataKey": "swVerMaster", "dataValue": "V2.0.0"},
+            # maxChargePower and maxDischargePower are absent
+            {"dataKey": "maxChargingDischargingPower", "dataValue": "4500"},
+        ],
+    }
+
+    mock_response = AsyncMock()
+    mock_response.json.return_value = fake_json
+    mock_response.raise_for_status = MagicMock()
+
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+
+    api = HyxiApiClient(
+        access_key="test_ak",
+        secret_key="test_sk",
+        base_url="https://test.com",
+        session=mock_session,
+    )
+
+    entry = {"metrics": {}}
+
+    await api._fetch_device_info("SN123", entry)
+
+    # Verify fallback for sw_version
+    assert entry.get("sw_version") == "V2.0.0"
+
+    # Verify fallback for power limits
+    assert entry["metrics"]["maxChargePower"] == "4500"
+    assert entry["metrics"]["maxDischargePower"] == "4500"
