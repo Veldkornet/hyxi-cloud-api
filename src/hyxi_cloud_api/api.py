@@ -560,12 +560,18 @@ class HyxiApiClient:
         # 3. Concurrent Metrics
         if metric_tasks:
             updated_entries = await asyncio.gather(*metric_tasks)
+
+            # Pre-group alarms by deviceSn to avoid O(N^2) complexity
+            alarms_by_sn = {}
+            for alarm in plant_alarms:
+                sn = alarm.get("deviceSn")
+                if sn:
+                    alarms_by_sn.setdefault(sn, []).append(alarm)
+
             for sn, entry in updated_entries:
                 if sn:
                     # Map the relevant active alarms to this specific device
-                    entry["alarms"] = [
-                        a for a in plant_alarms if a.get("deviceSn") == sn
-                    ]
+                    entry["alarms"] = alarms_by_sn.get(sn, [])
                     results[sn] = entry
 
         return results
