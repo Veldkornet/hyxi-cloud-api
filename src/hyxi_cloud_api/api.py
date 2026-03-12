@@ -25,6 +25,15 @@ _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
 _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
 
 
+def _parse_data_list(data_list: list) -> dict:
+    """Extract dataKey and dataValue into a cleaner dictionary."""
+    return {
+        item.get("dataKey"): item.get("dataValue")
+        for item in data_list
+        if isinstance(item, dict) and item.get("dataKey")
+    }
+
+
 def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
     """Helper to safely extract and multiply float values."""
     try:
@@ -209,11 +218,7 @@ class HyxiApiClient:
 
             if res_q.get("success"):
                 data_list = res_q.get("data", [])
-                m_raw = {
-                    item.get("dataKey"): item.get("dataValue")
-                    for item in data_list
-                    if isinstance(item, dict) and item.get("dataKey")
-                }
+                m_raw = _parse_data_list(data_list)
                 _LOGGER.debug(
                     "HYXi Raw Metrics for %s (%s): %s",
                     _mask_id(sn),
@@ -261,11 +266,7 @@ class HyxiApiClient:
 
             if res_i.get("success"):
                 data_list = res_i.get("data", [])
-                i_raw = {
-                    item.get("dataKey"): item.get("dataValue")
-                    for item in data_list
-                    if isinstance(item, dict) and item.get("dataKey")
-                }
+                i_raw = _parse_data_list(data_list)
 
                 # 👇 This will dump the EXACT info the cloud sends back
                 _LOGGER.debug(
@@ -449,10 +450,6 @@ class HyxiApiClient:
                         MAX_RETRIES,
                         err,
                     )
-            except Exception as e:
-                _LOGGER.error("HYXi Unexpected Code Crash: %s", e)
-                _LOGGER.debug("Traceback:", exc_info=True)
-                break
 
         return None
 
