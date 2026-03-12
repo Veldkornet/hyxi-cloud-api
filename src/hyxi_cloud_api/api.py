@@ -1,12 +1,13 @@
 """HYXi Cloud API Client for retrieving inverter and battery data."""
 
 import asyncio
-from typing import Any
 import base64
 import hashlib
 import hmac
+import json
 import logging
 import os
+import pathlib
 import time
 from datetime import UTC
 from datetime import datetime
@@ -20,8 +21,8 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number)
 
 # Precomputed hashes for HMAC signature
-_GRANT_TYPE_HASH = "301c53ad00c6576097395329bb1c57a3dbf065b7dfa46b800e4c26e292c88028f59bae543d287cff8203cc878801beba153befb52fa67a86ef8d60362ece6aae"
-_EMPTY_STR_HASH = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+_GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
+_EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
 
 
 def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
@@ -66,26 +67,21 @@ _SENSITIVE_KEYS = frozenset(
 )
 
 
-def _sanitize_dict(obj: Any) -> Any:
-    """Return a copy of the object with sensitive fields masked.
+def _sanitize_dict(raw: dict) -> dict:
+    """Return a copy of a raw API response dict with sensitive fields masked.
 
-    Handles dictionaries and lists recursively. Used before logging raw API
-    payloads so that SNs, plant IDs, and personal details (e.g. home address)
-    are never written to the log in plain text.
+    Used before logging raw API payloads so that SNs, plant IDs, and personal
+    details (e.g. home address) are never written to the log in plain text.
     """
-    if isinstance(obj, dict):
-        result = {}
-        for k, v in obj.items():
-            if k == "plantAddress":
-                result[k] = "[REDACTED]"
-            elif k in _SENSITIVE_KEYS and v:
-                result[k] = _mask_id(str(v))
-            else:
-                result[k] = _sanitize_dict(v)
-        return result
-    if isinstance(obj, list):
-        return [_sanitize_dict(item) for item in obj]
-    return obj
+    result = {}
+    for k, v in raw.items():
+        if k == "plantAddress":
+            result[k] = "[REDACTED]"
+        elif k in _SENSITIVE_KEYS and v:
+            result[k] = _mask_id(str(v))
+        else:
+            result[k] = v
+    return result
 
 
 class HyxiApiClient:
@@ -138,24 +134,6 @@ class HyxiApiClient:
 
         return headers
 
-    async def _request(self, method: str, path: str, is_token_request=False, **kwargs):
-        """Centralized helper for making API requests to HYXi Cloud."""
-        url = f"{self.base_url}{path}"
-        headers = self._generate_headers(
-            path, method, is_token_request=is_token_request
-        )
-        timeout = kwargs.pop("timeout", 15)
-
-        async with self.session.request(
-            method, url, headers=headers, timeout=timeout, **kwargs
-        ) as response:
-            if is_token_request and response.status in [401, 403]:
-                return None, response.status
-
-            response.raise_for_status()
-            res_json = await response.json()
-            return res_json, response.status
-
     async def _refresh_token(self):
         """Async version of token refresh."""
         if self.token and time.time() < self.token_expires_at:
@@ -164,53 +142,55 @@ class HyxiApiClient:
         path = "/api/authorization/v1/token"
 
         try:
-            res, status = await self._request(
-                "POST", path, is_token_request=True, json={"grantType": 1}
-            )
-
-            if status in [401, 403]:
-                _LOGGER.error("HYXi API: Token request unauthorized (401/403)")
-                return "auth_failed"
-
-            if not res.get("success"):
-                _LOGGER.error("HYXi API Token Rejected: %s", _sanitize_dict(res))
-                if res.get("code") in [401, 403, "401", "403"]:
+            async with self.session.post(
+                f"{self.base_url}{path}",
+                json={"grantType": 1},
+                headers=self._generate_headers(path, "POST", is_token_request=True),
+                timeout=15,
+            ) as response:
+                if response.status in [401, 403]:
+                    _LOGGER.error("HYXi API: Token request unauthorized (401/403)")
                     return "auth_failed"
-                return False
 
-            data = res.get("data", {})
-            token_val = data.get("token") or data.get("access_token")
+                response.raise_for_status()
+                res = await response.json()
 
-            if not token_val:
-                _LOGGER.error("HYXi API: Token missing in response data")
-                return False
+                if not res.get("success"):
+                    _LOGGER.error("HYXi API Token Rejected: %s", res)
+                    if res.get("code") in [401, 403, "401", "403"]:
+                        return "auth_failed"
+                    return False
 
-            self.token = f"Bearer {token_val}"
+                data = res.get("data", {})
+                token_val = data.get("token") or data.get("access_token")
 
-            # 1. Grab the raw expiration value exactly as the API sent it
-            raw_expires_in = data.get("expiresIn") or data.get("expires_in")
-            _LOGGER.debug(
-                "HYXi API returned raw token expiration: %s seconds",
-                raw_expires_in,
-            )
+                if token_val:
+                    self.token = f"Bearer {token_val}"
 
-            # 2. Default to 6600 if the API didn't provide one
-            expires_in = raw_expires_in or 6600
+                    # 1. Grab the raw expiration value exactly as the API sent it
+                    raw_expires_in = data.get("expiresIn") or data.get("expires_in")
+                    _LOGGER.debug(
+                        "HYXi API returned raw token expiration: %s seconds",
+                        raw_expires_in,
+                    )
 
-            # 3. Apply the 5-minute (300s) safety buffer
-            buffer_secs = 300
-            self.token_expires_at = time.time() + int(expires_in) - buffer_secs
+                    # 2. Default to 6600 if the API didn't provide one
+                    expires_in = raw_expires_in or 6600
 
-            # 4. Log the actual scheduled refresh time
-            refresh_time_str = datetime.fromtimestamp(self.token_expires_at).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-            _LOGGER.debug(
-                "HYXi Token proactive refresh scheduled in %s seconds (at %s)",
-                int(expires_in) - buffer_secs,
-                refresh_time_str,
-            )
-            return True
+                    # 3. Apply the 5-minute (300s) safety buffer
+                    buffer_secs = 300
+                    self.token_expires_at = time.time() + int(expires_in) - buffer_secs
+
+                    # 4. Log the actual scheduled refresh time
+                    refresh_time_str = datetime.fromtimestamp(
+                        self.token_expires_at
+                    ).strftime("%Y-%m-%d %H:%M:%S")
+                    _LOGGER.debug(
+                        "HYXi Token proactive refresh scheduled in %s seconds (at %s)",
+                        int(expires_in) - buffer_secs,
+                        refresh_time_str,
+                    )
+                    return True
         except Exception as e:
             _LOGGER.error("HYXi Token Request Failed: %s", e)
         return False
@@ -219,9 +199,13 @@ class HyxiApiClient:
         """Helper to fetch detailed metrics for a single device."""
         q_path = "/api/device/v1/queryDeviceData"
         try:
-            res_q, _ = await self._request(
-                "GET", q_path, params={"deviceSn": sn}
-            )
+            async with self.session.get(
+                f"{self.base_url}{q_path}?deviceSn={sn}",
+                headers=self._generate_headers(q_path, "GET"),
+                timeout=15,
+            ) as resp_q:
+                resp_q.raise_for_status()
+                res_q = await resp_q.json()
 
             if res_q.get("success"):
                 data_list = res_q.get("data", [])
@@ -268,9 +252,12 @@ class HyxiApiClient:
         """Helper to fetch static device info (firmware, capacity, limits)."""
         i_path = "/api/device/v1/queryDeviceInfo"
         try:
-            res_i, _ = await self._request(
-                "GET", i_path, params={"deviceSn": sn}
-            )
+            async with self.session.get(
+                f"{self.base_url}{i_path}?deviceSn={sn}",
+                headers=self._generate_headers(i_path, "GET"),
+                timeout=15,
+            ) as resp_i:
+                res_i = await resp_i.json()
 
             if res_i.get("success"):
                 data_list = res_i.get("data", [])
@@ -335,27 +322,31 @@ class HyxiApiClient:
         """Helper to fetch devices for a single plant concurrently."""
         d_path = "/api/plant/v1/devicePage"
         try:
-            res_d, _ = await self._request(
-                "POST",
-                d_path,
+            async with self.session.post(
+                f"{self.base_url}{d_path}",
                 json={"plantId": plant_id, "pageSize": 50, "currentPage": 1},
-            )
+                headers=self._generate_headers(d_path, "POST"),
+                timeout=15,
+            ) as resp_d:
+                resp_d.raise_for_status()
+                res_d = await resp_d.json()
 
             if not res_d.get("success"):
                 _LOGGER.error(
                     "HYXi API Device Fetch Rejected for Plant %s: %s",
                     _mask_id(plant_id),
-                    _sanitize_dict(res_d),
+                    res_d,
                 )
                 return
 
             data_val = res_d.get("data", {})
-            if isinstance(data_val, list):
-                devices = data_val
-            elif isinstance(data_val, dict):
-                devices = data_val.get("deviceList", [])
-            else:
-                devices = []
+            devices = (
+                data_val
+                if isinstance(data_val, list)
+                else data_val.get("deviceList", [])
+                if isinstance(data_val, dict)
+                else []
+            )
 
             # 👇 Log the devices discovered for this plant
             _LOGGER.debug(
@@ -392,17 +383,20 @@ class HyxiApiClient:
         """Helper to fetch active alarms for a single plant."""
         a_path = "/api/alarm/v1/plantAlarmPage"
         try:
-            res_a, _ = await self._request(
-                "POST",
-                a_path,
+            async with self.session.post(
+                f"{self.base_url}{a_path}",
                 json={"plantId": plant_id, "pageSize": 100, "currentPage": 1},
-            )
+                headers=self._generate_headers(a_path, "POST"),
+                timeout=15,
+            ) as resp_a:
+                resp_a.raise_for_status()
+                res_a = await resp_a.json()
 
             if not res_a.get("success"):
                 _LOGGER.error(
                     "HYXi API Alarm Fetch Rejected for Plant %s: %s",
                     _mask_id(plant_id),
-                    _sanitize_dict(res_a),
+                    res_a,
                 )
                 return []
 
@@ -411,9 +405,7 @@ class HyxiApiClient:
 
             # 👇 Dump the EXACT active alarms the cloud sends back
             _LOGGER.debug(
-                "HYXi Raw ALARMS for Plant %s: %s",
-                _mask_id(plant_id),
-                _sanitize_dict(alarms),
+                "HYXi Raw ALARMS for Plant %s: %s", _mask_id(plant_id), alarms
             )
 
             return alarms
@@ -462,8 +454,40 @@ class HyxiApiClient:
 
         return None
 
+    async def _check_mock_override(self):
+        """Check if local mock data exists and return it."""
+        current_dir = pathlib.Path(__file__).parent.resolve()
+        mock_file = current_dir / "mock_data.json"
+
+        def load_mock():
+            if mock_file.exists():
+                with open(mock_file, encoding="utf-8") as f:
+                    return json.load(f)
+            return "NOT_FOUND"
+
+        try:
+            mock_data = await asyncio.to_thread(load_mock)
+            if mock_data != "NOT_FOUND":
+                _LOGGER.warning(
+                    "HYXi API 🧪: MOCK MODE ACTIVE - Successfully loaded %s", mock_file
+                )
+                return mock_data
+        except json.JSONDecodeError as e:
+            _LOGGER.error(
+                "HYXi API 🧪: MOCK FILE FOUND, BUT JSON IS INVALID! Error: %s", e
+            )
+        except Exception as e:
+            _LOGGER.error("HYXi API 🧪: Unexpected error reading mock file: %s", e)
+        return None
+
     async def _execute_fetch_all(self):
         """The actual fetching logic moved to a private method for the retry loop."""
+
+        # 🧪 MOCK OVERRIDE START
+        mock_override = await self._check_mock_override()
+        if mock_override is not None:
+            return mock_override
+        # 🧪 MOCK OVERRIDE END
 
         token_status = await self._refresh_token()
 
@@ -503,9 +527,14 @@ class HyxiApiClient:
     async def _fetch_plants(self):
         """Helper to fetch all plants for the user."""
         p_path = "/api/plant/v1/page"
-        res_p, _ = await self._request(
-            "POST", p_path, json={"pageSize": 10, "currentPage": 1}
-        )
+        async with self.session.post(
+            f"{self.base_url}{p_path}",
+            json={"pageSize": 10, "currentPage": 1},
+            headers=self._generate_headers(p_path, "POST"),
+            timeout=15,
+        ) as resp_p:
+            resp_p.raise_for_status()
+            res_p = await resp_p.json()
 
         if not res_p.get("success"):
             # 🚀 If the server rejects the token, wipe it and force a retry!
@@ -519,7 +548,7 @@ class HyxiApiClient:
                 # Raising this error kicks it back up to the retry loop
                 raise aiohttp.ClientError("Server rejected token")
 
-            _LOGGER.error("HYXi API Plant Fetch Rejected: %s", _sanitize_dict(res_p))
+            _LOGGER.error("HYXi API Plant Fetch Rejected: %s", res_p)
             return None
 
         data_p = res_p.get("data", {})

@@ -1,5 +1,6 @@
 """Tests for the HYXi Cloud API client."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -111,21 +112,33 @@ async def test_execute_fetch_all_concurrent():
 
     api._fetch_devices_for_plant = MagicMock(side_effect=mock_fetch_devices)
 
-    # Make session.request an AsyncMock that returns an object where
+    # Need to override asyncio.to_thread so it returns NOT_FOUND for the mock check
+    original_to_thread = asyncio.to_thread
+
+    async def fake_to_thread(func, *args, **kwargs):
+        if func.__name__ == "load_mock":
+            return "NOT_FOUND"
+        return await original_to_thread(func, *args, **kwargs)
+
+    asyncio.to_thread = fake_to_thread
+
+    # Make session.post an AsyncMock that returns an object where
     # __aenter__ returns an object where json() returns our dict.
     mock_response = AsyncMock()
 
     # 🎯 The Context Manager Fix
     yielded_response = mock_response.__aenter__.return_value
     yielded_response.json.return_value = fake_plants_response
-    yielded_response.status = 200
     yielded_response.raise_for_status = MagicMock()
 
-    api.session.request = MagicMock(return_value=mock_response)
+    api.session.post = MagicMock(return_value=mock_response)
 
-    results = await api._execute_fetch_all()
-    # Verify both plants were called
-    assert api._fetch_devices_for_plant.call_count == 2
-    # Verify the results are parsed properly (our dummy tuples are keys/values)
-    assert "SN_plant_1" in results
-    assert "SN_plant_2" in results
+    try:
+        results = await api._execute_fetch_all()
+        # Verify both plants were called
+        assert api._fetch_devices_for_plant.call_count == 2
+        # Verify the results are parsed properly (our dummy tuples are keys/values)
+        assert "SN_plant_1" in results
+        assert "SN_plant_2" in results
+    finally:
+        asyncio.to_thread = original_to_thread
