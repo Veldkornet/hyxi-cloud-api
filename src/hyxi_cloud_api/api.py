@@ -20,8 +20,8 @@ MAX_RETRIES = 3
 RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number)
 
 # Precomputed hashes for HMAC signature
-_GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
-_EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
+_GRANT_TYPE_HASH = "301c53ad00c6576097395329bb1c57a3dbf065b7dfa46b800e4c26e292c88028f59bae543d287cff8203cc878801beba153befb52fa67a86ef8d60362ece6aae"
+_EMPTY_STR_HASH = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
 
 
 def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
