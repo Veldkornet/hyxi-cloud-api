@@ -1,0 +1,94 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Git: Sync Dev with Main",
+            "type": "shell",
+            "command": "./manage.sh sync-git",
+            "options": {
+                "cwd": "${workspaceFolder}/dev_env"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Git: Reset Dev (Nuke Ghosts)",
+            "type": "shell",
+            "command": "./manage.sh reset-dev",
+            "options": {
+                "cwd": "${workspaceFolder}/dev_env"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "focus": true
+            }
+        },
+        {
+            "label": "Ruff: Check",
+            "type": "shell",
+            "command": "./manage.sh ruff-check",
+            "options": {
+                "cwd": "${workspaceFolder}/dev_env"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "focus": true
+            }
+        },
+        {
+            "label": "Ruff: Format",
+            "type": "shell",
+            "command": "./manage.sh ruff-format",
+            "options": {
+                "cwd": "${workspaceFolder}/dev_env"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "focus": true
+            }
+        },
+        {
+            "label": "Ruff: Fix",
+            "type": "shell",
+            "command": "./manage.sh ruff-fix",
+            "options": {
+                "cwd": "${workspaceFolder}/dev_env"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "focus": true
+            }
+        },
+        {
+            "label": "Pre-commit: Run All",
+            "type": "shell",
+            "command": "RUFF_CACHE_DIR=/tmp/ruff_cache_api ./manage.sh lint",
+            "options": {
+                "cwd": "${workspaceFolder}/dev_env"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "focus": true
+            }
+        }
+    ]
+}
