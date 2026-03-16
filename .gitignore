@@ -21,7 +21,8 @@ htmlcov/
 .ruff_cache/
 
 # IDEs
-.vscode/
+.vscode/*
+!.vscode/tasks.json
 .idea/
 .DS_Store
 
