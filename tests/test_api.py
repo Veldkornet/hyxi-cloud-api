@@ -1,6 +1,5 @@
 """Tests for the HYXi Cloud API client."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 import aiohttp
 
