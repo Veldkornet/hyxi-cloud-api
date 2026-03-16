@@ -1,4 +1,4 @@
-"""HYXi Cloud API Client for retrieving inverter and battery data."""
+"""HYXI Cloud API Client for retrieving inverter and battery data."""
 
 import asyncio
 import base64
@@ -93,7 +93,7 @@ def _sanitize_dict(raw: dict) -> dict:
 
 
 class HyxiApiClient:
-    """Client for interacting with the HYXi Cloud API."""
+    """Client for interacting with the HYXI Cloud API."""
 
     def __init__(
         self, access_key, secret_key, base_url, session: aiohttp.ClientSession
@@ -107,7 +107,7 @@ class HyxiApiClient:
         self.token_expires_at = 0
 
     def _generate_headers(self, path, method, is_token_request=False):
-        """Generates headers matching HYXi's official Java SDK implementation."""
+        """Generates headers matching HYXI's official Java SDK implementation."""
         now_ms = int(time.time() * 1000)
         timestamp = str(now_ms)
 
@@ -154,7 +154,7 @@ class HyxiApiClient:
         # 1. Grab the raw expiration value exactly as the API sent it
         raw_expires_in = data.get("expiresIn") or data.get("expires_in")
         _LOGGER.debug(
-            "HYXi API returned raw token expiration: %s seconds",
+            "HYXI API returned raw token expiration: %s seconds",
             raw_expires_in,
         )
 
@@ -170,7 +170,7 @@ class HyxiApiClient:
             "%Y-%m-%d %H:%M:%S"
         )
         _LOGGER.debug(
-            "HYXi Token proactive refresh scheduled in %s seconds (at %s)",
+            "HYXI Token proactive refresh scheduled in %s seconds (at %s)",
             int(expires_in) - buffer_secs,
             refresh_time_str,
         )
@@ -191,21 +191,21 @@ class HyxiApiClient:
                 timeout=15,
             ) as response:
                 if response.status in [401, 403]:
-                    _LOGGER.error("HYXi API: Token request unauthorized (401/403)")
+                    _LOGGER.error("HYXI API: Token request unauthorized (401/403)")
                     return "auth_failed"
 
                 response.raise_for_status()
                 res = await response.json()
 
                 if not res.get("success"):
-                    _LOGGER.error("HYXi API Token Rejected: %s", _sanitize_dict(res))
+                    _LOGGER.error("HYXI API Token Rejected: %s", _sanitize_dict(res))
                     if res.get("code") in [401, 403, "401", "403"]:
                         return "auth_failed"
                     return False
 
                 return self._apply_token_response(res.get("data", {}))
         except Exception as e:
-            _LOGGER.error("HYXi Token Request Failed: %s", e)
+            _LOGGER.error("HYXI Token Request Failed: %s", e)
         return False
 
     async def _fetch_device_metrics(self, sn, entry):
@@ -226,7 +226,7 @@ class HyxiApiClient:
                 m_raw = _parse_data_list(data_list)
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug(
-                        "HYXi Raw Metrics for %s (%s): %s",
+                        "HYXI Raw METRICS for %s (%s): %s",
                         _mask_id(sn),
                         entry.get("device_type_code"),
                         _sanitize_dict(m_raw),
@@ -252,7 +252,7 @@ class HyxiApiClient:
                     )
             else:
                 _LOGGER.warning(
-                    "HYXi API metrics rejected for %s: %s",
+                    "HYXI API metrics rejected for %s: %s",
                     _mask_id(sn),
                     res_q.get("message"),
                 )
@@ -278,7 +278,7 @@ class HyxiApiClient:
                 # 👇 This will dump the EXACT info the cloud sends back
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug(
-                        "HYXi Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
+                        "HYXI Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
                     )
 
                 # Smart Firmware Finder
@@ -306,7 +306,7 @@ class HyxiApiClient:
                 )
             else:
                 _LOGGER.warning(
-                    "HYXi INFO API Rejected for %s: %s",
+                    "HYXI INFO API Rejected for %s: %s",
                     _mask_id(sn),
                     res_i.get("message"),
                 )
@@ -342,7 +342,7 @@ class HyxiApiClient:
 
             if not res_d.get("success"):
                 _LOGGER.error(
-                    "HYXi API Device Fetch Rejected for Plant %s: %s",
+                    "HYXI API Device Fetch Rejected for Plant %s: %s",
                     _mask_id(plant_id),
                     _sanitize_dict(res_d),
                 )
@@ -360,7 +360,7 @@ class HyxiApiClient:
             # 👇 Log the devices discovered for this plant
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
-                    "HYXi Discovered Devices for Plant %s: %s",
+                    "HYXI Discovered Devices for Plant %s: %s",
                     _mask_id(plant_id),
                     [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
                 )
@@ -404,7 +404,7 @@ class HyxiApiClient:
 
             if not res_a.get("success"):
                 _LOGGER.error(
-                    "HYXi API Alarm Fetch Rejected for Plant %s: %s",
+                    "HYXI API Alarm Fetch Rejected for Plant %s: %s",
                     _mask_id(plant_id),
                     _sanitize_dict(res_a),
                 )
@@ -416,7 +416,7 @@ class HyxiApiClient:
             # 👇 Dump the EXACT active alarms the cloud sends back
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
-                    "HYXi Raw ALARMS for Plant %s: %s",
+                    "HYXI Raw ALARMS for Plant %s: %s",
                     _mask_id(plant_id),
                     [_sanitize_dict(a) for a in alarms]
                     if isinstance(alarms, list)
@@ -449,7 +449,7 @@ class HyxiApiClient:
                 if attempt < MAX_RETRIES:
                     wait_time = attempt * RETRY_DELAY
                     _LOGGER.debug(
-                        "HYXi Connection attempt %s/%s failed. Retrying in %ss... (Error: %s)",
+                        "HYXI Connection attempt %s/%s failed. Retrying in %ss... (Error: %s)",
                         attempt,
                         MAX_RETRIES,
                         wait_time,
@@ -458,7 +458,7 @@ class HyxiApiClient:
                     await asyncio.sleep(wait_time)
                 else:
                     _LOGGER.error(
-                        "HYXi Cloud connection failed after %s attempts: %s",
+                        "HYXI Cloud connection failed after %s attempts: %s",
                         MAX_RETRIES,
                         err,
                     )
@@ -481,7 +481,7 @@ class HyxiApiClient:
             # 🚀 If the server rejects the token, wipe it and force a retry!
             if res_p.get("code") in ["A000002", "A000005"]:
                 _LOGGER.debug(
-                    "HYXi Server rejected our token (A000002/A000005). "
+                    "HYXI Server rejected our token (A000002/A000005). "
                     "Forcing immediate token refresh..."
                 )
                 self.token = None
@@ -489,7 +489,7 @@ class HyxiApiClient:
                 # Raising this error kicks it back up to the retry loop
                 raise aiohttp.ClientError("Server rejected token")
 
-            _LOGGER.error("HYXi API Plant Fetch Rejected: %s", _sanitize_dict(res_p))
+            _LOGGER.error("HYXI API Plant Fetch Rejected: %s", _sanitize_dict(res_p))
             return None
 
         data_p = res_p.get("data", {})
@@ -498,7 +498,7 @@ class HyxiApiClient:
         # 👇 Log the discovered plants
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
-                "HYXi Discovered Plants: %s",
+                "HYXI Discovered Plants: %s",
                 [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
             )
 
