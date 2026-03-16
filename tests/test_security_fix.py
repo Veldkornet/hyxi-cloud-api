@@ -1,13 +1,14 @@
 import sys
+from src.hyxi_cloud_api.api import HyxiApiClient
 from unittest.mock import MagicMock, AsyncMock
 import unittest
-import asyncio
+
 
 # Mock aiohttp before importing the API client
 mock_aiohttp = MagicMock()
 sys.modules["aiohttp"] = mock_aiohttp
 
-from src.hyxi_cloud_api.api import HyxiApiClient
+
 
 class TestSecurityFix(unittest.IsolatedAsyncioTestCase):
     async def test_fetch_device_metrics_fixed(self):
