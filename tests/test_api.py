@@ -230,3 +230,55 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
 
     # Ensure plant ID itself is masked
     assert "123XX678" in log_text
+
+@pytest.mark.asyncio
+async def test_fetch_all_for_device_collector():
+    """Test _fetch_all_for_device when dev_type is COLLECTOR."""
+    api = HyxiApiClient("key", "secret", "url", session=AsyncMock())
+
+    async def dummy_info(*args, **kwargs):
+        pass
+
+    async def dummy_metrics(*args, **kwargs):
+        pass
+
+    api._fetch_device_info = MagicMock(side_effect=dummy_info)
+    api._fetch_device_metrics = MagicMock(side_effect=dummy_metrics)
+
+    sn = "SN_123"
+    entry = {"initial": "state"}
+    dev_type = "COLLECTOR"
+
+    result_sn, result_entry = await api._fetch_all_for_device(sn, entry, dev_type)
+
+    assert result_sn == sn
+    assert result_entry == entry
+
+    api._fetch_device_info.assert_called_once_with(sn, entry)
+    api._fetch_device_metrics.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_fetch_all_for_device_non_collector():
+    """Test _fetch_all_for_device when dev_type is not COLLECTOR."""
+    api = HyxiApiClient("key", "secret", "url", session=AsyncMock())
+
+    async def dummy_info(*args, **kwargs):
+        pass
+
+    async def dummy_metrics(*args, **kwargs):
+        pass
+
+    api._fetch_device_info = MagicMock(side_effect=dummy_info)
+    api._fetch_device_metrics = MagicMock(side_effect=dummy_metrics)
+
+    sn = "SN_456"
+    entry = {"initial": "state2"}
+    dev_type = "INVERTER"
+
+    result_sn, result_entry = await api._fetch_all_for_device(sn, entry, dev_type)
+
+    assert result_sn == sn
+    assert result_entry == entry
+
+    api._fetch_device_info.assert_called_once_with(sn, entry)
+    api._fetch_device_metrics.assert_called_once_with(sn, entry)
