@@ -198,7 +198,7 @@ class HyxiApiClient:
                 res = await response.json()
 
                 if not res.get("success"):
-                    _LOGGER.error("HYXi API Token Rejected: %s", res)
+                    _LOGGER.error("HYXi API Token Rejected: %s", _sanitize_dict(res))
                     if res.get("code") in [401, 403, "401", "403"]:
                         return "auth_failed"
                     return False
@@ -344,7 +344,7 @@ class HyxiApiClient:
                 _LOGGER.error(
                     "HYXi API Device Fetch Rejected for Plant %s: %s",
                     _mask_id(plant_id),
-                    res_d,
+                    _sanitize_dict(res_d),
                 )
                 return
 
@@ -406,7 +406,7 @@ class HyxiApiClient:
                 _LOGGER.error(
                     "HYXi API Alarm Fetch Rejected for Plant %s: %s",
                     _mask_id(plant_id),
-                    res_a,
+                    _sanitize_dict(res_a),
                 )
                 return []
 
@@ -489,7 +489,7 @@ class HyxiApiClient:
                 # Raising this error kicks it back up to the retry loop
                 raise aiohttp.ClientError("Server rejected token")
 
-            _LOGGER.error("HYXi API Plant Fetch Rejected: %s", res_p)
+            _LOGGER.error("HYXi API Plant Fetch Rejected: %s", _sanitize_dict(res_p))
             return None
 
         data_p = res_p.get("data", {})
