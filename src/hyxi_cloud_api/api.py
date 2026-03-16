@@ -4,10 +4,8 @@ import asyncio
 import base64
 import hashlib
 import hmac
-import json
 import logging
 import os
-import pathlib
 import time
 from collections import defaultdict
 from datetime import UTC
