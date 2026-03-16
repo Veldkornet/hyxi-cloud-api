@@ -55,6 +55,32 @@ async def test_get_all_device_data_success():
     assert result["data"]["SN12345"]["metrics"]["totalE"] == 2731.90
 
 
+@pytest.mark.asyncio
+async def test_get_all_device_data_retry_exhaustion(monkeypatch):
+    """Test that get_all_device_data exhausts retries and returns None."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    # Mock _execute_fetch_all to consistently raise ClientError
+    api._execute_fetch_all = AsyncMock(side_effect=aiohttp.ClientError("Network error"))
+
+    # Mock asyncio.sleep to prevent actual delays
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    # Run the method
+    result = await api.get_all_device_data()
+
+    # Verify the result is None
+    assert result is None
+
+    # Verify _execute_fetch_all was called MAX_RETRIES times (3)
+    assert api._execute_fetch_all.call_count == 3
+
+    # Verify asyncio.sleep was called MAX_RETRIES - 1 times (2)
+    assert mock_sleep.call_count == 2
+
+
 # --- TEST 3: Header Generation and Hashes ---
 def test_generate_headers():
     """Verify that _generate_headers constructs the dictionary and signature properly."""
