@@ -143,6 +143,40 @@ class HyxiApiClient:
 
         return headers
 
+    def _apply_token_response(self, data: dict) -> bool:
+        """Parse token and expiration from API response and update state."""
+        token_val = data.get("token") or data.get("access_token")
+
+        if not token_val:
+            return False
+
+        self.token = f"Bearer {token_val}"
+
+        # 1. Grab the raw expiration value exactly as the API sent it
+        raw_expires_in = data.get("expiresIn") or data.get("expires_in")
+        _LOGGER.debug(
+            "HYXi API returned raw token expiration: %s seconds",
+            raw_expires_in,
+        )
+
+        # 2. Default to 6600 if the API didn't provide one
+        expires_in = raw_expires_in or 6600
+
+        # 3. Apply the 5-minute (300s) safety buffer
+        buffer_secs = 300
+        self.token_expires_at = time.time() + int(expires_in) - buffer_secs
+
+        # 4. Log the actual scheduled refresh time
+        refresh_time_str = datetime.fromtimestamp(self.token_expires_at).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        _LOGGER.debug(
+            "HYXi Token proactive refresh scheduled in %s seconds (at %s)",
+            int(expires_in) - buffer_secs,
+            refresh_time_str,
+        )
+        return True
+
     async def _refresh_token(self):
         """Async version of token refresh."""
         if self.token and time.time() < self.token_expires_at:
@@ -170,36 +204,7 @@ class HyxiApiClient:
                         return "auth_failed"
                     return False
 
-                data = res.get("data", {})
-                token_val = data.get("token") or data.get("access_token")
-
-                if token_val:
-                    self.token = f"Bearer {token_val}"
-
-                    # 1. Grab the raw expiration value exactly as the API sent it
-                    raw_expires_in = data.get("expiresIn") or data.get("expires_in")
-                    _LOGGER.debug(
-                        "HYXi API returned raw token expiration: %s seconds",
-                        raw_expires_in,
-                    )
-
-                    # 2. Default to 6600 if the API didn't provide one
-                    expires_in = raw_expires_in or 6600
-
-                    # 3. Apply the 5-minute (300s) safety buffer
-                    buffer_secs = 300
-                    self.token_expires_at = time.time() + int(expires_in) - buffer_secs
-
-                    # 4. Log the actual scheduled refresh time
-                    refresh_time_str = datetime.fromtimestamp(
-                        self.token_expires_at
-                    ).strftime("%Y-%m-%d %H:%M:%S")
-                    _LOGGER.debug(
-                        "HYXi Token proactive refresh scheduled in %s seconds (at %s)",
-                        int(expires_in) - buffer_secs,
-                        refresh_time_str,
-                    )
-                    return True
+                return self._apply_token_response(res.get("data", {}))
         except Exception as e:
             _LOGGER.error("HYXi Token Request Failed: %s", e)
         return False
