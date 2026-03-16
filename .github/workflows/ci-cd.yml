@@ -13,30 +13,6 @@ permissions:
   contents: none
 
 jobs:
-  lint:
-    name: Lint Code (Ruff)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read # Only needs to read code to lint it
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
-        with:
-          egress-policy: audit
-
-      - name: 📥 Checkout Code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: 🐍 Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.14"
-
-      - name: 🧹 Install & Run Ruff
-        uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3.6.1
-        with:
-          args: "check . --target-version=py314"
-
   security:
     name: Security Scan (CodeQL)
     runs-on: ubuntu-latest
@@ -64,7 +40,7 @@ jobs:
 
   publish:
     name: Build and Publish to PyPI
-    needs: [lint, security]
+    needs: [security]
     if: github.event_name == 'release' && github.event.action == 'published'
     runs-on: ubuntu-latest
     environment:

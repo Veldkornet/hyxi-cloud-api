@@ -73,8 +73,13 @@ case "$ACTION" in
     cd .. || exit 1
     python3 -m ruff check . --fix
     ;;
+  lint)
+    echo "🛡️  Running Full Pre-commit Audit..."
+    cd .. || exit 1
+    python3 -m pre_commit run --all-files --color never
+    ;;
   *)
-    printf "Usage: %s {sync-git|reset-dev|ruff-check|ruff-format|ruff-fix}\n" "$0"
+    printf "Usage: %s {sync-git|reset-dev|ruff-check|ruff-format|ruff-fix|lint}\n" "$0"
     exit 1
     ;;
 
