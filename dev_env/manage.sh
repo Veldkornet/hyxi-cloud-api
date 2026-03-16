@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Get the directory where the script is located
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
+cd -- "$SCRIPT_DIR" || exit 1
 
-ACTION=$1
+ACTION="$1"
 
 case "$ACTION" in
   sync-git)
@@ -60,21 +60,21 @@ case "$ACTION" in
     ;;
   ruff-check)
     echo "🔍 Running Ruff Check..."
-    cd ..
+    cd .. || exit 1
     python3 -m ruff check .
     ;;
   ruff-format)
     echo "🧹 Running Ruff Format..."
-    cd ..
+    cd .. || exit 1
     python3 -m ruff format .
     ;;
   ruff-fix)
     echo "🧹 Running Ruff Fix..."
-    cd ..
+    cd .. || exit 1
     python3 -m ruff check . --fix
     ;;
   *)
-    echo "Usage: $0 {sync-git|reset-dev|ruff-check|ruff-format|ruff-fix}"
+    printf "Usage: %s {sync-git|reset-dev|ruff-check|ruff-format|ruff-fix}\n" "$0"
     exit 1
     ;;
 
