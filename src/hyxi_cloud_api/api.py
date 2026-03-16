@@ -4,10 +4,8 @@ import asyncio
 import base64
 import hashlib
 import hmac
-import json
 import logging
 import os
-import pathlib
 import time
 from collections import defaultdict
 from datetime import UTC
@@ -24,8 +22,6 @@ RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number
 # Precomputed hashes for HMAC signature
 _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
 _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
-
-_MOCK_FILE_PATH = pathlib.Path(__file__).parent.resolve() / "mock_data.json"
 
 
 def _parse_data_list(data_list: list) -> dict:
@@ -548,37 +544,8 @@ class HyxiApiClient:
                     entry["alarms"] = alarms_by_sn.get(sn, [])
                     results[sn] = entry
 
-    async def _check_mock_override(self):
-        """Check if local mock data exists and return it."""
-        def load_mock():
-            if _MOCK_FILE_PATH.exists():
-                with open(_MOCK_FILE_PATH, encoding="utf-8") as f:
-                    return json.load(f)
-            return "NOT_FOUND"
-
-        try:
-            mock_data = await asyncio.to_thread(load_mock)
-            if mock_data != "NOT_FOUND":
-                _LOGGER.warning(
-                    "HYXi API 🧪: MOCK MODE ACTIVE - Successfully loaded %s", _MOCK_FILE_PATH
-                )
-                return mock_data
-        except json.JSONDecodeError as e:
-            _LOGGER.error(
-                "HYXi API 🧪: MOCK FILE FOUND, BUT JSON IS INVALID! Error: %s", e
-            )
-        except Exception as e:
-            _LOGGER.error("HYXi API 🧪: Unexpected error reading mock file: %s", e)
-        return None
-
     async def _execute_fetch_all(self):
         """The actual fetching logic moved to a private method for the retry loop."""
-
-        # 🧪 MOCK OVERRIDE START
-        mock_override = await self._check_mock_override()
-        if mock_override is not None:
-            return mock_override
-        # 🧪 MOCK OVERRIDE END
 
         token_status = await self._refresh_token()
 

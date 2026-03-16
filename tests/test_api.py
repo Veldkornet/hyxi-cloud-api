@@ -1,6 +1,5 @@
 """Tests for the HYXi Cloud API client."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 import aiohttp
 
@@ -113,16 +112,6 @@ async def test_execute_fetch_all_concurrent():
 
     api._fetch_devices_for_plant = MagicMock(side_effect=mock_fetch_devices)
 
-    # Need to override asyncio.to_thread so it returns NOT_FOUND for the mock check
-    original_to_thread = asyncio.to_thread
-
-    async def fake_to_thread(func, *args, **kwargs):
-        if func.__name__ == "load_mock":
-            return "NOT_FOUND"
-        return await original_to_thread(func, *args, **kwargs)
-
-    asyncio.to_thread = fake_to_thread
-
     # Configure the mock response to simulate aiohttp's async context manager.
     mock_response = AsyncMock()
     mock_response.__aenter__.return_value.json.return_value = fake_plants_response
@@ -131,15 +120,12 @@ async def test_execute_fetch_all_concurrent():
 
     api.session.post = MagicMock(return_value=mock_response)
 
-    try:
-        results = await api._execute_fetch_all()
-        # Verify both plants were called
-        assert api._fetch_devices_for_plant.call_count == 2
-        # Verify the results are parsed properly (our dummy tuples are keys/values)
-        assert "SN_plant_1" in results
-        assert "SN_plant_2" in results
-    finally:
-        asyncio.to_thread = original_to_thread
+    results = await api._execute_fetch_all()
+    # Verify both plants were called
+    assert api._fetch_devices_for_plant.call_count == 2
+    # Verify the results are parsed properly (our dummy tuples are keys/values)
+    assert "SN_plant_1" in results
+    assert "SN_plant_2" in results
 
 # --- TEST 5: Token Refresh Failures ---
 @pytest.mark.asyncio
