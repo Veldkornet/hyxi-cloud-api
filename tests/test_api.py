@@ -1,4 +1,4 @@
-"""Tests for the HYXi Cloud API client."""
+"""Tests for the HYXI Cloud API client."""
 
 import logging
 from unittest.mock import AsyncMock, MagicMock
