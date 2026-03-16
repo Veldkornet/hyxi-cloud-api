@@ -24,6 +24,8 @@ RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number
 _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
 _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
 
+_MOCK_FILE_PATH = pathlib.Path(__file__).parent.resolve() / "mock_data.json"
+
 
 def _parse_data_list(data_list: list) -> dict:
     """Extract dataKey and dataValue into a cleaner dictionary."""
@@ -466,12 +468,9 @@ class HyxiApiClient:
 
     async def _check_mock_override(self):
         """Check if local mock data exists and return it."""
-        current_dir = pathlib.Path(__file__).parent.resolve()
-        mock_file = current_dir / "mock_data.json"
-
         def load_mock():
-            if mock_file.exists():
-                with open(mock_file, encoding="utf-8") as f:
+            if _MOCK_FILE_PATH.exists():
+                with open(_MOCK_FILE_PATH, encoding="utf-8") as f:
                     return json.load(f)
             return "NOT_FOUND"
 
@@ -479,7 +478,7 @@ class HyxiApiClient:
             mock_data = await asyncio.to_thread(load_mock)
             if mock_data != "NOT_FOUND":
                 _LOGGER.warning(
-                    "HYXi API 🧪: MOCK MODE ACTIVE - Successfully loaded %s", mock_file
+                    "HYXi API 🧪: MOCK MODE ACTIVE - Successfully loaded %s", _MOCK_FILE_PATH
                 )
                 return mock_data
         except json.JSONDecodeError as e:
