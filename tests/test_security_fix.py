@@ -1,7 +1,10 @@
-import sys
-from src.hyxi_cloud_api.api import HyxiApiClient
-from unittest.mock import MagicMock, AsyncMock
+"""Tests for security sanitization and path management."""
+
 import unittest
+from unittest.mock import AsyncMock, MagicMock
+import sys
+
+from src.hyxi_cloud_api.api import HyxiApiClient
 
 
 # Mock aiohttp before importing the API client
@@ -10,6 +13,8 @@ sys.modules["aiohttp"] = mock_aiohttp
 
 
 class TestSecurityFix(unittest.IsolatedAsyncioTestCase):
+    """Test suite for security-related path and param handling."""
+
     async def test_fetch_device_metrics_fixed(self):
         """Verify that _fetch_device_metrics now uses params mapping."""
         fake_session = MagicMock()

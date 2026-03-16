@@ -8,6 +8,7 @@ import pytest
 
 from hyxi_cloud_api.api import HyxiApiClient
 
+
 @pytest.mark.asyncio
 async def test_fetch_device_info_network_error(caplog):
     """Test that _fetch_device_info handles network errors gracefully."""
@@ -22,9 +23,12 @@ async def test_fetch_device_info_network_error(caplog):
     # Use a longer SN so it's not fully masked to ****
     await api._fetch_device_info("10602251600016", entry)
 
-    assert "Error fetching device info for 106XXXXXXXX016: Connection reset" in caplog.text
+    assert (
+        "Error fetching device info for 106XXXXXXXX016: Connection reset" in caplog.text
+    )
     # Ensure it didn't crash and entry was not updated with metrics
     assert "sw_version" not in entry
+
 
 @pytest.mark.asyncio
 async def test_fetch_device_info_invalid_json(caplog):
@@ -36,7 +40,9 @@ async def test_fetch_device_info_invalid_json(caplog):
     mock_response = AsyncMock()
     yielded_response = mock_response.__aenter__.return_value
     yielded_response.json.side_effect = aiohttp.ContentTypeError(
-        request_info=MagicMock(), history=(), message="Attempt to decode JSON with unexpected mimetype"
+        request_info=MagicMock(),
+        history=(),
+        message="Attempt to decode JSON with unexpected mimetype",
     )
     yielded_response.status = 200
 
@@ -47,6 +53,7 @@ async def test_fetch_device_info_invalid_json(caplog):
 
     assert "Error fetching device info for 106XXXXXXXX016" in caplog.text
     assert "sw_version" not in entry
+
 
 @pytest.mark.asyncio
 async def test_fetch_device_info_api_error(caplog):
@@ -59,7 +66,7 @@ async def test_fetch_device_info_api_error(caplog):
     yielded_response = mock_response.__aenter__.return_value
     yielded_response.json.return_value = {
         "success": False,
-        "message": "Device not found"
+        "message": "Device not found",
     }
     yielded_response.status = 200
 

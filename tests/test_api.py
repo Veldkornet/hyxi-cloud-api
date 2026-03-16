@@ -1,5 +1,6 @@
 """Tests for the HYXi Cloud API client."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock
 import aiohttp
 
@@ -153,6 +154,7 @@ async def test_execute_fetch_all_concurrent():
     assert "SN_plant_1" in results
     assert "SN_plant_2" in results
 
+
 # --- TEST 5: Token Refresh Failures ---
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -196,6 +198,7 @@ async def test_refresh_token_failures(status, payload, expected_result):
     result = await api._refresh_token()
     assert result == expected_result
 
+
 @pytest.mark.asyncio
 async def test_refresh_token_network_exception():
     """Test _refresh_token handles network exceptions gracefully."""
@@ -211,11 +214,11 @@ async def test_refresh_token_network_exception():
     result = await api._refresh_token()
     assert result is False
 
+
 # --- TEST 5: Alarm Log Sanitization ---
 @pytest.mark.asyncio
 async def test_fetch_alarms_for_plant_sanitization(caplog):
     """Verify that _fetch_alarms_for_plant sanitizes sensitive fields in logs."""
-    import logging
     caplog.set_level(logging.DEBUG)
 
     # Use a MagicMock for the session to handle context managers
@@ -228,10 +231,14 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
         "success": True,
         "data": {
             "pageData": [
-                {"deviceSn": "10602251600016", "alarmName": "Fault 1", "plantId": "12345678"},
-                {"deviceSn": "60701251900927", "alarmName": "Fault 2"}
+                {
+                    "deviceSn": "10602251600016",
+                    "alarmName": "Fault 1",
+                    "plantId": "12345678",
+                },
+                {"deviceSn": "60701251900927", "alarmName": "Fault 2"},
             ]
-        }
+        },
     }
     yielded_response.raise_for_status = MagicMock()
     yielded_response.status = 200
@@ -242,7 +249,7 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
     alarms = await api._fetch_alarms_for_plant("12345678")
 
     assert len(alarms) == 2
-    assert alarms[0]["deviceSn"] == "10602251600016" # Ensure return value is intact
+    assert alarms[0]["deviceSn"] == "10602251600016"  # Ensure return value is intact
 
     log_text = caplog.text
 
@@ -256,6 +263,7 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
 
     # Ensure plant ID itself is masked
     assert "123XX678" in log_text
+
 
 @pytest.mark.asyncio
 async def test_fetch_all_for_device_collector():
@@ -282,6 +290,7 @@ async def test_fetch_all_for_device_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_fetch_all_for_device_non_collector():
