@@ -469,6 +469,85 @@ class HyxiApiClient:
 
         return None
 
+    async def _fetch_plants(self):
+        """Helper to fetch plants associated with the account."""
+        p_path = "/api/plant/v1/page"
+        async with self.session.post(
+            f"{self.base_url}{p_path}",
+            json={"pageSize": 10, "currentPage": 1},
+            headers=self._generate_headers(p_path, "POST"),
+            timeout=15,
+        ) as resp_p:
+            resp_p.raise_for_status()
+            res_p = await resp_p.json()
+
+        if not res_p.get("success"):
+            # 🚀 If the server rejects the token, wipe it and force a retry!
+            if res_p.get("code") in ["A000002", "A000005"]:
+                _LOGGER.debug(
+                    "HYXi Server rejected our token (A000002/A000005). "
+                    "Forcing immediate token refresh..."
+                )
+                self.token = None
+                self.token_expires_at = 0
+                # Raising this error kicks it back up to the retry loop
+                raise aiohttp.ClientError("Server rejected token")
+
+            _LOGGER.error("HYXi API Plant Fetch Rejected: %s", res_p)
+            return None
+
+        data_p = res_p.get("data", {})
+        plants = data_p.get("list", []) if isinstance(data_p, dict) else []
+
+        # 👇 Log the discovered plants
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "HYXi Discovered Plants: %s",
+                [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
+            )
+
+        return plants
+
+    async def _process_plants_data(self, plants, now, results):
+        """Helper to concurrently process plants to gather metrics and alarms."""
+        metric_tasks = []
+        device_fetch_tasks = []
+        alarm_fetch_tasks = []
+
+        for p in plants:
+            plant_id = p.get("plantId")
+            if not plant_id:
+                continue
+
+            device_fetch_tasks.append(
+                self._fetch_devices_for_plant(plant_id, now, metric_tasks)
+            )
+            alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
+
+        if device_fetch_tasks:
+            await asyncio.gather(*device_fetch_tasks)
+
+        plant_alarms = []
+        if alarm_fetch_tasks:
+            alarm_results = await asyncio.gather(*alarm_fetch_tasks)
+            for alarms in alarm_results:
+                plant_alarms.extend(alarms)
+
+        # 3. Concurrent Metrics
+        if metric_tasks:
+            # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
+            alarms_by_sn = defaultdict(list)
+            for a in plant_alarms:
+                if a.get("deviceSn"):
+                    alarms_by_sn[a["deviceSn"]].append(a)
+
+            updated_entries = await asyncio.gather(*metric_tasks)
+            for sn, entry in updated_entries:
+                if sn:
+                    # Map the relevant active alarms to this specific device
+                    entry["alarms"] = alarms_by_sn.get(sn, [])
+                    results[sn] = entry
+
     async def _check_mock_override(self):
         """Check if local mock data exists and return it."""
         def load_mock():
@@ -512,77 +591,11 @@ class HyxiApiClient:
         now = datetime.now(UTC).isoformat()
 
         # 1. Get Plants
-        p_path = "/api/plant/v1/page"
-        async with self.session.post(
-            f"{self.base_url}{p_path}",
-            json={"pageSize": 10, "currentPage": 1},
-            headers=self._generate_headers(p_path, "POST"),
-            timeout=15,
-        ) as resp_p:
-            resp_p.raise_for_status()
-            res_p = await resp_p.json()
-
-        if not res_p.get("success"):
-            # 🚀 If the server rejects the token, wipe it and force a retry!
-            if res_p.get("code") in ["A000002", "A000005"]:
-                _LOGGER.debug(
-                    "HYXi Server rejected our token (A000002/A000005). "
-                    "Forcing immediate token refresh..."
-                )
-                self.token = None
-                self.token_expires_at = 0
-                # Raising this error kicks it back up to the retry loop
-                raise aiohttp.ClientError("Server rejected token")
-
-            _LOGGER.error("HYXi API Plant Fetch Rejected: %s", res_p)
+        plants = await self._fetch_plants()
+        if plants is None:
             return None
 
-        data_p = res_p.get("data", {})
-        plants = data_p.get("list", []) if isinstance(data_p, dict) else []
-
-        # 👇 Log the discovered plants
-        if _LOGGER.isEnabledFor(logging.DEBUG):
-            _LOGGER.debug(
-                "HYXi Discovered Plants: %s",
-                [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
-            )
-
-        metric_tasks = []
-        device_fetch_tasks = []
-        alarm_fetch_tasks = []
-
-        for p in plants:
-            plant_id = p.get("plantId")
-            if not plant_id:
-                continue
-
-            device_fetch_tasks.append(
-                self._fetch_devices_for_plant(plant_id, now, metric_tasks)
-            )
-            alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
-
-        if device_fetch_tasks:
-            await asyncio.gather(*device_fetch_tasks)
-
-        plant_alarms = []
-        if alarm_fetch_tasks:
-            alarm_results = await asyncio.gather(*alarm_fetch_tasks)
-            for alarms in alarm_results:
-                plant_alarms.extend(alarms)
-
-        # 3. Concurrent Metrics
-        if metric_tasks:
-            # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
-            alarms_by_sn = defaultdict(list)
-            for a in plant_alarms:
-                if a.get("deviceSn"):
-                    alarms_by_sn[a["deviceSn"]].append(a)
-
-            updated_entries = await asyncio.gather(*metric_tasks)
-            for sn, entry in updated_entries:
-                if sn:
-                    # Map the relevant active alarms to this specific device
-                    entry["alarms"] = alarms_by_sn.get(sn, [])
-                    results[sn] = entry
+        # 2 & 3. Process Plants for Devices, Alarms, and Metrics
+        await self._process_plants_data(plants, now, results)
 
         return results
