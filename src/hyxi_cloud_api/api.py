@@ -9,6 +9,7 @@ import logging
 import os
 import pathlib
 import time
+from collections import defaultdict
 from datetime import UTC
 from datetime import datetime
 
@@ -421,7 +422,9 @@ class HyxiApiClient:
                 _LOGGER.debug(
                     "HYXi Raw ALARMS for Plant %s: %s",
                     _mask_id(plant_id),
-                    [_sanitize_dict(a) for a in alarms] if isinstance(alarms, list) else alarms,
+                    [_sanitize_dict(a) for a in alarms]
+                    if isinstance(alarms, list)
+                    else alarms,
                 )
 
             return alarms
@@ -569,13 +572,17 @@ class HyxiApiClient:
 
         # 3. Concurrent Metrics
         if metric_tasks:
+            # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
+            alarms_by_sn = defaultdict(list)
+            for a in plant_alarms:
+                if a.get("deviceSn"):
+                    alarms_by_sn[a["deviceSn"]].append(a)
+
             updated_entries = await asyncio.gather(*metric_tasks)
             for sn, entry in updated_entries:
                 if sn:
                     # Map the relevant active alarms to this specific device
-                    entry["alarms"] = [
-                        a for a in plant_alarms if a.get("deviceSn") == sn
-                    ]
+                    entry["alarms"] = alarms_by_sn.get(sn, [])
                     results[sn] = entry
 
         return results
