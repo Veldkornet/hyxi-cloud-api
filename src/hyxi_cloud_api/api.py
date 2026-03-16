@@ -224,12 +224,13 @@ class HyxiApiClient:
             if res_q.get("success"):
                 data_list = res_q.get("data", [])
                 m_raw = _parse_data_list(data_list)
-                _LOGGER.debug(
-                    "HYXi Raw Metrics for %s (%s): %s",
-                    _mask_id(sn),
-                    entry.get("device_type_code"),
-                    _sanitize_dict(m_raw),
-                )
+                if _LOGGER.isEnabledFor(logging.DEBUG):
+                    _LOGGER.debug(
+                        "HYXi Raw Metrics for %s (%s): %s",
+                        _mask_id(sn),
+                        entry.get("device_type_code"),
+                        _sanitize_dict(m_raw),
+                    )
                 entry["metrics"].update(m_raw)
 
                 if "gridP" in m_raw or "pbat" in m_raw:
@@ -274,9 +275,10 @@ class HyxiApiClient:
                 i_raw = _parse_data_list(data_list)
 
                 # 👇 This will dump the EXACT info the cloud sends back
-                _LOGGER.debug(
-                    "HYXi Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
-                )
+                if _LOGGER.isEnabledFor(logging.DEBUG):
+                    _LOGGER.debug(
+                        "HYXi Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
+                    )
 
                 # Smart Firmware Finder
                 sw_ver = (
@@ -355,11 +357,12 @@ class HyxiApiClient:
             )
 
             # 👇 Log the devices discovered for this plant
-            _LOGGER.debug(
-                "HYXi Discovered Devices for Plant %s: %s",
-                _mask_id(plant_id),
-                [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
-            )
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    "HYXi Discovered Devices for Plant %s: %s",
+                    _mask_id(plant_id),
+                    [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
+                )
 
             for d in devices:
                 sn = d.get("deviceSn")
@@ -410,13 +413,12 @@ class HyxiApiClient:
             alarms = data_val.get("pageData", []) if isinstance(data_val, dict) else []
 
             # 👇 Dump the EXACT active alarms the cloud sends back
-            _LOGGER.debug(
-                "HYXi Raw ALARMS for Plant %s: %s",
-                _mask_id(plant_id),
-                [_sanitize_dict(a) for a in alarms]
-                if isinstance(alarms, list)
-                else alarms,
-            )
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    "HYXi Raw ALARMS for Plant %s: %s",
+                    _mask_id(plant_id),
+                    [_sanitize_dict(a) for a in alarms] if isinstance(alarms, list) else alarms,
+                )
 
             return alarms
         except Exception as e:
@@ -535,10 +537,11 @@ class HyxiApiClient:
         plants = data_p.get("list", []) if isinstance(data_p, dict) else []
 
         # 👇 Log the discovered plants
-        _LOGGER.debug(
-            "HYXi Discovered Plants: %s",
-            [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
-        )
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "HYXi Discovered Plants: %s",
+                [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
+            )
 
         metric_tasks = []
         device_fetch_tasks = []
