@@ -317,3 +317,52 @@ async def test_fetch_all_for_device_non_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_called_once_with(sn, entry)
+
+
+# --- TEST 6: Empty Data Response (The "Halo ESS" Scenario) ---
+@pytest.mark.asyncio
+async def test_execute_fetch_all_empty_plants():
+    """Verify that _execute_fetch_all returns empty dict (not None) for successful but empty plant list."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api._refresh_token = AsyncMock(return_value=True)
+
+    # Mock response for /api/plant/v1/page: success=True, but data is an empty list or null
+    mock_response = AsyncMock()
+    # Scenario: success=True, data is empty
+    mock_response.__aenter__.return_value.json.return_value = {
+        "success": True,
+        "data": {"list": []},
+    }
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
+
+    api.session.post = MagicMock(return_value=mock_response)
+
+    results = await api._execute_fetch_all()
+
+    # Should return {} (indicating no devices found), NOT None (which would trigger retries)
+    assert isinstance(results, dict)
+    assert len(results) == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_fetch_all_null_data():
+    """Verify robustness when the 'data' field itself is null."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api._refresh_token = AsyncMock(return_value=True)
+
+    mock_response = AsyncMock()
+    # Scenario: success=True, data is null (None)
+    mock_response.__aenter__.return_value.json.return_value = {
+        "success": True,
+        "data": None,
+    }
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
+
+    api.session.post = MagicMock(return_value=mock_response)
+
+    results = await api._execute_fetch_all()
+
+    assert isinstance(results, dict)
+    assert len(results) == 0
