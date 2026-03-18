@@ -31,6 +31,7 @@ jobs:
             files.pythonhosted.org:443
             github.com:443
             objects.githubusercontent.com:443
+            pkg-containers.githubusercontent.com:443
             pypi.org:443
 
       - name: Checkout Code
@@ -69,6 +70,7 @@ jobs:
           allowed-endpoints: >
             api.github.com:443
             github.com:443
+            objects.githubusercontent.com:443
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
