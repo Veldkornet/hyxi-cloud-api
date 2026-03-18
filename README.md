@@ -20,7 +20,10 @@ pip install hyxi-cloud-api
 
 ## 🚀 Quick Start
 
-This library uses `aiohttp` for non-blocking network requests. You will need to provide your HYXI Cloud Access Key and Secret Key, along with an active `aiohttp.ClientSession`.
+This library uses `aiohttp` for non-blocking network requests. You will need to provide your **Developer API credentials (AK/SK)**, along with an active `aiohttp.ClientSession`.
+
+> [!NOTE]
+> The HYXI Open API requires a separate developer account registered at [open.hyxicloud.com](https://open.hyxicloud.com). If your developer email is different from your main HYXI app account, you must **Share your Plant** from the app to your developer email address to access your data.
 
 ```python
 import asyncio
