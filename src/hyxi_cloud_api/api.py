@@ -438,7 +438,7 @@ class HyxiApiClient:
                 data = await self._execute_fetch_all()
                 if data == "auth_failed":
                     return None  # Hard fail, don't retry bad credentials
-                if data:
+                if data is not None:
                     # ✅ Success
                     return {"data": data, "attempts": attempt}
 
