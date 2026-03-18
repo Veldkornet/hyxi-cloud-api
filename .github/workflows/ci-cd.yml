@@ -62,11 +62,14 @@ jobs:
           allowed-endpoints: >
             api.github.com:443
             files.pythonhosted.org:443
+            fulcio.sigstore.dev:443
             ghcr.io:443
             github.com:443
             objects.githubusercontent.com:443
             pypi.org:443
             pkg-containers.githubusercontent.com:443
+            rekor.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
             upload.pypi.org:443
             uploads.github.com:443
 
