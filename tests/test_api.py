@@ -153,7 +153,7 @@ async def test_query_ems_basic_details_success():
     mock_response = AsyncMock()
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.json.return_value = {
-        "success": True,
+        "code": "0",
         "data": [
             {
                 "filedKv": [
