@@ -697,7 +697,7 @@ class HyxiApiClient:
                 # This prevents "Collector" entities in Home Assistant from showing ghost battery stats.
                 if entry.get("device_type_code") == "COLLECTOR":
                     sanitized = {
-                        k: v for k, v in m_raw.items() 
+                        k: v for k, v in m_raw.items()
                         if not any(x in k.lower() for x in ["bat", "pv", "grid", "pbat", "load", "ph1", "ph2", "ph3"])
                     }
                     entry["metrics"].update(sanitized)
@@ -807,7 +807,7 @@ class HyxiApiClient:
                     "wifiVer": i_raw.get("wifiVer"),
                     "comMode": i_raw.get("comMode"),
                 }
-                
+
                 # Device-specific metadata (e.g. Battery info for Inverters)
                 if any(x in entry.get("device_type_code", "").upper() for x in ["INVERTER", "ESS", "HALO", "1", "15"]):
                     base_info.update({
@@ -895,7 +895,7 @@ class HyxiApiClient:
                 discovered_sns.add(sn)
                 dev_type = str(d.get("deviceType") or "UNKNOWN")
                 friendly_name = DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
-                
+
                 device_name = d.get("deviceName") or d.get("alias")
                 if not device_name or device_name == "":
                     device_name = f"{friendly_name} {sn}"
@@ -911,7 +911,7 @@ class HyxiApiClient:
                 }
 
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
-                
+
                 # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
                 if any(x in dev_type for x in ["COLLECTOR", "DMU", "INVERTER"]):
                     _LOGGER.debug(
@@ -965,11 +965,11 @@ class HyxiApiClient:
                     continue
 
                 discovered_sns.add(sn)
-                
+
                 # Sub-device responses often use numeric types (e.g. 1, 15)
                 raw_type = str(c.get("deviceType") or "UNKNOWN")
                 friendly_name = DEVICE_TYPE_MAP.get(raw_type) or raw_type.replace("_", " ").title()
-                
+
                 device_name = c.get("deviceName") or c.get("alias")
                 if not device_name or device_name == "":
                     device_name = f"{friendly_name} {sn}"
@@ -988,7 +988,7 @@ class HyxiApiClient:
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, raw_type))
 
         except Exception as e:
-             _LOGGER.error("Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e)
+            _LOGGER.error("Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e)
 
     async def _fetch_alarms_for_plant(self, plant_id):
         """Helper to fetch active alarms for a single plant."""
@@ -1139,10 +1139,10 @@ class HyxiApiClient:
             for i, alarms in enumerate(alarm_results):
                 if not isinstance(alarms, list):
                     continue
-                
+
                 plant_alarms.extend(alarms)
                 plant_id = plants[i].get("plantId")
-                
+
                 # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
                 for a in alarms:
                     sn = a.get("deviceSn")
@@ -1155,7 +1155,7 @@ class HyxiApiClient:
                         discovered_sns.add(sn)
                         dev_type = str(a.get("deviceType") or "UNKNOWN")
                         friendly_name = DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
-                        
+
                         device_name = a.get("deviceName")
                         if not device_name or device_name == "":
                             device_name = f"{friendly_name} {sn}"
@@ -1170,7 +1170,7 @@ class HyxiApiClient:
                             "metrics": {"last_seen": now},
                         }
                         metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
-                        
+
                         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
                         if any(x in dev_type.upper() for x in ["COLLECTOR", "DMU", "INVERTER"]):
                              await self._fetch_sub_devices(sn, plant_id, now, metric_tasks, discovered_sns)
