@@ -773,7 +773,7 @@ class HyxiApiClient:
                 resp.raise_for_status()
                 res = await resp.json()
 
-                if res.get("success"):
+                if res.get("code") == "0":
                     data = res.get("data", [])
                     return _parse_ems_kv(data)
         except Exception as e:
