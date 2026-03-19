@@ -750,16 +750,19 @@ class HyxiApiClient:
 
     async def _fetch_ems_basic_data(self, ems_sn, entry):
         """Helper to fetch and merge EMS-specific basic details."""
+        _LOGGER.debug("HYXI Probing EMS telemetry for %s...", _mask_id(ems_sn))
         m_raw = await self.query_ems_basic_details(ems_sn)
         if m_raw:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
-                    "HYXI Raw METRICS for %s (%s): %s",
+                    "HYXI Raw METRICS for %s (%s) [EMS]: %s",
                     _mask_id(ems_sn),
                     entry.get("device_type_code", "EMS"),
                     _sanitize_dict(m_raw),
                 )
             entry["metrics"].update(m_raw)
+        else:
+            _LOGGER.debug("HYXI EMS telemetry probe returned no data for %s", _mask_id(ems_sn))
 
     async def query_ems_basic_details(self, ems_sn):
         """Acquire basic data for Energy Storage Systems (ESS)."""
