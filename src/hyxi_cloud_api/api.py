@@ -333,7 +333,9 @@ class HyxiApiClient:
 
         return sn, entry
 
-    async def _fetch_devices_for_plant(self, plant_id, now, metric_tasks, discovered_sns):
+    async def _fetch_devices_for_plant(
+        self, plant_id, now, metric_tasks, discovered_sns
+    ):
         """Helper to fetch devices for a single plant concurrently."""
         d_path = "/api/plant/v1/devicePage"
         try:
@@ -524,7 +526,9 @@ class HyxiApiClient:
                 continue
 
             device_fetch_tasks.append(
-                self._fetch_devices_for_plant(plant_id, now, metric_tasks, discovered_sns)
+                self._fetch_devices_for_plant(
+                    plant_id, now, metric_tasks, discovered_sns
+                )
             )
             alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
 
@@ -549,7 +553,7 @@ class HyxiApiClient:
                 discovered_sns.add(sn)
                 dev_type = a.get("deviceType") or "UNKNOWN"
                 friendly_name = str(dev_type).replace("_", " ").title()
-                
+
                 entry = {
                     "sn": sn,
                     "device_name": a.get("deviceName") or f"{friendly_name} {sn}",
