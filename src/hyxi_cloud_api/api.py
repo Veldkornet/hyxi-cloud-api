@@ -750,15 +750,21 @@ class HyxiApiClient:
 
     async def _fetch_ems_basic_data(self, ems_sn, entry):
         """Helper to fetch and merge EMS-specific basic details."""
+        _LOGGER.debug("HYXI Probing EMS telemetry for %s...", _mask_id(ems_sn))
         m_raw = await self.query_ems_basic_details(ems_sn)
         if m_raw:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
-                    "HYXI Raw EMS METRICS for %s: %s",
+                    "HYXI Raw METRICS for %s (%s) [EMS]: %s",
                     _mask_id(ems_sn),
+                    entry.get("device_type_code", "EMS"),
                     _sanitize_dict(m_raw),
                 )
             entry["metrics"].update(m_raw)
+        else:
+            _LOGGER.debug(
+                "HYXI EMS telemetry probe returned no data for %s", _mask_id(ems_sn)
+            )
 
     async def query_ems_basic_details(self, ems_sn):
         """Acquire basic data for Energy Storage Systems (ESS)."""
@@ -773,7 +779,7 @@ class HyxiApiClient:
                 resp.raise_for_status()
                 res = await resp.json()
 
-                if res.get("success"):
+                if res.get("code") == "0":
                     data = res.get("data", [])
                     return _parse_ems_kv(data)
         except Exception as e:
@@ -860,8 +866,6 @@ class HyxiApiClient:
         if dev_type != "COLLECTOR":
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
 
-        # 🚀 NEW: Fetch EMS Basic Details for ESS/HALO devices (types 15 and 16)
-        if dev_type in ["15", "16", "ESS", "HALO", "MICRO ESS"]:
             tasks.append(asyncio.create_task(self._fetch_ems_basic_data(sn, entry)))
 
         # Wait for them to finish
