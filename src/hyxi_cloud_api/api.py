@@ -1,4 +1,9 @@
-"""HYXI Cloud API Client for retrieving inverter and battery data."""
+"""HYXI Cloud API Client for retrieving inverter and battery data.
+
+This module is intentionally large: it includes the full ALARM_CODE_MAP,
+INTERNAL_ERROR_MAP, and DEVICE_TYPE_MAP reference tables to avoid external
+dependencies. Suppress the module-size warning accordingly.
+"""  # pylint: disable=too-many-lines
 
 import asyncio
 import base64
@@ -697,8 +702,21 @@ class HyxiApiClient:
                 # This prevents "Collector" entities in Home Assistant from showing ghost battery stats.
                 if entry.get("device_type_code") == "COLLECTOR":
                     sanitized = {
-                        k: v for k, v in m_raw.items()
-                        if not any(x in k.lower() for x in ["bat", "pv", "grid", "pbat", "load", "ph1", "ph2", "ph3"])
+                        k: v
+                        for k, v in m_raw.items()
+                        if not any(
+                            x in k.lower()
+                            for x in [
+                                "bat",
+                                "pv",
+                                "grid",
+                                "pbat",
+                                "load",
+                                "ph1",
+                                "ph2",
+                                "ph3",
+                            ]
+                        )
                     }
                     entry["metrics"].update(sanitized)
                 else:
@@ -809,15 +827,20 @@ class HyxiApiClient:
                 }
 
                 # Device-specific metadata (e.g. Battery info for Inverters)
-                if any(x in entry.get("device_type_code", "").upper() for x in ["INVERTER", "ESS", "HALO", "1", "15"]):
-                    base_info.update({
-                        "batCap": _get_f("batCap", i_raw),
-                        "packNum": int(i_raw.get("packNum") or 1),
-                        "maxChargePower": _get_f("maxChargePower", i_raw)
-                        or _get_f("maxChargingDischargingPower", i_raw),
-                        "maxDischargePower": _get_f("maxDischargePower", i_raw)
-                        or _get_f("maxChargingDischargingPower", i_raw),
-                    })
+                if any(
+                    x in entry.get("device_type_code", "").upper()
+                    for x in ["INVERTER", "ESS", "HALO", "1", "15"]
+                ):
+                    base_info.update(
+                        {
+                            "batCap": _get_f("batCap", i_raw),
+                            "packNum": int(i_raw.get("packNum") or 1),
+                            "maxChargePower": _get_f("maxChargePower", i_raw)
+                            or _get_f("maxChargingDischargingPower", i_raw),
+                            "maxDischargePower": _get_f("maxDischargePower", i_raw)
+                            or _get_f("maxChargingDischargingPower", i_raw),
+                        }
+                    )
 
                 entry["metrics"].update(base_info)
             else:
@@ -894,7 +917,9 @@ class HyxiApiClient:
 
                 discovered_sns.add(sn)
                 dev_type = str(d.get("deviceType") or "UNKNOWN")
-                friendly_name = DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
+                friendly_name = (
+                    DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
+                )
 
                 device_name = d.get("deviceName") or d.get("alias")
                 if not device_name or device_name == "":
@@ -919,14 +944,18 @@ class HyxiApiClient:
                         _mask_id(sn),
                         dev_type,
                     )
-                    await self._fetch_sub_devices(sn, plant_id, now, metric_tasks, discovered_sns)
+                    await self._fetch_sub_devices(
+                        sn, plant_id, now, metric_tasks, discovered_sns
+                    )
 
         except Exception as e:
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
 
-    async def _fetch_sub_devices(self, parent_sn, plant_id, now, metric_tasks, discovered_sns):
+    async def _fetch_sub_devices(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self, parent_sn, plant_id, now, metric_tasks, discovered_sns
+    ):
         """Fetch sub-devices under a communication unit (Collector/DMU)."""
         sd_path = "/api/device/v1/getSubDevicePage"
         try:
@@ -949,7 +978,9 @@ class HyxiApiClient:
 
             data_val = res_sd.get("data", {})
             # Normalized extract: childDevice list
-            children = data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+            children = (
+                data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+            )
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
@@ -968,7 +999,9 @@ class HyxiApiClient:
 
                 # Sub-device responses often use numeric types (e.g. 1, 15)
                 raw_type = str(c.get("deviceType") or "UNKNOWN")
-                friendly_name = DEVICE_TYPE_MAP.get(raw_type) or raw_type.replace("_", " ").title()
+                friendly_name = (
+                    DEVICE_TYPE_MAP.get(raw_type) or raw_type.replace("_", " ").title()
+                )
 
                 device_name = c.get("deviceName") or c.get("alias")
                 if not device_name or device_name == "":
@@ -988,7 +1021,9 @@ class HyxiApiClient:
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, raw_type))
 
         except Exception as e:
-            _LOGGER.error("Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e)
+            _LOGGER.error(
+                "Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e
+            )
 
     async def _fetch_alarms_for_plant(self, plant_id):
         """Helper to fetch active alarms for a single plant."""
@@ -1150,11 +1185,14 @@ class HyxiApiClient:
                         _LOGGER.debug(
                             "HYXI: Back-discovering device %s found in alarms for plant %s...",
                             _mask_id(sn),
-                            _mask_id(plant_id)
+                            _mask_id(plant_id),
                         )
                         discovered_sns.add(sn)
                         dev_type = str(a.get("deviceType") or "UNKNOWN")
-                        friendly_name = DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
+                        friendly_name = (
+                            DEVICE_TYPE_MAP.get(dev_type)
+                            or dev_type.replace("_", " ").title()
+                        )
 
                         device_name = a.get("deviceName")
                         if not device_name or device_name == "":
@@ -1169,11 +1207,18 @@ class HyxiApiClient:
                             "hw_version": None,
                             "metrics": {"last_seen": now},
                         }
-                        metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+                        metric_tasks.append(
+                            self._fetch_all_for_device(sn, entry, dev_type)
+                        )
 
                         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-                        if any(x in dev_type.upper() for x in ["COLLECTOR", "DMU", "INVERTER"]):
-                             await self._fetch_sub_devices(sn, plant_id, now, metric_tasks, discovered_sns)
+                        if any(
+                            x in dev_type.upper()
+                            for x in ["COLLECTOR", "DMU", "INVERTER"]
+                        ):
+                            await self._fetch_sub_devices(
+                                sn, plant_id, now, metric_tasks, discovered_sns
+                            )
 
         # 3. Concurrent Metrics
         if metric_tasks:
