@@ -862,7 +862,7 @@ class HyxiApiClient:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
 
         # 🚀 NEW: Fetch EMS Basic Details for ESS/HALO devices (types 15 and 16)
-        if dev_type in ["15", "16", "ESS", "HALO", "MICRO ESS"]:
+        if dev_type in ["15", "16", "ESS", "HALO", "MICRO ESS", "HYBRID_INVERTER"]:
             tasks.append(asyncio.create_task(self._fetch_ems_basic_data(sn, entry)))
 
         # Wait for them to finish
