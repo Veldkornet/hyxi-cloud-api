@@ -754,8 +754,9 @@ class HyxiApiClient:
         if m_raw:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
-                    "HYXI Raw EMS METRICS for %s: %s",
+                    "HYXI Raw METRICS for %s (%s): %s",
                     _mask_id(ems_sn),
+                    entry.get("device_type_code", "EMS"),
                     _sanitize_dict(m_raw),
                 )
             entry["metrics"].update(m_raw)
