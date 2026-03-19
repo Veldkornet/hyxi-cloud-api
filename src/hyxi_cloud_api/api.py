@@ -762,7 +762,9 @@ class HyxiApiClient:
                 )
             entry["metrics"].update(m_raw)
         else:
-            _LOGGER.debug("HYXI EMS telemetry probe returned no data for %s", _mask_id(ems_sn))
+            _LOGGER.debug(
+                "HYXI EMS telemetry probe returned no data for %s", _mask_id(ems_sn)
+            )
 
     async def query_ems_basic_details(self, ems_sn):
         """Acquire basic data for Energy Storage Systems (ESS)."""
