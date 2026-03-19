@@ -71,6 +71,9 @@ _SENSITIVE_KEYS = frozenset(
         "plantId",
         "gprsImei",
         "plantAddress",  # Full home/site address — hard-redact
+        "plantName",
+        "deviceName",
+        "alarmName",
     }
 )
 
@@ -85,8 +88,11 @@ def _sanitize_dict(raw: dict) -> dict:
     for k, v in raw.items():
         if k == "plantAddress":
             result[k] = "[REDACTED]"
-        elif k in _SENSITIVE_KEYS and v:
-            result[k] = _mask_id(str(v))
+        elif (k in _SENSITIVE_KEYS or k.lower() == "alarmstate") and v:
+            if k in _SENSITIVE_KEYS:
+                result[k] = _mask_id(str(v))
+            else:
+                result[k] = v
         else:
             result[k] = v
     return result
@@ -327,7 +333,7 @@ class HyxiApiClient:
 
         return sn, entry
 
-    async def _fetch_devices_for_plant(self, plant_id, now, metric_tasks):
+    async def _fetch_devices_for_plant(self, plant_id, now, metric_tasks, discovered_sns):
         """Helper to fetch devices for a single plant concurrently."""
         d_path = "/api/plant/v1/devicePage"
         try:
@@ -370,8 +376,9 @@ class HyxiApiClient:
                 if not sn:
                     continue
 
+                discovered_sns.add(sn)
                 dev_type = d.get("deviceType") or "UNKNOWN"
-                friendly_name = dev_type.replace("_", " ").title()
+                friendly_name = str(dev_type).replace("_", " ").title()
 
                 entry = {
                     "sn": sn,
@@ -509,6 +516,7 @@ class HyxiApiClient:
         metric_tasks = []
         device_fetch_tasks = []
         alarm_fetch_tasks = []
+        discovered_sns = set()
 
         for p in plants:
             plant_id = p.get("plantId")
@@ -516,7 +524,7 @@ class HyxiApiClient:
                 continue
 
             device_fetch_tasks.append(
-                self._fetch_devices_for_plant(plant_id, now, metric_tasks)
+                self._fetch_devices_for_plant(plant_id, now, metric_tasks, discovered_sns)
             )
             alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
 
@@ -527,15 +535,40 @@ class HyxiApiClient:
         if alarm_fetch_tasks:
             alarm_results = await asyncio.gather(*alarm_fetch_tasks)
             for alarms in alarm_results:
-                plant_alarms.extend(alarms)
+                if isinstance(alarms, list):
+                    plant_alarms.extend(alarms)
+
+        # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
+        for a in plant_alarms:
+            sn = a.get("deviceSn")
+            if sn and sn not in discovered_sns:
+                _LOGGER.info(
+                    "HYXI Experimental: Back-discovering device %s found in alarms...",
+                    _mask_id(sn),
+                )
+                discovered_sns.add(sn)
+                dev_type = a.get("deviceType") or "UNKNOWN"
+                friendly_name = str(dev_type).replace("_", " ").title()
+                
+                entry = {
+                    "sn": sn,
+                    "device_name": a.get("deviceName") or f"{friendly_name} {sn}",
+                    "model": friendly_name,
+                    "device_type_code": dev_type,
+                    "sw_version": None,
+                    "hw_version": None,
+                    "metrics": {"last_seen": now},
+                }
+                metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
         # 3. Concurrent Metrics
         if metric_tasks:
             # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
             alarms_by_sn = defaultdict(list)
             for a in plant_alarms:
-                if a.get("deviceSn"):
-                    alarms_by_sn[a["deviceSn"]].append(a)
+                sn = a.get("deviceSn")
+                if sn:
+                    alarms_by_sn[sn].append(a)
 
             updated_entries = await asyncio.gather(*metric_tasks)
             for sn, entry in updated_entries:
