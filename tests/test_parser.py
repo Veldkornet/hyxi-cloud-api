@@ -38,7 +38,7 @@ async def test_api_parsing():
     )
 
     # 4. Create the dummy dictionary that your code expects to update
-    entry = {"metrics": {}}
+    entry = {"metrics": {}, "device_type_code": "1"}  # Inverter
 
     # 5. EXECUTE: Run your actual parsing method!
     await api._fetch_device_metrics("SN123", entry)
@@ -83,7 +83,7 @@ async def test_api_device_info_parsing():
         session=mock_session,
     )
 
-    entry = {"metrics": {}}
+    entry = {"metrics": {}, "device_type_code": "1"}  # Inverter
 
     await api._fetch_device_info("SN123", entry)
 
@@ -92,8 +92,8 @@ async def test_api_device_info_parsing():
 
     # Verify basic mapping
     assert entry["metrics"]["signalIntensity"] == "good"
-    assert entry["metrics"]["batCap"] == "100"
+    assert entry["metrics"]["batCap"] == 100.0
 
     # Verify fallback logic
-    assert entry["metrics"]["maxChargePower"] == "5000"
-    assert entry["metrics"]["maxDischargePower"] == "5000"
+    assert entry["metrics"]["maxChargePower"] == 5000.0
+    assert entry["metrics"]["maxDischargePower"] == 5000.0

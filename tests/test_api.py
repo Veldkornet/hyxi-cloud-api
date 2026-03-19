@@ -6,7 +6,7 @@ import aiohttp
 
 import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient
+from src.hyxi_cloud_api.api import HyxiApiClient, _parse_ems_kv
 
 
 # --- TEST 1: Basic Initialization ---
@@ -113,7 +113,66 @@ def test_generate_headers():
     assert "Authorization" not in token_headers
 
 
-# --- TEST 4: Concurrent Execution of Fetch All ---
+# --- TEST 4: EMS Data Parsing ---
+def test_parse_ems_kv():
+    """Verify that _parse_ems_kv correctly flattens the nested Field KV structure."""
+    fake_data = [
+        {
+            "filedKv": [
+                {"prop": "softWareVer", "value": "V1.2.3"},
+                {"prop": "duiSoc", "value": "88.5"},
+            ],
+            "modeName": "BMS_OVER_VIEW",
+        },
+        {
+            "filedKv": [
+                {"prop": "cuVolt", "value": "450.2"},
+                {"prop": "cuCurr", "value": "-5.1"},
+            ],
+            "modeName": "BATTERY_CLUSTER",
+        },
+    ]
+
+    result = _parse_ems_kv(fake_data)
+    assert result["softwarever"] == "V1.2.3"
+    assert result["duisoc"] == "88.5"
+    assert result["cuvolt"] == "450.2"
+    assert result["cucurr"] == "-5.1"
+
+
+@pytest.mark.asyncio
+async def test_query_ems_basic_details_success():
+    """Test successful EMS basic data retrieval using AsyncMock."""
+    mock_session = AsyncMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api.token = "Bearer fake_token"
+
+    ems_sn = "EMS123"
+
+    # Mock the response context manager
+    mock_response = AsyncMock()
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.json.return_value = {
+        "success": True,
+        "data": [
+            {
+                "filedKv": [
+                    {"prop": "duiSoc", "value": "92.0"},
+                    {"prop": "cuVolt", "value": "480"},
+                ]
+            }
+        ],
+    }
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
+
+    api.session.get = MagicMock(return_value=mock_response)
+
+    result = await api.query_ems_basic_details(ems_sn)
+    assert result["duisoc"] == "92.0"
+    assert result["cuvolt"] == "480"
+
+
+# --- TEST 5: Concurrent Execution of Fetch All ---
 @pytest.mark.asyncio
 async def test_execute_fetch_all_concurrent():
     """Verify that _execute_fetch_all handles multiple plants correctly."""
