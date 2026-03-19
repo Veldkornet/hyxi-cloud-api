@@ -6,7 +6,7 @@ import aiohttp
 
 import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient
+from src.hyxi_cloud_api.api import HyxiApiClient, _parse_ems_kv
 
 
 # --- TEST 1: Basic Initialization ---
@@ -116,8 +116,6 @@ def test_generate_headers():
 # --- TEST 4: EMS Data Parsing ---
 def test_parse_ems_kv():
     """Verify that _parse_ems_kv correctly flattens the nested Field KV structure."""
-    from src.hyxi_cloud_api.api import _parse_ems_kv
-
     fake_data = [
         {
             "filedKv": [
