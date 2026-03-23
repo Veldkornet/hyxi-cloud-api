@@ -948,43 +948,42 @@ class HyxiApiClient:
                         _mask_id(sn),
                         dev_type,
                     )
-                    await self._fetch_sub_devices(
-                        sn, plant_id, now, metric_tasks, discovered_sns
-                    )
+                    await self._fetch_sub_devices(sn, now, metric_tasks, discovered_sns)
 
         except Exception as e:
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
 
-    async def _fetch_sub_devices(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self, parent_sn, plant_id, now, metric_tasks, discovered_sns
-    ):
-        """Fetch sub-devices under a communication unit (Collector/DMU)."""
+    async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict]:
+        """Fetch the list of sub-devices from the API."""
         sd_path = "/api/device/v1/getSubDevicePage"
-        try:
-            async with self.session.post(
-                f"{self.base_url}{sd_path}",
-                json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
-                headers=self._generate_headers(sd_path, "POST"),
-                timeout=15,
-            ) as resp_sd:
-                resp_sd.raise_for_status()
-                res_sd = await resp_sd.json()
+        async with self.session.post(
+            f"{self.base_url}{sd_path}",
+            json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
+            headers=self._generate_headers(sd_path, "POST"),
+            timeout=15,
+        ) as resp_sd:
+            resp_sd.raise_for_status()
+            res_sd = await resp_sd.json()
 
-            if not res_sd.get("success"):
-                _LOGGER.error(
-                    "HYXI API Sub-Device Fetch Rejected for %s: %s",
-                    _mask_id(parent_sn),
-                    _sanitize_dict(res_sd),
-                )
-                return
-
-            data_val = res_sd.get("data", {})
-            # Normalized extract: childDevice list
-            children = (
-                data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+        if not res_sd.get("success"):
+            _LOGGER.error(
+                "HYXI API Sub-Device Fetch Rejected for %s: %s",
+                _mask_id(parent_sn),
+                _sanitize_dict(res_sd),
             )
+            return []
+
+        data_val = res_sd.get("data", {})
+        return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+
+    async def _fetch_sub_devices(self, parent_sn, now, metric_tasks, discovered_sns):
+        """Fetch sub-devices under a communication unit (Collector/DMU)."""
+        try:
+            children = await self._fetch_sub_device_list(parent_sn)
+            if not children:
+                return
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
@@ -1221,7 +1220,7 @@ class HyxiApiClient:
                             for x in ["COLLECTOR", "DMU", "INVERTER"]
                         ):
                             await self._fetch_sub_devices(
-                                sn, plant_id, now, metric_tasks, discovered_sns
+                                sn, now, metric_tasks, discovered_sns
                             )
 
         # 3. Concurrent Metrics
