@@ -448,6 +448,9 @@ DEVICE_TYPE_MAP = {
     "16": "Micro ESS",
 }
 
+# Device types that may have sub-devices (children)
+_PARENT_DEVICE_TYPES = ("COLLECTOR", "DMU", "INVERTER")
+
 # Retry configuration
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number)
@@ -942,7 +945,7 @@ class HyxiApiClient:
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
                 # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-                if any(x in dev_type for x in ["COLLECTOR", "DMU", "INVERTER"]):
+                if any(x in dev_type for x in _PARENT_DEVICE_TYPES):
                     _LOGGER.debug(
                         "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
                         _mask_id(sn),
@@ -1218,7 +1221,7 @@ class HyxiApiClient:
                         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
                         if any(
                             x in dev_type.upper()
-                            for x in ["COLLECTOR", "DMU", "INVERTER"]
+                            for x in _PARENT_DEVICE_TYPES
                         ):
                             await self._fetch_sub_devices(
                                 sn, plant_id, now, metric_tasks, discovered_sns
