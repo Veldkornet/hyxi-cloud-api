@@ -113,6 +113,39 @@ def test_generate_headers():
     assert "Authorization" not in token_headers
 
 
+def test_get_error_message():
+    """Verify that _get_error_message formats string combinations correctly."""
+    fake_session = AsyncMock()
+    api = HyxiApiClient("test_ak", "test_sk", "https://api.com", fake_session)
+
+    # Case 1: Known error code mapped in INTERNAL_ERROR_MAP
+    assert (
+        api._get_error_message({"code": "A000001", "message": "Ignored msg"})
+        == "Authentication failed (A000001)"
+    )
+
+    # Case 2: Unknown error code, with a message
+    assert (
+        api._get_error_message({"code": "UNKNOWN", "message": "Custom error"})
+        == "Custom error (UNKNOWN)"
+    )
+
+    # Case 3: Error code only, unknown, no message
+    assert api._get_error_message({"code": "UNKNOWN"}) == " (UNKNOWN)"
+
+    # Case 4: Message only, no code
+    assert api._get_error_message({"message": "Custom error"}) == "Custom error"
+
+    # Case 5: Empty response
+    assert api._get_error_message({}) == ""
+
+    # Case 6: Numeric code
+    assert (
+        api._get_error_message({"code": 404, "message": "Not found"})
+        == "Not found (404)"
+    )
+
+
 # --- TEST 4: EMS Data Parsing ---
 def test_parse_ems_kv():
     """Verify that _parse_ems_kv correctly flattens the nested Field KV structure."""
