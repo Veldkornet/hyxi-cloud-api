@@ -132,3 +132,17 @@ class TestSanitizeDict:
         raw = {"gprsImei": "", "model": "HYX-DCS-WL"}
         result = _sanitize_dict(raw)
         assert result["gprsImei"] == ""
+
+    def test_alarmstate_is_passed_through_if_truthy(self):
+        """alarmState or alarmstate must pass through without being masked."""
+        raw = {"alarmState": 1, "alarmstate": "active"}
+        result = _sanitize_dict(raw)
+        assert result["alarmState"] == 1
+        assert result["alarmstate"] == "active"
+
+    def test_alarmstate_is_passed_through_if_falsy(self):
+        """alarmState or alarmstate must pass through if falsy."""
+        raw = {"alarmState": 0, "alarmstate": ""}
+        result = _sanitize_dict(raw)
+        assert result["alarmState"] == 0
+        assert result["alarmstate"] == ""
