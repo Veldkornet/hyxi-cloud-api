@@ -8,16 +8,16 @@ from src.hyxi_cloud_api.api import HyxiApiClient
 @pytest.mark.asyncio
 async def test_sub_device_recursive_discovery():
     """Verify that discovering a Collector triggers discovery of its sub-devices."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
 
     # 1. Mock _fetch_plants
     api._fetch_plants = AsyncMock(return_value=[{"plantId": "Pl123"}])
 
     # 2. Mock response
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.json.side_effect = [
+    mock_response.__aenter__.return_value.json = AsyncMock(side_effect=[
         {
             "success": True,
             "data": {
@@ -42,7 +42,7 @@ async def test_sub_device_recursive_discovery():
                 ]
             },
         },
-    ]
+    ])
 
     # Inverters and Collectors need both POST (for sub-discovery) and GET (for info/metrics)
     api.session.post = MagicMock(return_value=mock_response)
@@ -66,7 +66,7 @@ async def test_sub_device_recursive_discovery():
 @pytest.mark.asyncio
 async def test_back_discovery_and_recursive_probe():
     """Verify that a device found ONLY in alarms triggers a recursive probe."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
 
     # 1. No devices in the main list
@@ -81,9 +81,9 @@ async def test_back_discovery_and_recursive_probe():
     api._fetch_alarms_for_plant = AsyncMock(return_value=[alarm])
 
     # 3. Mock the sub-device probe for the hidden collector
-    mock_sub_response = AsyncMock()
+    mock_sub_response = MagicMock()
     mock_sub_response.__aenter__.return_value.status = 200
-    mock_sub_response.__aenter__.return_value.json.return_value = {
+    mock_sub_response.__aenter__.return_value.json = AsyncMock(return_value={
         "success": True,
         "data": {
             "childDevice": [
@@ -94,7 +94,7 @@ async def test_back_discovery_and_recursive_probe():
                 }
             ]
         },
-    }
+    })
     api.session.post = MagicMock(return_value=mock_sub_response)
     api.session.get = MagicMock(return_value=mock_sub_response)
 
@@ -115,7 +115,7 @@ async def test_back_discovery_and_recursive_probe():
 @pytest.mark.asyncio
 async def test_verified_sensor_extraction():
     """Verify that packNum and batCap are extracted correctly from the info block."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
     # Mock the response structure matching user logs: a flat dictionary!
     mock_info_resp = {
@@ -124,9 +124,9 @@ async def test_verified_sensor_extraction():
     }
 
     # Mock the aiohttp call inside _fetch_device_info
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.json.return_value = mock_info_resp
+    mock_response.__aenter__.return_value.json = AsyncMock(return_value=mock_info_resp)
     api.session.get = MagicMock(return_value=mock_response)
 
     entry = {"metrics": {}, "device_type_code": "1"}  # Hybrid Inverter
@@ -142,7 +142,7 @@ async def test_verified_sensor_extraction():
 @pytest.mark.asyncio
 async def test_metric_sanitization_for_collector():
     """Verify that battery metrics are NOT associated with a COLLECTOR."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
     # Mock a metrics response that INCLUDES battery data (which shouldn't be there)
     mock_metrics_resp = {
@@ -154,9 +154,9 @@ async def test_metric_sanitization_for_collector():
         ],
     }
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.json.return_value = mock_metrics_resp
+    mock_response.__aenter__.return_value.json = AsyncMock(return_value=mock_metrics_resp)
     api.session.get = MagicMock(return_value=mock_response)
 
     # 1. Test with COLLECTOR - Should be sanitized

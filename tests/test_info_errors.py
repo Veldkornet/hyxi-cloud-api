@@ -37,13 +37,13 @@ async def test_fetch_device_info_invalid_json(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
-    yielded_response.json.side_effect = aiohttp.ContentTypeError(
+    yielded_response.json = AsyncMock(side_effect=aiohttp.ContentTypeError(
         request_info=MagicMock(),
         history=(),
         message="Attempt to decode JSON with unexpected mimetype",
-    )
+    ))
     yielded_response.status = 200
 
     mock_session.get.return_value = mock_response
@@ -62,12 +62,12 @@ async def test_fetch_device_info_api_error(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
-    yielded_response.json.return_value = {
+    yielded_response.json = AsyncMock(return_value={
         "success": False,
         "message": "Device not found",
-    }
+    })
     yielded_response.status = 200
 
     mock_session.get.return_value = mock_response

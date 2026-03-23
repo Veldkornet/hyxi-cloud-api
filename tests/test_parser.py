@@ -21,8 +21,8 @@ async def test_api_parsing():
     }
 
     # 2. We mock the aiohttp response context manager
-    mock_response = AsyncMock()
-    mock_response.json.return_value = fake_json
+    mock_response = MagicMock()
+    mock_response.json = AsyncMock(return_value=fake_json)
     mock_response.raise_for_status = MagicMock()  # Pretend we got a 200 OK
 
     # 👇 THE FIX: Use MagicMock here so .get() returns a context manager, not a coroutine!
@@ -69,8 +69,8 @@ async def test_api_device_info_parsing():
         ],
     }
 
-    mock_response = AsyncMock()
-    mock_response.json.return_value = fake_json
+    mock_response = MagicMock()
+    mock_response.json = AsyncMock(return_value=fake_json)
     mock_response.raise_for_status = MagicMock()
 
     mock_session = MagicMock()

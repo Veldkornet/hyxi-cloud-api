@@ -22,11 +22,11 @@ async def test_fetch_device_metrics_fixed():
     sn = "123&extra=param"
     entry = {"metrics": {}}
 
-    mock_response = AsyncMock()
-    mock_response.__aenter__.return_value.json.return_value = {
+    mock_response = MagicMock()
+    mock_response.__aenter__.return_value.json = AsyncMock(return_value={
         "success": True,
         "data": [],
-    }
+    })
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
@@ -49,11 +49,11 @@ async def test_fetch_device_info_fixed():
     sn = "123#fragment"
     entry = {"metrics": {}}
 
-    mock_response = AsyncMock()
-    mock_response.__aenter__.return_value.json.return_value = {
+    mock_response = MagicMock()
+    mock_response.__aenter__.return_value.json = AsyncMock(return_value={
         "success": True,
         "data": [],
-    }
+    })
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
