@@ -705,14 +705,11 @@ class HyxiApiClient:
                 # 🚀 Sanitization: If this is a Collector, ignore battery/power metrics that shouldn't be here.
                 # This prevents "Collector" entities in Home Assistant from showing ghost battery stats.
                 if entry.get("device_type_code") == "COLLECTOR":
-                    sanitized = {}
-                    for k, v in m_raw.items():
-                        k_lower = k.lower()
-                        for x in _BANNED_COLLECTOR_KEYS:
-                            if x in k_lower:
-                                break
-                        else:
-                            sanitized[k] = v
+                    # We use a comprehension here with an external helper to avoid excessive nesting (R1702 pylint)
+                    sanitized = {
+                        k: v for k, v in m_raw.items()
+                        if not any(x in k.lower() for x in _BANNED_COLLECTOR_KEYS)
+                    }
                     entry["metrics"].update(sanitized)
                 else:
                     entry["metrics"].update(m_raw)
