@@ -189,11 +189,11 @@ async def test_execute_fetch_all_concurrent():
 
     # Mock the _fetch_devices_for_plant internal call
     # It must return an awaitable AND add an awaitable to metric_tasks
-    async def mock_fetch_devices(plant_id, now, metric_tasks, discovered_sns):
+    async def mock_fetch_devices(plant_id, state):
         async def mock_metric_task():
             return (f"SN_{plant_id}", {"device_name": f"Device {plant_id}"})
 
-        metric_tasks.append(mock_metric_task())
+        state.metric_tasks.append(mock_metric_task())
         return None
 
     api._fetch_devices_for_plant = MagicMock(side_effect=mock_fetch_devices)

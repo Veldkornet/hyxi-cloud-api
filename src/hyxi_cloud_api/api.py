@@ -12,6 +12,8 @@ import hmac
 import logging
 import os
 import time
+from dataclasses import dataclass, field
+
 from collections import defaultdict
 from datetime import UTC
 from datetime import datetime
@@ -457,6 +459,15 @@ _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
 _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
 
 
+@dataclass
+class FetchState:
+    """Encapsulates state needed during recursive device discovery and fetching."""
+
+    now: str
+    metric_tasks: list = field(default_factory=list)
+    discovered_sns: set = field(default_factory=set)
+
+
 def _parse_data_list(data_list: list) -> dict:
     """Extract dataKey and dataValue into a cleaner dictionary."""
     return {
@@ -875,7 +886,7 @@ class HyxiApiClient:
         return sn, entry
 
     async def _fetch_devices_for_plant(
-        self, plant_id, now, metric_tasks, discovered_sns
+        self, plant_id, state: FetchState
     ):
         """Helper to fetch devices for a single plant concurrently."""
         d_path = "/api/plant/v1/devicePage"
@@ -919,7 +930,7 @@ class HyxiApiClient:
                 if not sn:
                     continue
 
-                discovered_sns.add(sn)
+                state.discovered_sns.add(sn)
                 dev_type = str(d.get("deviceType") or "UNKNOWN")
                 friendly_name = (
                     DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
@@ -936,10 +947,10 @@ class HyxiApiClient:
                     "device_type_code": dev_type,
                     "sw_version": d.get("swVer"),
                     "hw_version": d.get("hwVer"),
-                    "metrics": {"last_seen": now},
+                    "metrics": {"last_seen": state.now},
                 }
 
-                metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+                state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
                 # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
                 if any(x in dev_type for x in ["COLLECTOR", "DMU", "INVERTER"]):
@@ -949,7 +960,7 @@ class HyxiApiClient:
                         dev_type,
                     )
                     await self._fetch_sub_devices(
-                        sn, plant_id, now, metric_tasks, discovered_sns
+                        sn, plant_id, state
                     )
 
         except Exception as e:
@@ -957,8 +968,8 @@ class HyxiApiClient:
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
 
-    async def _fetch_sub_devices(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self, parent_sn, plant_id, now, metric_tasks, discovered_sns
+    async def _fetch_sub_devices(
+        self, parent_sn, plant_id, state: FetchState
     ):
         """Fetch sub-devices under a communication unit (Collector/DMU)."""
         sd_path = "/api/device/v1/getSubDevicePage"
@@ -996,10 +1007,10 @@ class HyxiApiClient:
 
             for c in children:
                 sn = c.get("deviceSn")
-                if not sn or sn in discovered_sns:
+                if not sn or sn in state.discovered_sns:
                     continue
 
-                discovered_sns.add(sn)
+                state.discovered_sns.add(sn)
 
                 # Sub-device responses often use numeric types (e.g. 1, 15)
                 raw_type = str(c.get("deviceType") or "UNKNOWN")
@@ -1018,11 +1029,11 @@ class HyxiApiClient:
                     "device_type_code": raw_type,
                     "sw_version": c.get("swVer"),
                     "hw_version": c.get("hwVer"),
-                    "metrics": {"last_seen": now},
+                    "metrics": {"last_seen": state.now},
                 }
 
                 # These are real devices, so fetch their metrics/info
-                metric_tasks.append(self._fetch_all_for_device(sn, entry, raw_type))
+                state.metric_tasks.append(self._fetch_all_for_device(sn, entry, raw_type))
 
         except Exception as e:
             _LOGGER.error(
@@ -1152,10 +1163,9 @@ class HyxiApiClient:
 
     async def _process_plants_data(self, plants, now, results):
         """Helper to concurrently process plants to gather metrics and alarms."""
-        metric_tasks = []
+        state = FetchState(now=now)
         device_fetch_tasks = []
         alarm_fetch_tasks = []
-        discovered_sns = set()
 
         for p in plants:
             plant_id = p.get("plantId")
@@ -1164,7 +1174,7 @@ class HyxiApiClient:
 
             device_fetch_tasks.append(
                 self._fetch_devices_for_plant(
-                    plant_id, now, metric_tasks, discovered_sns
+                    plant_id, state
                 )
             )
             alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
@@ -1185,13 +1195,13 @@ class HyxiApiClient:
                 # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
                 for a in alarms:
                     sn = a.get("deviceSn")
-                    if sn and sn not in discovered_sns:
+                    if sn and sn not in state.discovered_sns:
                         _LOGGER.debug(
                             "HYXI: Back-discovering device %s found in alarms for plant %s...",
                             _mask_id(sn),
                             _mask_id(plant_id),
                         )
-                        discovered_sns.add(sn)
+                        state.discovered_sns.add(sn)
                         dev_type = str(a.get("deviceType") or "UNKNOWN")
                         friendly_name = (
                             DEVICE_TYPE_MAP.get(dev_type)
@@ -1209,9 +1219,9 @@ class HyxiApiClient:
                             "device_type_code": dev_type,
                             "sw_version": None,
                             "hw_version": None,
-                            "metrics": {"last_seen": now},
+                            "metrics": {"last_seen": state.now},
                         }
-                        metric_tasks.append(
+                        state.metric_tasks.append(
                             self._fetch_all_for_device(sn, entry, dev_type)
                         )
 
@@ -1221,11 +1231,11 @@ class HyxiApiClient:
                             for x in ["COLLECTOR", "DMU", "INVERTER"]
                         ):
                             await self._fetch_sub_devices(
-                                sn, plant_id, now, metric_tasks, discovered_sns
+                                sn, plant_id, state
                             )
 
         # 3. Concurrent Metrics
-        if metric_tasks:
+        if state.metric_tasks:
             # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
             alarms_by_sn = defaultdict(list)
             for a in plant_alarms:
@@ -1233,7 +1243,7 @@ class HyxiApiClient:
                 if sn:
                     alarms_by_sn[sn].append(a)
 
-            updated_entries = await asyncio.gather(*metric_tasks)
+            updated_entries = await asyncio.gather(*state.metric_tasks)
             for sn, entry in updated_entries:
                 if sn:
                     # Map the relevant active alarms to this specific device
