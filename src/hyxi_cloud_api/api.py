@@ -707,7 +707,8 @@ class HyxiApiClient:
                 if entry.get("device_type_code") == "COLLECTOR":
                     # We use a comprehension here with an external helper to avoid excessive nesting (R1702 pylint)
                     sanitized = {
-                        k: v for k, v in m_raw.items()
+                        k: v
+                        for k, v in m_raw.items()
                         if not any(x in k.lower() for x in _BANNED_COLLECTOR_KEYS)
                     }
                     entry["metrics"].update(sanitized)
