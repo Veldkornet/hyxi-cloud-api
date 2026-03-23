@@ -790,11 +790,7 @@ class HyxiApiClient:
 
     def _extract_device_info_metadata(self, entry, i_raw):
         """Helper to extract metadata from device info."""
-        sw_ver = (
-            i_raw.get("swVerSys")
-            or i_raw.get("swVerMaster")
-            or i_raw.get("swVer")
-        )
+        sw_ver = i_raw.get("swVerSys") or i_raw.get("swVerMaster") or i_raw.get("swVer")
         if sw_ver:
             entry["sw_version"] = sw_ver
 
