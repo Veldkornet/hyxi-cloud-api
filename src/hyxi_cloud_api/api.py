@@ -1185,6 +1185,7 @@ class HyxiApiClient:
                 metric_tasks, plant_alarms, results
             )
 
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
     async def _process_alarms_and_back_discovery(
         self, alarm_results, plants, discovered_sns, now, metric_tasks
     ):
