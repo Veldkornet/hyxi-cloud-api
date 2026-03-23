@@ -885,9 +885,7 @@ class HyxiApiClient:
 
         return sn, entry
 
-    async def _fetch_devices_for_plant(
-        self, plant_id, state: FetchState
-    ):
+    async def _fetch_devices_for_plant(self, plant_id, state: FetchState):
         """Helper to fetch devices for a single plant concurrently."""
         d_path = "/api/plant/v1/devicePage"
         try:
@@ -950,7 +948,9 @@ class HyxiApiClient:
                     "metrics": {"last_seen": state.now},
                 }
 
-                state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+                state.metric_tasks.append(
+                    self._fetch_all_for_device(sn, entry, dev_type)
+                )
 
                 # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
                 if any(x in dev_type for x in ["COLLECTOR", "DMU", "INVERTER"]):
@@ -959,18 +959,14 @@ class HyxiApiClient:
                         _mask_id(sn),
                         dev_type,
                     )
-                    await self._fetch_sub_devices(
-                        sn, plant_id, state
-                    )
+                    await self._fetch_sub_devices(sn, plant_id, state)
 
         except Exception as e:
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
 
-    async def _fetch_sub_devices(
-        self, parent_sn, plant_id, state: FetchState
-    ):
+    async def _fetch_sub_devices(self, parent_sn, plant_id, state: FetchState):
         """Fetch sub-devices under a communication unit (Collector/DMU)."""
         sd_path = "/api/device/v1/getSubDevicePage"
         try:
@@ -1033,7 +1029,9 @@ class HyxiApiClient:
                 }
 
                 # These are real devices, so fetch their metrics/info
-                state.metric_tasks.append(self._fetch_all_for_device(sn, entry, raw_type))
+                state.metric_tasks.append(
+                    self._fetch_all_for_device(sn, entry, raw_type)
+                )
 
         except Exception as e:
             _LOGGER.error(
@@ -1172,11 +1170,7 @@ class HyxiApiClient:
             if not plant_id:
                 continue
 
-            device_fetch_tasks.append(
-                self._fetch_devices_for_plant(
-                    plant_id, state
-                )
-            )
+            device_fetch_tasks.append(self._fetch_devices_for_plant(plant_id, state))
             alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
 
         if device_fetch_tasks:
@@ -1230,9 +1224,7 @@ class HyxiApiClient:
                             x in dev_type.upper()
                             for x in ["COLLECTOR", "DMU", "INVERTER"]
                         ):
-                            await self._fetch_sub_devices(
-                                sn, plant_id, state
-                            )
+                            await self._fetch_sub_devices(sn, plant_id, state)
 
         # 3. Concurrent Metrics
         if state.metric_tasks:
