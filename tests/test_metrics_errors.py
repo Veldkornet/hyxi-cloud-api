@@ -80,6 +80,7 @@ async def test_fetch_device_metrics_api_error(caplog):
     )
     assert not entry["metrics"]
 
+
 @pytest.mark.asyncio
 async def test_fetch_ems_basic_data_no_data(caplog):
     """Test that _fetch_ems_basic_data handles empty response gracefully."""
