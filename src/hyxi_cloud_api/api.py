@@ -548,6 +548,10 @@ def _sanitize_dict(raw: dict) -> dict:
     return result
 
 
+_BATTERY_DEVICE_TYPES = ("INVERTER", "ESS", "HALO", "1", "15")
+_PARENT_DEVICE_TYPES = ("COLLECTOR", "DMU", "INVERTER")
+
+
 class HyxiApiClient:
     """Client for interacting with the HYXI Cloud API."""
 
@@ -833,10 +837,8 @@ class HyxiApiClient:
                 }
 
                 # Device-specific metadata (e.g. Battery info for Inverters)
-                if any(
-                    x in entry.get("device_type_code", "").upper()
-                    for x in ["INVERTER", "ESS", "HALO", "1", "15"]
-                ):
+                device_type_code = entry.get("device_type_code", "").upper()
+                if any(x in device_type_code for x in _BATTERY_DEVICE_TYPES):
                     base_info.update(
                         {
                             "batCap": _get_f("batCap", i_raw),
@@ -942,7 +944,7 @@ class HyxiApiClient:
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
                 # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-                if any(x in dev_type for x in ["COLLECTOR", "DMU", "INVERTER"]):
+                if any(x in dev_type for x in _PARENT_DEVICE_TYPES):
                     _LOGGER.debug(
                         "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
                         _mask_id(sn),
@@ -1216,10 +1218,8 @@ class HyxiApiClient:
                         )
 
                         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-                        if any(
-                            x in dev_type.upper()
-                            for x in ["COLLECTOR", "DMU", "INVERTER"]
-                        ):
+                        dev_type_upper = dev_type.upper()
+                        if any(x in dev_type_upper for x in _PARENT_DEVICE_TYPES):
                             await self._fetch_sub_devices(
                                 sn, plant_id, now, metric_tasks, discovered_sns
                             )
