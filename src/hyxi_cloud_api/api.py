@@ -456,6 +456,8 @@ RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number
 _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
 _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
 
+_PARENT_DEVICE_TYPES = ("COLLECTOR", "DMU", "INVERTER")
+
 
 def _parse_data_list(data_list: list) -> dict:
     """Extract dataKey and dataValue into a cleaner dictionary."""
@@ -942,7 +944,8 @@ class HyxiApiClient:
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
                 # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-                if any(x in dev_type for x in ["COLLECTOR", "DMU", "INVERTER"]):
+                dev_type_upper = dev_type.upper()
+                if any(x in dev_type_upper for x in _PARENT_DEVICE_TYPES):
                     _LOGGER.debug(
                         "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
                         _mask_id(sn),
@@ -1216,9 +1219,10 @@ class HyxiApiClient:
                         )
 
                         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
+                        dev_type_upper = dev_type.upper()
                         if any(
-                            x in dev_type.upper()
-                            for x in ["COLLECTOR", "DMU", "INVERTER"]
+                            x in dev_type_upper
+                            for x in _PARENT_DEVICE_TYPES
                         ):
                             await self._fetch_sub_devices(
                                 sn, plant_id, now, metric_tasks, discovered_sns
