@@ -788,6 +788,40 @@ class HyxiApiClient:
             )
         return {}
 
+    def _extract_device_info_metadata(self, entry, i_raw):
+        """Helper to extract metadata from device info."""
+        sw_ver = (
+            i_raw.get("swVerSys")
+            or i_raw.get("swVerMaster")
+            or i_raw.get("swVer")
+        )
+        if sw_ver:
+            entry["sw_version"] = sw_ver
+
+        base_info = {
+            "signalIntensity": i_raw.get("signalIntensity"),
+            "signalVal": i_raw.get("signalVal"),
+            "wifiVer": i_raw.get("wifiVer"),
+            "comMode": i_raw.get("comMode"),
+        }
+
+        if any(
+            x in entry.get("device_type_code", "").upper()
+            for x in ["INVERTER", "ESS", "HALO", "1", "15"]
+        ):
+            base_info.update(
+                {
+                    "batCap": _get_f("batCap", i_raw),
+                    "packNum": int(i_raw.get("packNum") or 1),
+                    "maxChargePower": _get_f("maxChargePower", i_raw)
+                    or _get_f("maxChargingDischargingPower", i_raw),
+                    "maxDischargePower": _get_f("maxDischargePower", i_raw)
+                    or _get_f("maxChargingDischargingPower", i_raw),
+                }
+            )
+
+        entry["metrics"].update(base_info)
+
     async def _fetch_device_info(self, sn, entry):
         """Helper to fetch static device info (firmware, capacity, limits)."""
         i_path = "/api/device/v1/queryDeviceInfo"
@@ -815,40 +849,7 @@ class HyxiApiClient:
                         "HYXI Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
                     )
 
-                # Smart Firmware Finder
-                sw_ver = (
-                    i_raw.get("swVerSys")
-                    or i_raw.get("swVerMaster")
-                    or i_raw.get("swVer")
-                )
-                if sw_ver:
-                    entry["sw_version"] = sw_ver
-
-                # Base metadata for all devices
-                base_info = {
-                    "signalIntensity": i_raw.get("signalIntensity"),
-                    "signalVal": i_raw.get("signalVal"),
-                    "wifiVer": i_raw.get("wifiVer"),
-                    "comMode": i_raw.get("comMode"),
-                }
-
-                # Device-specific metadata (e.g. Battery info for Inverters)
-                if any(
-                    x in entry.get("device_type_code", "").upper()
-                    for x in ["INVERTER", "ESS", "HALO", "1", "15"]
-                ):
-                    base_info.update(
-                        {
-                            "batCap": _get_f("batCap", i_raw),
-                            "packNum": int(i_raw.get("packNum") or 1),
-                            "maxChargePower": _get_f("maxChargePower", i_raw)
-                            or _get_f("maxChargingDischargingPower", i_raw),
-                            "maxDischargePower": _get_f("maxDischargePower", i_raw)
-                            or _get_f("maxChargingDischargingPower", i_raw),
-                        }
-                    )
-
-                entry["metrics"].update(base_info)
+                self._extract_device_info_metadata(entry, i_raw)
             else:
                 _LOGGER.warning(
                     "HYXI INFO API Rejected for %s: %s",
