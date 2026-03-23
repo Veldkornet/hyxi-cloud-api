@@ -29,7 +29,9 @@ async def test_fetch_devices_for_plant_api_error(caplog):
 
     metric_tasks = []
     discovered_sns = set()
-    await api._fetch_devices_for_plant("plant123", "2024-01-01", metric_tasks, discovered_sns)
+    await api._fetch_devices_for_plant(
+        "plant123", "2024-01-01", metric_tasks, discovered_sns
+    )
 
     assert "HYXI API Device Fetch Rejected for Plant" in caplog.text
     assert not metric_tasks
@@ -47,7 +49,9 @@ async def test_fetch_devices_for_plant_network_error(caplog):
 
     metric_tasks = []
     discovered_sns = set()
-    await api._fetch_devices_for_plant("plant123", "2024-01-01", metric_tasks, discovered_sns)
+    await api._fetch_devices_for_plant(
+        "plant123", "2024-01-01", metric_tasks, discovered_sns
+    )
 
     assert "Error fetching devices for plant" in caplog.text
     assert not metric_tasks
@@ -74,7 +78,9 @@ async def test_fetch_devices_for_plant_invalid_json(caplog):
 
     metric_tasks = []
     discovered_sns = set()
-    await api._fetch_devices_for_plant("plant123", "2024-01-01", metric_tasks, discovered_sns)
+    await api._fetch_devices_for_plant(
+        "plant123", "2024-01-01", metric_tasks, discovered_sns
+    )
 
     assert "Error fetching devices for plant" in caplog.text
     assert not metric_tasks
