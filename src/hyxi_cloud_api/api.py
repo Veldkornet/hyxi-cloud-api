@@ -1175,70 +1175,86 @@ class HyxiApiClient:
         plant_alarms = []
         if alarm_fetch_tasks:
             alarm_results = await asyncio.gather(*alarm_fetch_tasks)
-            for i, alarms in enumerate(alarm_results):
-                if not isinstance(alarms, list):
-                    continue
-
-                plant_alarms.extend(alarms)
-                plant_id = plants[i].get("plantId")
-
-                # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
-                for a in alarms:
-                    sn = a.get("deviceSn")
-                    if sn and sn not in discovered_sns:
-                        _LOGGER.debug(
-                            "HYXI: Back-discovering device %s found in alarms for plant %s...",
-                            _mask_id(sn),
-                            _mask_id(plant_id),
-                        )
-                        discovered_sns.add(sn)
-                        dev_type = str(a.get("deviceType") or "UNKNOWN")
-                        friendly_name = (
-                            DEVICE_TYPE_MAP.get(dev_type)
-                            or dev_type.replace("_", " ").title()
-                        )
-
-                        device_name = a.get("deviceName")
-                        if not device_name or device_name == "":
-                            device_name = f"{friendly_name} {sn}"
-
-                        entry = {
-                            "sn": sn,
-                            "device_name": device_name,
-                            "model": friendly_name,
-                            "device_type_code": dev_type,
-                            "sw_version": None,
-                            "hw_version": None,
-                            "metrics": {"last_seen": now},
-                        }
-                        metric_tasks.append(
-                            self._fetch_all_for_device(sn, entry, dev_type)
-                        )
-
-                        # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-                        if any(
-                            x in dev_type.upper()
-                            for x in ["COLLECTOR", "DMU", "INVERTER"]
-                        ):
-                            await self._fetch_sub_devices(
-                                sn, plant_id, now, metric_tasks, discovered_sns
-                            )
+            plant_alarms = await self._process_alarms_and_back_discovery(
+                alarm_results, plants, discovered_sns, now, metric_tasks
+            )
 
         # 3. Concurrent Metrics
         if metric_tasks:
-            # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
-            alarms_by_sn = defaultdict(list)
-            for a in plant_alarms:
-                sn = a.get("deviceSn")
-                if sn:
-                    alarms_by_sn[sn].append(a)
+            await self._execute_metrics_and_map_alarms(
+                metric_tasks, plant_alarms, results
+            )
 
-            updated_entries = await asyncio.gather(*metric_tasks)
-            for sn, entry in updated_entries:
-                if sn:
-                    # Map the relevant active alarms to this specific device
-                    entry["alarms"] = alarms_by_sn.get(sn, [])
-                    results[sn] = entry
+    async def _process_alarms_and_back_discovery(
+        self, alarm_results, plants, discovered_sns, now, metric_tasks
+    ):
+        """Helper to process alarms and perform back-discovery of unlisted devices."""
+        plant_alarms = []
+        for i, alarms in enumerate(alarm_results):
+            if not isinstance(alarms, list):
+                continue
+
+            plant_alarms.extend(alarms)
+            plant_id = plants[i].get("plantId")
+
+            # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
+            for a in alarms:
+                sn = a.get("deviceSn")
+                if sn and sn not in discovered_sns:
+                    _LOGGER.debug(
+                        "HYXI: Back-discovering device %s found in alarms for plant %s...",
+                        _mask_id(sn),
+                        _mask_id(plant_id),
+                    )
+                    discovered_sns.add(sn)
+                    dev_type = str(a.get("deviceType") or "UNKNOWN")
+                    friendly_name = (
+                        DEVICE_TYPE_MAP.get(dev_type)
+                        or dev_type.replace("_", " ").title()
+                    )
+
+                    device_name = a.get("deviceName")
+                    if not device_name or device_name == "":
+                        device_name = f"{friendly_name} {sn}"
+
+                    entry = {
+                        "sn": sn,
+                        "device_name": device_name,
+                        "model": friendly_name,
+                        "device_type_code": dev_type,
+                        "sw_version": None,
+                        "hw_version": None,
+                        "metrics": {"last_seen": now},
+                    }
+                    metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+
+                    # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
+                    if any(
+                        x in dev_type.upper() for x in ["COLLECTOR", "DMU", "INVERTER"]
+                    ):
+                        await self._fetch_sub_devices(
+                            sn, plant_id, now, metric_tasks, discovered_sns
+                        )
+
+        return plant_alarms
+
+    async def _execute_metrics_and_map_alarms(
+        self, metric_tasks, plant_alarms, results
+    ):
+        """Helper to execute metric tasks and map alarms to devices."""
+        # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
+        alarms_by_sn = defaultdict(list)
+        for a in plant_alarms:
+            sn = a.get("deviceSn")
+            if sn:
+                alarms_by_sn[sn].append(a)
+
+        updated_entries = await asyncio.gather(*metric_tasks)
+        for sn, entry in updated_entries:
+            if sn:
+                # Map the relevant active alarms to this specific device
+                entry["alarms"] = alarms_by_sn.get(sn, [])
+                results[sn] = entry
 
     async def _execute_fetch_all(self):
         """The actual fetching logic moved to a private method for the retry loop."""
