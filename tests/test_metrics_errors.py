@@ -79,3 +79,20 @@ async def test_fetch_device_metrics_api_error(caplog):
         "HYXI API metrics rejected for 106XXXXXXXX016: Device not found" in caplog.text
     )
     assert not entry["metrics"]
+
+@pytest.mark.asyncio
+async def test_fetch_ems_basic_data_no_data(caplog):
+    """Test that _fetch_ems_basic_data handles empty response gracefully."""
+    caplog.set_level(logging.DEBUG)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Mock query_ems_basic_details to return None (no data)
+    api.query_ems_basic_details = AsyncMock(return_value=None)
+
+    entry = {"metrics": {}, "device_type_code": "EMS"}
+    await api._fetch_ems_basic_data("10602251600016", entry)
+
+    assert "HYXI EMS telemetry probe returned no data for 106XXXXXXXX016" in caplog.text
+    # Ensure entry was not updated with metrics
+    assert not entry["metrics"]
