@@ -608,6 +608,28 @@ class HyxiApiClient:
 
         return headers
 
+    async def _request(
+        self, method: str, path: str, is_token_request: bool = False, **kwargs
+    ) -> tuple[int, dict]:
+        """Centralized helper for making HTTP requests."""
+        url = f"{self.base_url}{path}"
+        headers = self._generate_headers(
+            path, method.upper(), is_token_request=is_token_request
+        )
+
+        kwargs.setdefault("timeout", 15)
+
+        request_func = getattr(self.session, method.lower())
+        async with request_func(url, headers=headers, **kwargs) as response:
+            status = response.status
+
+            if is_token_request and status in [401, 403]:
+                return status, {}
+
+            response.raise_for_status()
+            res = await response.json()
+            return status, res
+
     def _apply_token_response(self, data: dict) -> bool:
         """Parse token and expiration from API response and update state."""
         token_val = data.get("token") or data.get("access_token")
@@ -650,26 +672,21 @@ class HyxiApiClient:
         path = "/api/authorization/v1/token"
 
         try:
-            async with self.session.post(
-                f"{self.base_url}{path}",
-                json={"grantType": 1},
-                headers=self._generate_headers(path, "POST", is_token_request=True),
-                timeout=15,
-            ) as response:
-                if response.status in [401, 403]:
-                    _LOGGER.error("HYXI API: Token request unauthorized (401/403)")
+            status, res = await self._request(
+                "POST", path, is_token_request=True, json={"grantType": 1}
+            )
+
+            if status in [401, 403]:
+                _LOGGER.error("HYXI API: Token request unauthorized (401/403)")
+                return "auth_failed"
+
+            if not res.get("success"):
+                _LOGGER.error("HYXI API Token Rejected: %s", _sanitize_dict(res))
+                if res.get("code") in [401, 403, "401", "403"]:
                     return "auth_failed"
+                return False
 
-                response.raise_for_status()
-                res = await response.json()
-
-                if not res.get("success"):
-                    _LOGGER.error("HYXI API Token Rejected: %s", _sanitize_dict(res))
-                    if res.get("code") in [401, 403, "401", "403"]:
-                        return "auth_failed"
-                    return False
-
-                return self._apply_token_response(res.get("data", {}))
+            return self._apply_token_response(res.get("data", {}))
         except Exception as e:
             _LOGGER.error("HYXI Token Request Failed: %s", e)
         return False
@@ -678,14 +695,7 @@ class HyxiApiClient:
         """Helper to fetch detailed metrics for a single device."""
         q_path = "/api/device/v1/queryDeviceData"
         try:
-            async with self.session.get(
-                f"{self.base_url}{q_path}",
-                params={"deviceSn": sn},
-                headers=self._generate_headers(q_path, "GET"),
-                timeout=15,
-            ) as resp_q:
-                resp_q.raise_for_status()
-                res_q = await resp_q.json()
+            _, res_q = await self._request("GET", q_path, params={"deviceSn": sn})
 
             if res_q.get("success"):
                 data_list = res_q.get("data", [])
@@ -770,18 +780,11 @@ class HyxiApiClient:
         """Acquire basic data for Energy Storage Systems (ESS)."""
         path = "/api/ems/v1/queryBasicDetails"
         try:
-            async with self.session.get(
-                f"{self.base_url}{path}",
-                params={"emsSn": ems_sn},
-                headers=self._generate_headers(path, "GET"),
-                timeout=15,
-            ) as resp:
-                resp.raise_for_status()
-                res = await resp.json()
+            _, res = await self._request("GET", path, params={"emsSn": ems_sn})
 
-                if res.get("code") == "0":
-                    data = res.get("data", [])
-                    return _parse_ems_kv(data)
+            if res.get("code") == "0":
+                data = res.get("data", [])
+                return _parse_ems_kv(data)
         except Exception as e:
             _LOGGER.error(
                 "HYXI EMS Basic Data Request Failed for %s: %s", _mask_id(ems_sn), e
@@ -792,13 +795,7 @@ class HyxiApiClient:
         """Helper to fetch static device info (firmware, capacity, limits)."""
         i_path = "/api/device/v1/queryDeviceInfo"
         try:
-            async with self.session.get(
-                f"{self.base_url}{i_path}",
-                params={"deviceSn": sn},
-                headers=self._generate_headers(i_path, "GET"),
-                timeout=15,
-            ) as resp_i:
-                res_i = await resp_i.json()
+            _, res_i = await self._request("GET", i_path, params={"deviceSn": sn})
 
             if res_i.get("success"):
                 data_raw = res_i.get("data")
@@ -880,14 +877,11 @@ class HyxiApiClient:
         """Helper to fetch devices for a single plant concurrently."""
         d_path = "/api/plant/v1/devicePage"
         try:
-            async with self.session.post(
-                f"{self.base_url}{d_path}",
+            _, res_d = await self._request(
+                "POST",
+                d_path,
                 json={"plantId": plant_id, "pageSize": 50, "currentPage": 1},
-                headers=self._generate_headers(d_path, "POST"),
-                timeout=15,
-            ) as resp_d:
-                resp_d.raise_for_status()
-                res_d = await resp_d.json()
+            )
 
             if not res_d.get("success"):
                 _LOGGER.error(
@@ -963,14 +957,11 @@ class HyxiApiClient:
         """Fetch sub-devices under a communication unit (Collector/DMU)."""
         sd_path = "/api/device/v1/getSubDevicePage"
         try:
-            async with self.session.post(
-                f"{self.base_url}{sd_path}",
+            _, res_sd = await self._request(
+                "POST",
+                sd_path,
                 json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
-                headers=self._generate_headers(sd_path, "POST"),
-                timeout=15,
-            ) as resp_sd:
-                resp_sd.raise_for_status()
-                res_sd = await resp_sd.json()
+            )
 
             if not res_sd.get("success"):
                 _LOGGER.error(
@@ -1033,14 +1024,11 @@ class HyxiApiClient:
         """Helper to fetch active alarms for a single plant."""
         a_path = "/api/alarm/v1/plantAlarmPage"
         try:
-            async with self.session.post(
-                f"{self.base_url}{a_path}",
+            _, res_a = await self._request(
+                "POST",
+                a_path,
                 json={"plantId": plant_id, "pageSize": 100, "currentPage": 1},
-                headers=self._generate_headers(a_path, "POST"),
-                timeout=15,
-            ) as resp_a:
-                resp_a.raise_for_status()
-                res_a = await resp_a.json()
+            )
 
             if not res_a.get("success"):
                 _LOGGER.error(
@@ -1114,14 +1102,9 @@ class HyxiApiClient:
     async def _fetch_plants(self):
         """Helper to fetch plants associated with the account."""
         p_path = "/api/plant/v1/page"
-        async with self.session.post(
-            f"{self.base_url}{p_path}",
-            json={"pageSize": 10, "currentPage": 1},
-            headers=self._generate_headers(p_path, "POST"),
-            timeout=15,
-        ) as resp_p:
-            resp_p.raise_for_status()
-            res_p = await resp_p.json()
+        _, res_p = await self._request(
+            "POST", p_path, json={"pageSize": 10, "currentPage": 1}
+        )
 
         if not res_p.get("success"):
             # 🚀 If the server rejects the token, wipe it and force a retry!
