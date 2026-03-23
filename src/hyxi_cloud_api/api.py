@@ -494,6 +494,45 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         return 0.0
 
 
+def _filter_collector_metrics(m_raw: dict) -> dict:
+    """Remove battery/power metrics that shouldn't be present on Collectors."""
+    return {
+        k: v
+        for k, v in m_raw.items()
+        if not any(
+            x in k.lower()
+            for x in [
+                "bat",
+                "pv",
+                "grid",
+                "pbat",
+                "load",
+                "ph1",
+                "ph2",
+                "ph3",
+            ]
+        )
+    }
+
+
+def _compute_derived_metrics(m_raw: dict) -> dict:
+    """Calculate derived metrics from raw metrics map."""
+    grid = _get_f("gridP", m_raw, 1000.0)
+    pbat = _get_f("pbat", m_raw)
+
+    return {
+        "home_load": _get_f("ph1Loadp", m_raw)
+        + _get_f("ph2Loadp", m_raw)
+        + _get_f("ph3Loadp", m_raw),
+        "grid_import": abs(grid) if grid < 0 else 0.0,
+        "grid_export": grid if grid > 0 else 0.0,
+        "bat_charging": abs(pbat) if pbat < 0 else 0.0,
+        "bat_discharging": pbat if pbat > 0 else 0.0,
+        "bat_charge_total": _get_f("batCharge", m_raw),
+        "bat_discharge_total": _get_f("batDisCharge", m_raw),
+    }
+
+
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
 
@@ -701,44 +740,12 @@ class HyxiApiClient:
                 # 🚀 Sanitization: If this is a Collector, ignore battery/power metrics that shouldn't be here.
                 # This prevents "Collector" entities in Home Assistant from showing ghost battery stats.
                 if entry.get("device_type_code") == "COLLECTOR":
-                    sanitized = {
-                        k: v
-                        for k, v in m_raw.items()
-                        if not any(
-                            x in k.lower()
-                            for x in [
-                                "bat",
-                                "pv",
-                                "grid",
-                                "pbat",
-                                "load",
-                                "ph1",
-                                "ph2",
-                                "ph3",
-                            ]
-                        )
-                    }
-                    entry["metrics"].update(sanitized)
+                    entry["metrics"].update(_filter_collector_metrics(m_raw))
                 else:
                     entry["metrics"].update(m_raw)
 
                 if "gridP" in m_raw or "pbat" in m_raw:
-                    grid = _get_f("gridP", m_raw, 1000.0)
-                    pbat = _get_f("pbat", m_raw)
-
-                    entry["metrics"].update(
-                        {
-                            "home_load": _get_f("ph1Loadp", m_raw)
-                            + _get_f("ph2Loadp", m_raw)
-                            + _get_f("ph3Loadp", m_raw),
-                            "grid_import": abs(grid) if grid < 0 else 0,
-                            "grid_export": grid if grid > 0 else 0,
-                            "bat_charging": abs(pbat) if pbat < 0 else 0,
-                            "bat_discharging": pbat if pbat > 0 else 0,
-                            "bat_charge_total": _get_f("batCharge", m_raw),
-                            "bat_discharge_total": _get_f("batDisCharge", m_raw),
-                        }
-                    )
+                    entry["metrics"].update(_compute_derived_metrics(m_raw))
             else:
                 _LOGGER.warning(
                     "HYXI API metrics rejected for %s: %s",
