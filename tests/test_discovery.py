@@ -5,16 +5,12 @@ import pytest
 from src.hyxi_cloud_api.api import HyxiApiClient
 
 
-@pytest.mark.asyncio
-async def test_sub_device_recursive_discovery():
-    """Verify that discovering a Collector triggers discovery of its sub-devices."""
+def _setup_mock_api():
+    """Helper to set up a mock API client for discovery tests."""
     api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
     api._refresh_token = AsyncMock(return_value=True)
-
-    # 1. Mock _fetch_plants
     api._fetch_plants = AsyncMock(return_value=[{"plantId": "Pl123"}])
 
-    # 2. Mock response
     mock_response = AsyncMock()
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.json.side_effect = [
@@ -44,23 +40,38 @@ async def test_sub_device_recursive_discovery():
         },
     ]
 
-    # Inverters and Collectors need both POST (for sub-discovery) and GET (for info/metrics)
     api.session.post = MagicMock(return_value=mock_response)
     api.session.get = MagicMock(return_value=mock_response)
-
-    # We need to mock _fetch_device_info/metrics to avoid more network calls
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
-    # Mock alarm fetch to return empty list
     api._fetch_alarms_for_plant = AsyncMock(return_value=[])
 
+    return api
+
+
+@pytest.mark.asyncio
+async def test_collector_discovery_only():
+    """Verify that a Collector is discovered correctly."""
+    api = _setup_mock_api()
     results = {}
+
     await api._process_plants_data([{"plantId": "Pl123"}], "2024-01-01", results)
 
-    # Verify both Collector and Inverter were discovered
     assert "COLL_001" in results
+    assert results["COLL_001"]["device_type_code"] == "COLLECTOR"
+
+
+@pytest.mark.asyncio
+async def test_sub_device_discovery_triggered_by_collector():
+    """Verify that discovering a Collector triggers discovery of its sub-devices."""
+    api = _setup_mock_api()
+    results = {}
+
+    await api._process_plants_data([{"plantId": "Pl123"}], "2024-01-01", results)
+
     assert "INV_001" in results
     assert results["INV_001"]["model"] == "Hybrid Inverter"
+    assert results["INV_001"]["device_type_code"] == "1"
 
 
 @pytest.mark.asyncio
