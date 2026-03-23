@@ -19,6 +19,10 @@ from datetime import datetime
 import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
+
+_PARENT_DEVICE_TYPES = ("COLLECTOR", "DMU", "INVERTER")
+_BANNED_COLLECTOR_KEYS = ("bat", "pv", "grid", "pbat", "load", "ph1", "ph2", "ph3")
+
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
     "1088": "AC voltage overvoltage",
@@ -701,23 +705,14 @@ class HyxiApiClient:
                 # 🚀 Sanitization: If this is a Collector, ignore battery/power metrics that shouldn't be here.
                 # This prevents "Collector" entities in Home Assistant from showing ghost battery stats.
                 if entry.get("device_type_code") == "COLLECTOR":
-                    sanitized = {
-                        k: v
-                        for k, v in m_raw.items()
-                        if not any(
-                            x in k.lower()
-                            for x in [
-                                "bat",
-                                "pv",
-                                "grid",
-                                "pbat",
-                                "load",
-                                "ph1",
-                                "ph2",
-                                "ph3",
-                            ]
-                        )
-                    }
+                    sanitized = {}
+                    for k, v in m_raw.items():
+                        k_lower = k.lower()
+                        for x in _BANNED_COLLECTOR_KEYS:
+                            if x in k_lower:
+                                break
+                        else:
+                            sanitized[k] = v
                     entry["metrics"].update(sanitized)
                 else:
                     entry["metrics"].update(m_raw)
