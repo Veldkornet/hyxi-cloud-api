@@ -538,11 +538,8 @@ def _sanitize_dict(raw: dict) -> dict:
     for k, v in raw.items():
         if k == "plantAddress":
             result[k] = "[REDACTED]"
-        elif (k in _SENSITIVE_KEYS or k.lower() == "alarmstate") and v:
-            if k in _SENSITIVE_KEYS:
-                result[k] = _mask_id(str(v))
-            else:
-                result[k] = v
+        elif k in _SENSITIVE_KEYS and v:
+            result[k] = _mask_id(str(v))
         else:
             result[k] = v
     return result
