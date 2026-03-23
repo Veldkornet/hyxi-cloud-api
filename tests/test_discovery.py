@@ -171,3 +171,65 @@ async def test_metric_sanitization_for_collector():
     await api._fetch_device_metrics("SN_INV", entry_inv)
     assert "pbat" in entry_inv["metrics"]
     assert "batsoc" in entry_inv["metrics"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_sub_devices_rejected():
+    """Verify that a rejected sub-device fetch logs an error and returns gracefully."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+
+    mock_response = AsyncMock()
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.json.return_value = {
+        "success": False,
+        "msg": "Invalid parent SN",
+    }
+
+    api.session.post = MagicMock(return_value=mock_response)
+
+    metric_tasks = []
+    discovered_sns = set()
+
+    with pytest.MonkeyPatch.context() as m:
+        mock_logger = MagicMock()
+        m.setattr("src.hyxi_cloud_api.api._LOGGER", mock_logger)
+
+        await api._fetch_sub_devices(
+            "BAD_SN", "Plant123", "2024-01-01", metric_tasks, discovered_sns
+        )
+
+        assert len(metric_tasks) == 0
+        assert len(discovered_sns) == 0
+
+        # Verify the logger was called with the correct error message
+        mock_logger.error.assert_called_once()
+        args, _ = mock_logger.error.call_args
+        assert "HYXI API Sub-Device Fetch Rejected" in args[0]
+
+
+@pytest.mark.asyncio
+async def test_fetch_sub_devices_exception():
+    """Verify that an exception during sub-device fetch is caught and logged."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+
+    # Force an exception during the request
+    api.session.post = MagicMock(side_effect=Exception("Network Timeout"))
+
+    metric_tasks = []
+    discovered_sns = set()
+
+    with pytest.MonkeyPatch.context() as m:
+        mock_logger = MagicMock()
+        m.setattr("src.hyxi_cloud_api.api._LOGGER", mock_logger)
+
+        await api._fetch_sub_devices(
+            "SOME_SN", "Plant123", "2024-01-01", metric_tasks, discovered_sns
+        )
+
+        assert len(metric_tasks) == 0
+        assert len(discovered_sns) == 0
+
+        # Verify the logger caught the exception
+        mock_logger.error.assert_called_once()
+        args, _ = mock_logger.error.call_args
+        assert "Error fetching sub-devices for %s: %s" in args[0]
