@@ -920,24 +920,7 @@ class HyxiApiClient:
                     continue
 
                 discovered_sns.add(sn)
-                dev_type = str(d.get("deviceType") or "UNKNOWN")
-                friendly_name = (
-                    DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
-                )
-
-                device_name = d.get("deviceName") or d.get("alias")
-                if not device_name or device_name == "":
-                    device_name = f"{friendly_name} {sn}"
-
-                entry = {
-                    "sn": sn,
-                    "device_name": device_name,
-                    "model": friendly_name,
-                    "device_type_code": dev_type,
-                    "sw_version": d.get("swVer"),
-                    "hw_version": d.get("hwVer"),
-                    "metrics": {"last_seen": now},
-                }
+                entry, dev_type = self._build_device_entry(sn, d, now)
 
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
@@ -1000,26 +983,7 @@ class HyxiApiClient:
                     continue
 
                 discovered_sns.add(sn)
-
-                # Sub-device responses often use numeric types (e.g. 1, 15)
-                raw_type = str(c.get("deviceType") or "UNKNOWN")
-                friendly_name = (
-                    DEVICE_TYPE_MAP.get(raw_type) or raw_type.replace("_", " ").title()
-                )
-
-                device_name = c.get("deviceName") or c.get("alias")
-                if not device_name or device_name == "":
-                    device_name = f"{friendly_name} {sn}"
-
-                entry = {
-                    "sn": sn,
-                    "device_name": device_name,
-                    "model": friendly_name,
-                    "device_type_code": raw_type,
-                    "sw_version": c.get("swVer"),
-                    "hw_version": c.get("hwVer"),
-                    "metrics": {"last_seen": now},
-                }
+                entry, raw_type = self._build_device_entry(sn, c, now)
 
                 # These are real devices, so fetch their metrics/info
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, raw_type))
@@ -1262,3 +1226,26 @@ class HyxiApiClient:
         await self._process_plants_data(plants, now, results)
 
         return results
+
+    def _build_device_entry(self, sn, device_data, now):
+        """Build a standardized device entry dictionary from raw API data."""
+        dev_type = str(device_data.get("deviceType") or "UNKNOWN")
+        friendly_name = (
+            DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
+        )
+
+        device_name = device_data.get("deviceName") or device_data.get("alias")
+        if not device_name or device_name == "":
+            device_name = f"{friendly_name} {sn}"
+
+        entry = {
+            "sn": sn,
+            "device_name": device_name,
+            "model": friendly_name,
+            "device_type_code": dev_type,
+            "sw_version": device_data.get("swVer"),
+            "hw_version": device_data.get("hwVer"),
+            "metrics": {"last_seen": now},
+        }
+
+        return entry, dev_type
