@@ -562,16 +562,6 @@ class HyxiApiClient:
         self.token = None
         self.token_expires_at = 0
 
-    def _get_error_message(self, res: dict) -> str:
-        """Extract the official error description from a response dict."""
-        code = str(res.get("code") or "")
-        msg = res.get("message") or ""
-        official_desc = INTERNAL_ERROR_MAP.get(code)
-
-        if official_desc:
-            return f"{official_desc} ({code})"
-        return f"{msg} ({code})" if code else msg
-
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXI's official Java SDK implementation."""
         now_ms = int(time.time() * 1000)
