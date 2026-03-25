@@ -1021,12 +1021,14 @@ class HyxiApiClient:
             )
             return []
 
-    async def get_all_device_data(self):
+    async def get_all_device_data(self, allow_back_discovery: bool = False):
         """Fetches data with built-in retry logic and returns attempt count."""
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                data = await self._execute_fetch_all()
+                data = await self._execute_fetch_all(
+                    allow_back_discovery=allow_back_discovery
+                )
                 if data == "auth_failed":
                     return None  # Hard fail, don't retry bad credentials
                 if data is not None:
@@ -1090,7 +1092,9 @@ class HyxiApiClient:
 
         return plants
 
-    async def _process_plants_data(self, plants, now, results):
+    async def _process_plants_data(
+        self, plants, now, results, allow_back_discovery: bool = False
+    ):
         """Helper to concurrently process plants to gather metrics and alarms."""
         metric_tasks = []
         device_fetch_tasks = []
@@ -1116,7 +1120,12 @@ class HyxiApiClient:
         if alarm_fetch_tasks:
             alarm_results = await asyncio.gather(*alarm_fetch_tasks)
             plant_alarms = await self._process_alarms_and_back_discovery(
-                alarm_results, plants, discovered_sns, now, metric_tasks
+                alarm_results,
+                plants,
+                discovered_sns,
+                now,
+                metric_tasks,
+                allow_back_discovery=allow_back_discovery,
             )
 
         # 3. Concurrent Metrics
@@ -1127,9 +1136,18 @@ class HyxiApiClient:
 
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     async def _process_alarms_and_back_discovery(
-        self, alarm_results, plants, discovered_sns, now, metric_tasks
+        self,
+        alarm_results,
+        plants,
+        discovered_sns,
+        now,
+        metric_tasks,
+        allow_back_discovery: bool = False,
     ):
         """Helper to process alarms and perform back-discovery of unlisted devices."""
+        _LOGGER.debug(
+            "HYXI Processing alarms (allow_back_discovery=%s)", allow_back_discovery
+        )
         plant_alarms = []
         for i, alarms in enumerate(alarm_results):
             if not isinstance(alarms, list):
@@ -1139,11 +1157,15 @@ class HyxiApiClient:
             plant_id = plants[i].get("plantId")
 
             # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
-            for a in alarms:
-                sn = a.get("deviceSn")
-                if sn and sn not in discovered_sns:
-                    _LOGGER.debug(
-                        "HYXI: Back-discovering device %s found in alarms for plant %s...",
+            if allow_back_discovery:
+                for a in alarms:
+                    sn = a.get("deviceSn")
+                    # Robustness: Skip null, empty, or dummy SNs (less than 5 chars)
+                    if not sn or len(str(sn)) < 5 or sn in discovered_sns:
+                        continue
+
+                    _LOGGER.info(
+                        "HYXI Back-discovering device %s found in alarms for plant %s...",
                         _mask_id(sn),
                         _mask_id(plant_id),
                     )
@@ -1197,7 +1219,7 @@ class HyxiApiClient:
                 entry["alarms"] = alarms_by_sn.get(sn, [])
                 results[sn] = entry
 
-    async def _execute_fetch_all(self):
+    async def _execute_fetch_all(self, allow_back_discovery: bool = False):
         """The actual fetching logic moved to a private method for the retry loop."""
 
         token_status = await self._refresh_token()
@@ -1216,7 +1238,9 @@ class HyxiApiClient:
             return None
 
         # 2 & 3. Process Plants for Devices, Alarms, and Metrics
-        await self._process_plants_data(plants, now, results)
+        await self._process_plants_data(
+            plants, now, results, allow_back_discovery=allow_back_discovery
+        )
 
         return results
 
