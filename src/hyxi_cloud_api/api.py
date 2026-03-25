@@ -799,6 +799,8 @@ class HyxiApiClient:
             "signalVal": i_raw.get("signalVal"),
             "wifiVer": i_raw.get("wifiVer"),
             "comMode": i_raw.get("comMode"),
+            "swVerMaster": i_raw.get("swVerMaster"),
+            "swVerSlave": i_raw.get("swVerSlave"),
         }
 
         if any(
