@@ -562,7 +562,6 @@ class HyxiApiClient:
         self.token = None
         self.token_expires_at = 0
 
-
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXI's official Java SDK implementation."""
         now_ms = int(time.time() * 1000)
