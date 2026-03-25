@@ -1144,7 +1144,7 @@ class HyxiApiClient:
     ):
         """Helper to process alarms and perform back-discovery of unlisted devices."""
         _LOGGER.debug(
-            "HYXI: Processing alarms (allow_back_discovery=%s)", allow_back_discovery
+            "HYXI Processing alarms (allow_back_discovery=%s)", allow_back_discovery
         )
         plant_alarms = []
         for i, alarms in enumerate(alarm_results):
@@ -1163,7 +1163,7 @@ class HyxiApiClient:
                         continue
 
                     _LOGGER.info(
-                        "HYXI: Back-discovering device %s found in alarms for plant %s...",
+                        "HYXI Back-discovering device %s found in alarms for plant %s...",
                         _mask_id(sn),
                         _mask_id(plant_id),
                     )
