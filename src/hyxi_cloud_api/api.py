@@ -494,6 +494,45 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         return 0.0
 
 
+def _filter_collector_metrics(m_raw: dict) -> dict:
+    """Remove battery/power metrics that shouldn't be present on Collectors."""
+    return {
+        k: v
+        for k, v in m_raw.items()
+        if not any(
+            x in k.lower()
+            for x in [
+                "bat",
+                "pv",
+                "grid",
+                "pbat",
+                "load",
+                "ph1",
+                "ph2",
+                "ph3",
+            ]
+        )
+    }
+
+
+def _compute_derived_metrics(m_raw: dict) -> dict:
+    """Calculate derived metrics from raw metrics map."""
+    grid = _get_f("gridP", m_raw, 1000.0)
+    pbat = _get_f("pbat", m_raw)
+
+    return {
+        "home_load": _get_f("ph1Loadp", m_raw)
+        + _get_f("ph2Loadp", m_raw)
+        + _get_f("ph3Loadp", m_raw),
+        "grid_import": abs(grid) if grid < 0 else 0.0,
+        "grid_export": grid if grid > 0 else 0.0,
+        "bat_charging": abs(pbat) if pbat < 0 else 0.0,
+        "bat_discharging": pbat if pbat > 0 else 0.0,
+        "bat_charge_total": _get_f("batCharge", m_raw),
+        "bat_discharge_total": _get_f("batDisCharge", m_raw),
+    }
+
+
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
 
@@ -598,6 +637,28 @@ class HyxiApiClient:
 
         return headers
 
+    async def _request(
+        self, method: str, path: str, is_token_request: bool = False, **kwargs
+    ) -> tuple[int, dict]:
+        """Centralized helper for making HTTP requests."""
+        url = f"{self.base_url}{path}"
+        headers = self._generate_headers(
+            path, method.upper(), is_token_request=is_token_request
+        )
+
+        kwargs.setdefault("timeout", 15)
+
+        request_func = getattr(self.session, method.lower())
+        async with request_func(url, headers=headers, **kwargs) as response:
+            status = response.status
+
+            if is_token_request and status in [401, 403]:
+                return status, {}
+
+            response.raise_for_status()
+            res = await response.json()
+            return status, res
+
     def _apply_token_response(self, data: dict) -> bool:
         """Parse token and expiration from API response and update state."""
         token_val = data.get("token") or data.get("access_token")
@@ -640,26 +701,21 @@ class HyxiApiClient:
         path = "/api/authorization/v1/token"
 
         try:
-            async with self.session.post(
-                f"{self.base_url}{path}",
-                json={"grantType": 1},
-                headers=self._generate_headers(path, "POST", is_token_request=True),
-                timeout=15,
-            ) as response:
-                if response.status in [401, 403]:
-                    _LOGGER.error("HYXI API: Token request unauthorized (401/403)")
+            status, res = await self._request(
+                "POST", path, is_token_request=True, json={"grantType": 1}
+            )
+
+            if status in [401, 403]:
+                _LOGGER.error("HYXI API: Token request unauthorized (401/403)")
+                return "auth_failed"
+
+            if not res.get("success"):
+                _LOGGER.error("HYXI API Token Rejected: %s", _sanitize_dict(res))
+                if res.get("code") in [401, 403, "401", "403"]:
                     return "auth_failed"
+                return False
 
-                response.raise_for_status()
-                res = await response.json()
-
-                if not res.get("success"):
-                    _LOGGER.error("HYXI API Token Rejected: %s", _sanitize_dict(res))
-                    if res.get("code") in [401, 403, "401", "403"]:
-                        return "auth_failed"
-                    return False
-
-                return self._apply_token_response(res.get("data", {}))
+            return self._apply_token_response(res.get("data", {}))
         except Exception as e:
             _LOGGER.error("HYXI Token Request Failed: %s", e)
         return False
@@ -668,14 +724,7 @@ class HyxiApiClient:
         """Helper to fetch detailed metrics for a single device."""
         q_path = "/api/device/v1/queryDeviceData"
         try:
-            async with self.session.get(
-                f"{self.base_url}{q_path}",
-                params={"deviceSn": sn},
-                headers=self._generate_headers(q_path, "GET"),
-                timeout=15,
-            ) as resp_q:
-                resp_q.raise_for_status()
-                res_q = await resp_q.json()
+            _, res_q = await self._request("GET", q_path, params={"deviceSn": sn})
 
             if res_q.get("success"):
                 data_list = res_q.get("data", [])
@@ -691,44 +740,12 @@ class HyxiApiClient:
                 # 🚀 Sanitization: If this is a Collector, ignore battery/power metrics that shouldn't be here.
                 # This prevents "Collector" entities in Home Assistant from showing ghost battery stats.
                 if entry.get("device_type_code") == "COLLECTOR":
-                    sanitized = {
-                        k: v
-                        for k, v in m_raw.items()
-                        if not any(
-                            x in k.lower()
-                            for x in [
-                                "bat",
-                                "pv",
-                                "grid",
-                                "pbat",
-                                "load",
-                                "ph1",
-                                "ph2",
-                                "ph3",
-                            ]
-                        )
-                    }
-                    entry["metrics"].update(sanitized)
+                    entry["metrics"].update(_filter_collector_metrics(m_raw))
                 else:
                     entry["metrics"].update(m_raw)
 
                 if "gridP" in m_raw or "pbat" in m_raw:
-                    grid = _get_f("gridP", m_raw, 1000.0)
-                    pbat = _get_f("pbat", m_raw)
-
-                    entry["metrics"].update(
-                        {
-                            "home_load": _get_f("ph1Loadp", m_raw)
-                            + _get_f("ph2Loadp", m_raw)
-                            + _get_f("ph3Loadp", m_raw),
-                            "grid_import": abs(grid) if grid < 0 else 0,
-                            "grid_export": grid if grid > 0 else 0,
-                            "bat_charging": abs(pbat) if pbat < 0 else 0,
-                            "bat_discharging": pbat if pbat > 0 else 0,
-                            "bat_charge_total": _get_f("batCharge", m_raw),
-                            "bat_discharge_total": _get_f("batDisCharge", m_raw),
-                        }
-                    )
+                    entry["metrics"].update(_compute_derived_metrics(m_raw))
             else:
                 _LOGGER.warning(
                     "HYXI API metrics rejected for %s: %s",
@@ -760,35 +777,52 @@ class HyxiApiClient:
         """Acquire basic data for Energy Storage Systems (ESS)."""
         path = "/api/ems/v1/queryBasicDetails"
         try:
-            async with self.session.get(
-                f"{self.base_url}{path}",
-                params={"emsSn": ems_sn},
-                headers=self._generate_headers(path, "GET"),
-                timeout=15,
-            ) as resp:
-                resp.raise_for_status()
-                res = await resp.json()
+            _, res = await self._request("GET", path, params={"emsSn": ems_sn})
 
-                if res.get("code") == "0":
-                    data = res.get("data", [])
-                    return _parse_ems_kv(data)
+            if res.get("code") == "0":
+                data = res.get("data", [])
+                return _parse_ems_kv(data)
         except Exception as e:
             _LOGGER.error(
                 "HYXI EMS Basic Data Request Failed for %s: %s", _mask_id(ems_sn), e
             )
         return {}
 
+    def _extract_device_info_metadata(self, entry, i_raw):
+        """Helper to extract metadata from device info."""
+        sw_ver = i_raw.get("swVerSys") or i_raw.get("swVerMaster") or i_raw.get("swVer")
+        if sw_ver:
+            entry["sw_version"] = sw_ver
+
+        base_info = {
+            "signalIntensity": i_raw.get("signalIntensity"),
+            "signalVal": i_raw.get("signalVal"),
+            "wifiVer": i_raw.get("wifiVer"),
+            "comMode": i_raw.get("comMode"),
+        }
+
+        if any(
+            x in entry.get("device_type_code", "").upper()
+            for x in ["INVERTER", "ESS", "HALO", "1", "15"]
+        ):
+            base_info.update(
+                {
+                    "batCap": _get_f("batCap", i_raw),
+                    "packNum": int(i_raw.get("packNum") or 1),
+                    "maxChargePower": _get_f("maxChargePower", i_raw)
+                    or _get_f("maxChargingDischargingPower", i_raw),
+                    "maxDischargePower": _get_f("maxDischargePower", i_raw)
+                    or _get_f("maxChargingDischargingPower", i_raw),
+                }
+            )
+
+        entry["metrics"].update(base_info)
+
     async def _fetch_device_info(self, sn, entry):
         """Helper to fetch static device info (firmware, capacity, limits)."""
         i_path = "/api/device/v1/queryDeviceInfo"
         try:
-            async with self.session.get(
-                f"{self.base_url}{i_path}",
-                params={"deviceSn": sn},
-                headers=self._generate_headers(i_path, "GET"),
-                timeout=15,
-            ) as resp_i:
-                res_i = await resp_i.json()
+            _, res_i = await self._request("GET", i_path, params={"deviceSn": sn})
 
             if res_i.get("success"):
                 data_raw = res_i.get("data")
@@ -805,40 +839,7 @@ class HyxiApiClient:
                         "HYXI Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
                     )
 
-                # Smart Firmware Finder
-                sw_ver = (
-                    i_raw.get("swVerSys")
-                    or i_raw.get("swVerMaster")
-                    or i_raw.get("swVer")
-                )
-                if sw_ver:
-                    entry["sw_version"] = sw_ver
-
-                # Base metadata for all devices
-                base_info = {
-                    "signalIntensity": i_raw.get("signalIntensity"),
-                    "signalVal": i_raw.get("signalVal"),
-                    "wifiVer": i_raw.get("wifiVer"),
-                    "comMode": i_raw.get("comMode"),
-                }
-
-                # Device-specific metadata (e.g. Battery info for Inverters)
-                if any(
-                    x in entry.get("device_type_code", "").upper()
-                    for x in ["INVERTER", "ESS", "HALO", "1", "15"]
-                ):
-                    base_info.update(
-                        {
-                            "batCap": _get_f("batCap", i_raw),
-                            "packNum": int(i_raw.get("packNum") or 1),
-                            "maxChargePower": _get_f("maxChargePower", i_raw)
-                            or _get_f("maxChargingDischargingPower", i_raw),
-                            "maxDischargePower": _get_f("maxDischargePower", i_raw)
-                            or _get_f("maxChargingDischargingPower", i_raw),
-                        }
-                    )
-
-                entry["metrics"].update(base_info)
+                self._extract_device_info_metadata(entry, i_raw)
             else:
                 _LOGGER.warning(
                     "HYXI INFO API Rejected for %s: %s",
@@ -870,14 +871,11 @@ class HyxiApiClient:
         """Helper to fetch devices for a single plant concurrently."""
         d_path = "/api/plant/v1/devicePage"
         try:
-            async with self.session.post(
-                f"{self.base_url}{d_path}",
+            _, res_d = await self._request(
+                "POST",
+                d_path,
                 json={"plantId": plant_id, "pageSize": 50, "currentPage": 1},
-                headers=self._generate_headers(d_path, "POST"),
-                timeout=15,
-            ) as resp_d:
-                resp_d.raise_for_status()
-                res_d = await resp_d.json()
+            )
 
             if not res_d.get("success"):
                 _LOGGER.error(
@@ -910,24 +908,7 @@ class HyxiApiClient:
                     continue
 
                 discovered_sns.add(sn)
-                dev_type = str(d.get("deviceType") or "UNKNOWN")
-                friendly_name = (
-                    DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
-                )
-
-                device_name = d.get("deviceName") or d.get("alias")
-                if not device_name or device_name == "":
-                    device_name = f"{friendly_name} {sn}"
-
-                entry = {
-                    "sn": sn,
-                    "device_name": device_name,
-                    "model": friendly_name,
-                    "device_type_code": dev_type,
-                    "sw_version": d.get("swVer"),
-                    "hw_version": d.get("hwVer"),
-                    "metrics": {"last_seen": now},
-                }
+                entry, dev_type = self._build_device_entry(sn, d, now)
 
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
@@ -938,43 +919,39 @@ class HyxiApiClient:
                         _mask_id(sn),
                         dev_type,
                     )
-                    await self._fetch_sub_devices(
-                        sn, plant_id, now, metric_tasks, discovered_sns
-                    )
+                    await self._fetch_sub_devices(sn, now, metric_tasks, discovered_sns)
 
         except Exception as e:
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
 
-    async def _fetch_sub_devices(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self, parent_sn, plant_id, now, metric_tasks, discovered_sns
-    ):
-        """Fetch sub-devices under a communication unit (Collector/DMU)."""
+    async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict]:
+        """Fetch the list of sub-devices from the API."""
         sd_path = "/api/device/v1/getSubDevicePage"
-        try:
-            async with self.session.post(
-                f"{self.base_url}{sd_path}",
-                json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
-                headers=self._generate_headers(sd_path, "POST"),
-                timeout=15,
-            ) as resp_sd:
-                resp_sd.raise_for_status()
-                res_sd = await resp_sd.json()
+        _, res_sd = await self._request(
+            "POST",
+            sd_path,
+            json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
+        )
 
-            if not res_sd.get("success"):
-                _LOGGER.error(
-                    "HYXI API Sub-Device Fetch Rejected for %s: %s",
-                    _mask_id(parent_sn),
-                    _sanitize_dict(res_sd),
-                )
-                return
-
-            data_val = res_sd.get("data", {})
-            # Normalized extract: childDevice list
-            children = (
-                data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+        if not res_sd.get("success"):
+            _LOGGER.error(
+                "HYXI API Sub-Device Fetch Rejected for %s: %s",
+                _mask_id(parent_sn),
+                _sanitize_dict(res_sd),
             )
+            return []
+
+        data_val = res_sd.get("data", {})
+        return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+
+    async def _fetch_sub_devices(self, parent_sn, now, metric_tasks, discovered_sns):
+        """Fetch sub-devices under a communication unit (Collector/DMU)."""
+        try:
+            children = await self._fetch_sub_device_list(parent_sn)
+            if not children:
+                return
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
@@ -990,26 +967,7 @@ class HyxiApiClient:
                     continue
 
                 discovered_sns.add(sn)
-
-                # Sub-device responses often use numeric types (e.g. 1, 15)
-                raw_type = str(c.get("deviceType") or "UNKNOWN")
-                friendly_name = (
-                    DEVICE_TYPE_MAP.get(raw_type) or raw_type.replace("_", " ").title()
-                )
-
-                device_name = c.get("deviceName") or c.get("alias")
-                if not device_name or device_name == "":
-                    device_name = f"{friendly_name} {sn}"
-
-                entry = {
-                    "sn": sn,
-                    "device_name": device_name,
-                    "model": friendly_name,
-                    "device_type_code": raw_type,
-                    "sw_version": c.get("swVer"),
-                    "hw_version": c.get("hwVer"),
-                    "metrics": {"last_seen": now},
-                }
+                entry, raw_type = self._build_device_entry(sn, c, now)
 
                 # These are real devices, so fetch their metrics/info
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, raw_type))
@@ -1023,14 +981,11 @@ class HyxiApiClient:
         """Helper to fetch active alarms for a single plant."""
         a_path = "/api/alarm/v1/plantAlarmPage"
         try:
-            async with self.session.post(
-                f"{self.base_url}{a_path}",
+            _, res_a = await self._request(
+                "POST",
+                a_path,
                 json={"plantId": plant_id, "pageSize": 100, "currentPage": 1},
-                headers=self._generate_headers(a_path, "POST"),
-                timeout=15,
-            ) as resp_a:
-                resp_a.raise_for_status()
-                res_a = await resp_a.json()
+            )
 
             if not res_a.get("success"):
                 _LOGGER.error(
@@ -1104,14 +1059,9 @@ class HyxiApiClient:
     async def _fetch_plants(self):
         """Helper to fetch plants associated with the account."""
         p_path = "/api/plant/v1/page"
-        async with self.session.post(
-            f"{self.base_url}{p_path}",
-            json={"pageSize": 10, "currentPage": 1},
-            headers=self._generate_headers(p_path, "POST"),
-            timeout=15,
-        ) as resp_p:
-            resp_p.raise_for_status()
-            res_p = await resp_p.json()
+        _, res_p = await self._request(
+            "POST", p_path, json={"pageSize": 10, "currentPage": 1}
+        )
 
         if not res_p.get("success"):
             # 🚀 If the server rejects the token, wipe it and force a retry!
@@ -1165,70 +1115,87 @@ class HyxiApiClient:
         plant_alarms = []
         if alarm_fetch_tasks:
             alarm_results = await asyncio.gather(*alarm_fetch_tasks)
-            for i, alarms in enumerate(alarm_results):
-                if not isinstance(alarms, list):
-                    continue
-
-                plant_alarms.extend(alarms)
-                plant_id = plants[i].get("plantId")
-
-                # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
-                for a in alarms:
-                    sn = a.get("deviceSn")
-                    if sn and sn not in discovered_sns:
-                        _LOGGER.debug(
-                            "HYXI: Back-discovering device %s found in alarms for plant %s...",
-                            _mask_id(sn),
-                            _mask_id(plant_id),
-                        )
-                        discovered_sns.add(sn)
-                        dev_type = str(a.get("deviceType") or "UNKNOWN")
-                        friendly_name = (
-                            DEVICE_TYPE_MAP.get(dev_type)
-                            or dev_type.replace("_", " ").title()
-                        )
-
-                        device_name = a.get("deviceName")
-                        if not device_name or device_name == "":
-                            device_name = f"{friendly_name} {sn}"
-
-                        entry = {
-                            "sn": sn,
-                            "device_name": device_name,
-                            "model": friendly_name,
-                            "device_type_code": dev_type,
-                            "sw_version": None,
-                            "hw_version": None,
-                            "metrics": {"last_seen": now},
-                        }
-                        metric_tasks.append(
-                            self._fetch_all_for_device(sn, entry, dev_type)
-                        )
-
-                        # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-                        if any(
-                            x in dev_type.upper()
-                            for x in ["COLLECTOR", "DMU", "INVERTER"]
-                        ):
-                            await self._fetch_sub_devices(
-                                sn, plant_id, now, metric_tasks, discovered_sns
-                            )
+            plant_alarms = await self._process_alarms_and_back_discovery(
+                alarm_results, plants, discovered_sns, now, metric_tasks
+            )
 
         # 3. Concurrent Metrics
         if metric_tasks:
-            # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
-            alarms_by_sn = defaultdict(list)
-            for a in plant_alarms:
-                sn = a.get("deviceSn")
-                if sn:
-                    alarms_by_sn[sn].append(a)
+            await self._execute_metrics_and_map_alarms(
+                metric_tasks, plant_alarms, results
+            )
 
-            updated_entries = await asyncio.gather(*metric_tasks)
-            for sn, entry in updated_entries:
-                if sn:
-                    # Map the relevant active alarms to this specific device
-                    entry["alarms"] = alarms_by_sn.get(sn, [])
-                    results[sn] = entry
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    async def _process_alarms_and_back_discovery(
+        self, alarm_results, plants, discovered_sns, now, metric_tasks
+    ):
+        """Helper to process alarms and perform back-discovery of unlisted devices."""
+        plant_alarms = []
+        for i, alarms in enumerate(alarm_results):
+            if not isinstance(alarms, list):
+                continue
+
+            plant_alarms.extend(alarms)
+            plant_id = plants[i].get("plantId")
+
+            # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
+            for a in alarms:
+                sn = a.get("deviceSn")
+                if sn and sn not in discovered_sns:
+                    _LOGGER.debug(
+                        "HYXI: Back-discovering device %s found in alarms for plant %s...",
+                        _mask_id(sn),
+                        _mask_id(plant_id),
+                    )
+                    discovered_sns.add(sn)
+                    dev_type = str(a.get("deviceType") or "UNKNOWN")
+                    friendly_name = (
+                        DEVICE_TYPE_MAP.get(dev_type)
+                        or dev_type.replace("_", " ").title()
+                    )
+
+                    device_name = a.get("deviceName")
+                    if not device_name or device_name == "":
+                        device_name = f"{friendly_name} {sn}"
+
+                    entry = {
+                        "sn": sn,
+                        "device_name": device_name,
+                        "model": friendly_name,
+                        "device_type_code": dev_type,
+                        "sw_version": None,
+                        "hw_version": None,
+                        "metrics": {"last_seen": now},
+                    }
+                    metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+
+                    # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
+                    if any(
+                        x in dev_type.upper() for x in ["COLLECTOR", "DMU", "INVERTER"]
+                    ):
+                        await self._fetch_sub_devices(
+                            sn, now, metric_tasks, discovered_sns
+                        )
+
+        return plant_alarms
+
+    async def _execute_metrics_and_map_alarms(
+        self, metric_tasks, plant_alarms, results
+    ):
+        """Helper to execute metric tasks and map alarms to devices."""
+        # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
+        alarms_by_sn = defaultdict(list)
+        for a in plant_alarms:
+            sn = a.get("deviceSn")
+            if sn:
+                alarms_by_sn[sn].append(a)
+
+        updated_entries = await asyncio.gather(*metric_tasks)
+        for sn, entry in updated_entries:
+            if sn:
+                # Map the relevant active alarms to this specific device
+                entry["alarms"] = alarms_by_sn.get(sn, [])
+                results[sn] = entry
 
     async def _execute_fetch_all(self):
         """The actual fetching logic moved to a private method for the retry loop."""
@@ -1252,3 +1219,26 @@ class HyxiApiClient:
         await self._process_plants_data(plants, now, results)
 
         return results
+
+    def _build_device_entry(self, sn, device_data, now):
+        """Build a standardized device entry dictionary from raw API data."""
+        dev_type = str(device_data.get("deviceType") or "UNKNOWN")
+        friendly_name = (
+            DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
+        )
+
+        device_name = device_data.get("deviceName") or device_data.get("alias")
+        if not device_name or device_name == "":
+            device_name = f"{friendly_name} {sn}"
+
+        entry = {
+            "sn": sn,
+            "device_name": device_name,
+            "model": friendly_name,
+            "device_type_code": dev_type,
+            "sw_version": device_data.get("swVer"),
+            "hw_version": device_data.get("hwVer"),
+            "metrics": {"last_seen": now},
+        }
+
+        return entry, dev_type
