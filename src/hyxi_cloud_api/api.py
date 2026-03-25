@@ -1026,7 +1026,9 @@ class HyxiApiClient:
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                data = await self._execute_fetch_all(allow_back_discovery=allow_back_discovery)
+                data = await self._execute_fetch_all(
+                    allow_back_discovery=allow_back_discovery
+                )
                 if data == "auth_failed":
                     return None  # Hard fail, don't retry bad credentials
                 if data is not None:

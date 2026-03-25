@@ -252,7 +252,8 @@ async def test_fetch_sub_devices_exception():
 
         # Verify the logger caught the exception
         mock_logger.error.assert_called_once()
-        args, _ = mock_logger.error.call_args
+        # args, _ = mock_logger.error.call_args
+
 
 @pytest.mark.asyncio
 async def test_get_all_device_data_discovery_toggle():
@@ -260,22 +261,23 @@ async def test_get_all_device_data_discovery_toggle():
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
     api._fetch_plants = AsyncMock(return_value=[{"plantId": "Pl123"}])
-    
+
     # 1. Mock empty device list
     api._fetch_devices_for_plant = AsyncMock()
-    
+
     # 2. Mock alarm with a new device
     alarm = {"deviceSn": "NEW_DEVICE_SN", "deviceType": "1", "deviceName": "New Device"}
     api._fetch_alarms_for_plant = AsyncMock(return_value=[alarm])
     api._fetch_all_for_device = AsyncMock(return_value=("NEW_DEVICE_SN", {}))
-    
+
     # CASE A: Toggle OFF (Default) -> Should NOT discover
     res_off = await api.get_all_device_data(allow_back_discovery=False)
     assert "NEW_DEVICE_SN" not in res_off["data"]
-    
+
     # CASE B: Toggle ON -> Should discover
     res_on = await api.get_all_device_data(allow_back_discovery=True)
     assert "NEW_DEVICE_SN" in res_on["data"]
+
 
 @pytest.mark.asyncio
 async def test_back_discovery_sn_validation():
@@ -284,12 +286,12 @@ async def test_back_discovery_sn_validation():
     api._refresh_token = AsyncMock(return_value=True)
     api._fetch_plants = AsyncMock(return_value=[{"plantId": "Pl123"}])
     api._fetch_devices_for_plant = AsyncMock()
-    
+
     # Alarm with a "ghost" SN (too short)
     alarm = {"deviceSn": "123", "deviceType": "1", "deviceName": "Ghost"}
     api._fetch_alarms_for_plant = AsyncMock(return_value=[alarm])
     api._fetch_all_for_device = AsyncMock()
-    
+
     # Toggle ON -> Should still reject due to length validation
     res = await api.get_all_device_data(allow_back_discovery=True)
     assert "123" not in res["data"]
