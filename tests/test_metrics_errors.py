@@ -35,12 +35,14 @@ async def test_fetch_device_metrics_invalid_json(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
-    yielded_response.json.side_effect = aiohttp.ContentTypeError(
-        request_info=MagicMock(),
-        history=(),
-        message="Attempt to decode JSON with unexpected mimetype",
+    yielded_response.json = AsyncMock(
+        side_effect=aiohttp.ContentTypeError(
+            request_info=MagicMock(),
+            history=(),
+            message="Attempt to decode JSON with unexpected mimetype",
+        )
     )
     yielded_response.raise_for_status = MagicMock()
     yielded_response.status = 200
@@ -61,12 +63,14 @@ async def test_fetch_device_metrics_api_error(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
-    yielded_response.json.return_value = {
-        "success": False,
-        "message": "Device not found",
-    }
+    yielded_response.json = AsyncMock(
+        return_value={
+            "success": False,
+            "message": "Device not found",
+        }
+    )
     yielded_response.raise_for_status = MagicMock()
     yielded_response.status = 200
 
@@ -78,4 +82,30 @@ async def test_fetch_device_metrics_api_error(caplog):
     assert (
         "HYXI API metrics rejected for 106XXXXXXXX016: Device not found" in caplog.text
     )
+    assert not entry["metrics"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_ems_basic_data_no_data(caplog):
+    """Test that _fetch_ems_basic_data handles empty response gracefully."""
+    caplog.set_level(logging.DEBUG)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Mock query_ems_basic_details to return None (no data)
+    api.query_ems_basic_details = AsyncMock(return_value=None)
+
+    # Inject mock directly into the module resolving all patch issues
+    import hyxi_cloud_api.api as api_mod  # pylint: disable=import-outside-toplevel
+
+    mock_logger = MagicMock()
+    api_mod._LOGGER = mock_logger
+
+    entry = {"metrics": {}, "device_type_code": "EMS"}
+    await api._fetch_ems_basic_data("10602251600016", entry)
+
+    mock_logger.debug.assert_called_with(
+        "HYXI EMS telemetry probe returned no data for %s", "106XXXXXXXX016"
+    )
+    # Ensure entry was not updated with metrics
     assert not entry["metrics"]

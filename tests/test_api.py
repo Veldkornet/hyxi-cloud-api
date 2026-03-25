@@ -14,7 +14,7 @@ def test_api_initialization():
     """Test that the API class stores credentials and URL correctly."""
 
     # We create a fake aiohttp session to pass into the client
-    fake_session = AsyncMock()
+    fake_session = MagicMock()
 
     api = HyxiApiClient(
         access_key="fake_access_key",
@@ -36,7 +36,7 @@ def test_api_initialization():
 async def test_get_all_device_data_success():
     """Test that the get_all_device_data correctly formats a successful fetch."""
 
-    fake_session = AsyncMock()
+    fake_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
 
     # We mock the internal '_execute_fetch_all' method so it doesn't actually try to hit the network
@@ -59,7 +59,7 @@ async def test_get_all_device_data_success():
 @pytest.mark.asyncio
 async def test_get_all_device_data_retry_exhaustion(monkeypatch):
     """Test that get_all_device_data exhausts retries and returns None."""
-    fake_session = AsyncMock()
+    fake_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
 
     # Mock _execute_fetch_all to consistently raise ClientError
@@ -85,7 +85,7 @@ async def test_get_all_device_data_retry_exhaustion(monkeypatch):
 # --- TEST 3: Header Generation and Hashes ---
 def test_generate_headers():
     """Verify that _generate_headers constructs the dictionary and signature properly."""
-    fake_session = AsyncMock()
+    fake_session = MagicMock()
     api = HyxiApiClient("test_ak", "test_sk", "https://api.com", fake_session)
     api.token = "Bearer fake_token"
 
@@ -142,27 +142,29 @@ def test_parse_ems_kv():
 
 @pytest.mark.asyncio
 async def test_query_ems_basic_details_success():
-    """Test successful EMS basic data retrieval using AsyncMock."""
-    mock_session = AsyncMock()
+    """Test successful EMS basic data retrieval."""
+    mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
     api.token = "Bearer fake_token"
 
     ems_sn = "EMS123"
 
     # Mock the response context manager
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.json.return_value = {
-        "code": "0",
-        "data": [
-            {
-                "filedKv": [
-                    {"prop": "duiSoc", "value": "92.0"},
-                    {"prop": "cuVolt", "value": "480"},
-                ]
-            }
-        ],
-    }
+    mock_response.__aenter__.return_value.json = AsyncMock(
+        return_value={
+            "code": "0",
+            "data": [
+                {
+                    "filedKv": [
+                        {"prop": "duiSoc", "value": "92.0"},
+                        {"prop": "cuVolt", "value": "480"},
+                    ]
+                }
+            ],
+        }
+    )
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
     api.session.get = MagicMock(return_value=mock_response)
@@ -230,12 +232,12 @@ async def test_execute_fetch_all_concurrent():
 async def test_refresh_token_failures(status, payload, expected_result):
     """Test _refresh_token handles various failure conditions correctly."""
 
-    mock_session = AsyncMock()
+    mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
     api.token = None
 
     # Mock the response context manager correctly
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
     yielded_response.status = status
 
@@ -261,7 +263,7 @@ async def test_refresh_token_failures(status, payload, expected_result):
 @pytest.mark.asyncio
 async def test_refresh_token_network_exception():
     """Test _refresh_token handles network exceptions gracefully."""
-    mock_session = AsyncMock()
+    mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
     api.token = None
 
@@ -284,21 +286,23 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
-    yielded_response.json.return_value = {
-        "success": True,
-        "data": {
-            "pageData": [
-                {
-                    "deviceSn": "10602251600016",
-                    "alarmName": "Fault 1",
-                    "plantId": "12345678",
-                },
-                {"deviceSn": "60701251900927", "alarmName": "Fault 2"},
-            ]
-        },
-    }
+    yielded_response.json = AsyncMock(
+        return_value={
+            "success": True,
+            "data": {
+                "pageData": [
+                    {
+                        "deviceSn": "10602251600016",
+                        "alarmName": "Fault 1",
+                        "plantId": "12345678",
+                    },
+                    {"deviceSn": "60701251900927", "alarmName": "Fault 2"},
+                ]
+            },
+        }
+    )
     yielded_response.raise_for_status = MagicMock()
     yielded_response.status = 200
 
@@ -327,7 +331,7 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
 @pytest.mark.asyncio
 async def test_fetch_all_for_device_collector():
     """Test _fetch_all_for_device when dev_type is COLLECTOR."""
-    api = HyxiApiClient("key", "secret", "url", session=AsyncMock())
+    api = HyxiApiClient("key", "secret", "url", session=MagicMock())
 
     async def dummy_info(*args, **kwargs):
         pass
@@ -354,7 +358,7 @@ async def test_fetch_all_for_device_collector():
 @pytest.mark.asyncio
 async def test_fetch_all_for_device_non_collector():
     """Test _fetch_all_for_device when dev_type is not COLLECTOR."""
-    api = HyxiApiClient("key", "secret", "url", session=AsyncMock())
+    api = HyxiApiClient("key", "secret", "url", session=MagicMock())
 
     async def dummy_info(*args, **kwargs):
         pass
@@ -382,16 +386,18 @@ async def test_fetch_all_for_device_non_collector():
 @pytest.mark.asyncio
 async def test_execute_fetch_all_empty_plants():
     """Verify that _execute_fetch_all returns empty dict (not None) for successful but empty plant list."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
 
     # Mock response for /api/plant/v1/page: success=True, but data is an empty list or null
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     # Scenario: success=True, data is empty
-    mock_response.__aenter__.return_value.json.return_value = {
-        "success": True,
-        "data": {"list": []},
-    }
+    mock_response.__aenter__.return_value.json = AsyncMock(
+        return_value={
+            "success": True,
+            "data": {"list": []},
+        }
+    )
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
@@ -407,15 +413,17 @@ async def test_execute_fetch_all_empty_plants():
 @pytest.mark.asyncio
 async def test_execute_fetch_all_null_data():
     """Verify robustness when the 'data' field itself is null."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     # Scenario: success=True, data is null (None)
-    mock_response.__aenter__.return_value.json.return_value = {
-        "success": True,
-        "data": None,
-    }
+    mock_response.__aenter__.return_value.json = AsyncMock(
+        return_value={
+            "success": True,
+            "data": None,
+        }
+    )
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
