@@ -5,68 +5,81 @@ import pytest
 from src.hyxi_cloud_api.api import HyxiApiClient
 
 
-@pytest.mark.asyncio
-async def test_sub_device_recursive_discovery():
-    """Verify that discovering a Collector triggers discovery of its sub-devices."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+def _setup_mock_api():
+    """Helper to set up a mock API client for discovery tests."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
-
-    # 1. Mock _fetch_plants
     api._fetch_plants = AsyncMock(return_value=[{"plantId": "Pl123"}])
 
-    # 2. Mock response
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.json.side_effect = [
-        {
-            "success": True,
-            "data": {
-                "deviceList": [
-                    {
-                        "deviceSn": "COLL_001",
-                        "deviceType": "COLLECTOR",
-                        "deviceName": "My Collector",
-                    }
-                ]
+    mock_response.__aenter__.return_value.json = AsyncMock(
+        side_effect=[
+            {
+                "success": True,
+                "data": {
+                    "deviceList": [
+                        {
+                            "deviceSn": "COLL_001",
+                            "deviceType": "COLLECTOR",
+                            "deviceName": "My Collector",
+                        }
+                    ]
+                },
             },
-        },
-        {
-            "success": True,
-            "data": {
-                "childDevice": [
-                    {
-                        "deviceSn": "INV_001",
-                        "deviceType": "1",  # Hybrid Inverter
-                        "deviceName": "My Inverter",
-                    }
-                ]
+            {
+                "success": True,
+                "data": {
+                    "childDevice": [
+                        {
+                            "deviceSn": "INV_001",
+                            "deviceType": "1",  # Hybrid Inverter
+                            "deviceName": "My Inverter",
+                        }
+                    ]
+                },
             },
-        },
-    ]
+        ]
+    )
 
-    # Inverters and Collectors need both POST (for sub-discovery) and GET (for info/metrics)
     api.session.post = MagicMock(return_value=mock_response)
     api.session.get = MagicMock(return_value=mock_response)
-
-    # We need to mock _fetch_device_info/metrics to avoid more network calls
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
-    # Mock alarm fetch to return empty list
     api._fetch_alarms_for_plant = AsyncMock(return_value=[])
 
+    return api
+
+
+@pytest.mark.asyncio
+async def test_collector_discovery_only():
+    """Verify that a Collector is discovered correctly."""
+    api = _setup_mock_api()
     results = {}
+
     await api._process_plants_data([{"plantId": "Pl123"}], "2024-01-01", results)
 
-    # Verify both Collector and Inverter were discovered
     assert "COLL_001" in results
+    assert results["COLL_001"]["device_type_code"] == "COLLECTOR"
+
+
+@pytest.mark.asyncio
+async def test_sub_device_discovery_triggered_by_collector():
+    """Verify that discovering a Collector triggers discovery of its sub-devices."""
+    api = _setup_mock_api()
+    results = {}
+
+    await api._process_plants_data([{"plantId": "Pl123"}], "2024-01-01", results)
+
     assert "INV_001" in results
     assert results["INV_001"]["model"] == "Hybrid Inverter"
+    assert results["INV_001"]["device_type_code"] == "1"
 
 
 @pytest.mark.asyncio
 async def test_back_discovery_and_recursive_probe():
     """Verify that a device found ONLY in alarms triggers a recursive probe."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
 
     # 1. No devices in the main list
@@ -81,20 +94,22 @@ async def test_back_discovery_and_recursive_probe():
     api._fetch_alarms_for_plant = AsyncMock(return_value=[alarm])
 
     # 3. Mock the sub-device probe for the hidden collector
-    mock_sub_response = AsyncMock()
+    mock_sub_response = MagicMock()
     mock_sub_response.__aenter__.return_value.status = 200
-    mock_sub_response.__aenter__.return_value.json.return_value = {
-        "success": True,
-        "data": {
-            "childDevice": [
-                {
-                    "deviceSn": "HIDDEN_INV",
-                    "deviceType": "1",
-                    "deviceName": "Hidden Inverter",
-                }
-            ]
-        },
-    }
+    mock_sub_response.__aenter__.return_value.json = AsyncMock(
+        return_value={
+            "success": True,
+            "data": {
+                "childDevice": [
+                    {
+                        "deviceSn": "HIDDEN_INV",
+                        "deviceType": "1",
+                        "deviceName": "Hidden Inverter",
+                    }
+                ]
+            },
+        }
+    )
     api.session.post = MagicMock(return_value=mock_sub_response)
     api.session.get = MagicMock(return_value=mock_sub_response)
 
@@ -115,7 +130,7 @@ async def test_back_discovery_and_recursive_probe():
 @pytest.mark.asyncio
 async def test_verified_sensor_extraction():
     """Verify that packNum and batCap are extracted correctly from the info block."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
     # Mock the response structure matching user logs: a flat dictionary!
     mock_info_resp = {
@@ -124,9 +139,9 @@ async def test_verified_sensor_extraction():
     }
 
     # Mock the aiohttp call inside _fetch_device_info
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.json.return_value = mock_info_resp
+    mock_response.__aenter__.return_value.json = AsyncMock(return_value=mock_info_resp)
     api.session.get = MagicMock(return_value=mock_response)
 
     entry = {"metrics": {}, "device_type_code": "1"}  # Hybrid Inverter
@@ -142,7 +157,7 @@ async def test_verified_sensor_extraction():
 @pytest.mark.asyncio
 async def test_metric_sanitization_for_collector():
     """Verify that battery metrics are NOT associated with a COLLECTOR."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
     # Mock a metrics response that INCLUDES battery data (which shouldn't be there)
     mock_metrics_resp = {
@@ -154,9 +169,11 @@ async def test_metric_sanitization_for_collector():
         ],
     }
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.json.return_value = mock_metrics_resp
+    mock_response.__aenter__.return_value.json = AsyncMock(
+        return_value=mock_metrics_resp
+    )
     api.session.get = MagicMock(return_value=mock_response)
 
     # 1. Test with COLLECTOR - Should be sanitized
@@ -171,3 +188,63 @@ async def test_metric_sanitization_for_collector():
     await api._fetch_device_metrics("SN_INV", entry_inv)
     assert "pbat" in entry_inv["metrics"]
     assert "batsoc" in entry_inv["metrics"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_sub_devices_rejected():
+    """Verify that a rejected sub-device fetch logs an error and returns gracefully."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+
+    mock_response = AsyncMock()
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.json.return_value = {
+        "success": False,
+        "msg": "Invalid parent SN",
+    }
+
+    api.session.post = MagicMock(return_value=mock_response)
+
+    metric_tasks = []
+    discovered_sns = set()
+
+    with pytest.MonkeyPatch.context() as m:
+        mock_logger = MagicMock()
+        m.setattr("src.hyxi_cloud_api.api._LOGGER", mock_logger)
+
+        await api._fetch_sub_devices("BAD_SN", "Plant123", metric_tasks, discovered_sns)
+
+        assert len(metric_tasks) == 0
+        assert len(discovered_sns) == 0
+
+        # Verify the logger was called with the correct error message
+        mock_logger.error.assert_called_once()
+        args, _ = mock_logger.error.call_args
+        assert "HYXI API Sub-Device Fetch Rejected" in args[0]
+
+
+@pytest.mark.asyncio
+async def test_fetch_sub_devices_exception():
+    """Verify that an exception during sub-device fetch is caught and logged."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
+
+    # Force an exception during the request
+    api.session.post = MagicMock(side_effect=Exception("Network Timeout"))
+
+    metric_tasks = []
+    discovered_sns = set()
+
+    with pytest.MonkeyPatch.context() as m:
+        mock_logger = MagicMock()
+        m.setattr("src.hyxi_cloud_api.api._LOGGER", mock_logger)
+
+        await api._fetch_sub_devices(
+            "SOME_SN", "Plant123", metric_tasks, discovered_sns
+        )
+
+        assert len(metric_tasks) == 0
+        assert len(discovered_sns) == 0
+
+        # Verify the logger caught the exception
+        mock_logger.error.assert_called_once()
+        args, _ = mock_logger.error.call_args
+        assert "Error fetching sub-devices for %s: %s" in args[0]
