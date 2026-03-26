@@ -29,6 +29,7 @@ async def test_fetch_device_metrics_fixed():
             "data": [],
         }
     )
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
@@ -58,6 +59,7 @@ async def test_fetch_device_info_fixed():
             "data": [],
         }
     )
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 

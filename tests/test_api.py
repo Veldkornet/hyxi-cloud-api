@@ -151,6 +151,7 @@ async def test_query_ems_basic_details_success():
 
     # Mock the response context manager
     mock_response = MagicMock()
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.json = AsyncMock(
         return_value={
@@ -201,8 +202,9 @@ async def test_execute_fetch_all_concurrent():
     api._fetch_devices_for_plant = MagicMock(side_effect=mock_fetch_devices)
 
     # Configure the mock response to simulate aiohttp's async context manager.
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     mock_response.__aenter__.return_value.json.return_value = fake_plants_response
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
@@ -239,6 +241,7 @@ async def test_refresh_token_failures(status, payload, expected_result):
     # Mock the response context manager correctly
     mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
+    yielded_response.raise_for_status = MagicMock()
     yielded_response.status = status
 
     # Needs to be an async method for res = await response.json()
@@ -288,6 +291,7 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
 
     mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
+    yielded_response.raise_for_status = MagicMock()
     yielded_response.json = AsyncMock(
         return_value={
             "success": True,
@@ -341,6 +345,7 @@ async def test_fetch_all_for_device_collector():
 
     api._fetch_device_info = MagicMock(side_effect=dummy_info)
     api._fetch_device_metrics = MagicMock(side_effect=dummy_metrics)
+    api._fetch_ems_basic_data = AsyncMock()
 
     sn = "SN_123"
     entry = {"initial": "state"}
@@ -368,6 +373,7 @@ async def test_fetch_all_for_device_non_collector():
 
     api._fetch_device_info = MagicMock(side_effect=dummy_info)
     api._fetch_device_metrics = MagicMock(side_effect=dummy_metrics)
+    api._fetch_ems_basic_data = AsyncMock()
 
     sn = "SN_456"
     entry = {"initial": "state2"}
@@ -398,6 +404,7 @@ async def test_execute_fetch_all_empty_plants():
             "data": {"list": []},
         }
     )
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
@@ -424,6 +431,7 @@ async def test_execute_fetch_all_null_data():
             "data": None,
         }
     )
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 

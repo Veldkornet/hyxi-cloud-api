@@ -16,8 +16,9 @@ async def test_fetch_devices_for_plant_api_error(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
+    yielded_response.raise_for_status = MagicMock()
     yielded_response.json.return_value = {
         "success": False,
         "message": "Plant not found",
@@ -65,8 +66,9 @@ async def test_fetch_devices_for_plant_invalid_json(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    mock_response = AsyncMock()
+    mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
+    yielded_response.raise_for_status = MagicMock()
     yielded_response.json.side_effect = aiohttp.ContentTypeError(
         request_info=MagicMock(),
         history=(),
