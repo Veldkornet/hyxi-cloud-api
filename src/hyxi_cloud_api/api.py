@@ -494,29 +494,25 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         return 0.0
 
 
-_COLLECTOR_EXCLUDE_METRICS = (
-    "bat",
-    "pv",
-    "grid",
-    "pbat",
-    "load",
-    "ph1",
-    "ph2",
-    "ph3",
-)
-
-
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
-    filtered = {}
-    for k, v in m_raw.items():
-        k_lower = k.lower()
-        for x in _COLLECTOR_EXCLUDE_METRICS:
-            if x in k_lower:
-                break
-        else:
-            filtered[k] = v
-    return filtered
+    return {
+        k: v
+        for k, v in m_raw.items()
+        if not any(
+            x in k.lower()
+            for x in [
+                "bat",
+                "pv",
+                "grid",
+                "pbat",
+                "load",
+                "ph1",
+                "ph2",
+                "ph3",
+            ]
+        )
+    }
 
 
 def _compute_derived_metrics(m_raw: dict) -> dict:

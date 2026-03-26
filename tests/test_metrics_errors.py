@@ -36,8 +36,7 @@ async def test_fetch_device_metrics_invalid_json(caplog):
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
     mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
+    yielded_response = mock_response.__aenter__.return_value
     yielded_response.json = AsyncMock(
         side_effect=aiohttp.ContentTypeError(
             request_info=MagicMock(),
@@ -65,8 +64,7 @@ async def test_fetch_device_metrics_api_error(caplog):
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
     mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
+    yielded_response = mock_response.__aenter__.return_value
     yielded_response.json = AsyncMock(
         return_value={
             "success": False,

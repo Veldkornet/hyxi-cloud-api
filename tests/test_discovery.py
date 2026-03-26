@@ -12,10 +12,8 @@ def _setup_mock_api():
     api._fetch_plants = AsyncMock(return_value=[{"plantId": "Pl123"}])
 
     mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
-    yielded_response.status = 200
-    yielded_response.json = AsyncMock(
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.json = AsyncMock(
         side_effect=[
             {
                 "success": True,
@@ -101,10 +99,8 @@ async def test_back_discovery_and_recursive_probe():
 
     # 3. Mock the sub-device probe for the hidden collector
     mock_sub_response = MagicMock()
-    yielded_sub_response = MagicMock()
-    mock_sub_response.__aenter__.return_value = yielded_sub_response
-    yielded_sub_response.status = 200
-    yielded_sub_response.json = AsyncMock(
+    mock_sub_response.__aenter__.return_value.status = 200
+    mock_sub_response.__aenter__.return_value.json = AsyncMock(
         return_value={
             "success": True,
             "data": {
@@ -150,10 +146,8 @@ async def test_verified_sensor_extraction():
 
     # Mock the aiohttp call inside _fetch_device_info
     mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
-    yielded_response.status = 200
-    yielded_response.json = AsyncMock(return_value=mock_info_resp)
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.json = AsyncMock(return_value=mock_info_resp)
     api.session.get = MagicMock(return_value=mock_response)
 
     entry = {"metrics": {}, "device_type_code": "1"}  # Hybrid Inverter
@@ -182,10 +176,10 @@ async def test_metric_sanitization_for_collector():
     }
 
     mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
-    yielded_response.status = 200
-    yielded_response.json = AsyncMock(return_value=mock_metrics_resp)
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.json = AsyncMock(
+        return_value=mock_metrics_resp
+    )
     api.session.get = MagicMock(return_value=mock_response)
 
     # 1. Test with COLLECTOR - Should be sanitized
@@ -205,18 +199,14 @@ async def test_metric_sanitization_for_collector():
 @pytest.mark.asyncio
 async def test_fetch_sub_devices_rejected():
     """Verify that a rejected sub-device fetch logs an error and returns gracefully."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
 
-    mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
-    yielded_response.status = 200
-    yielded_response.json = AsyncMock(
-        return_value={
-            "success": False,
-            "msg": "Invalid parent SN",
-        }
-    )
+    mock_response = AsyncMock()
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.json.return_value = {
+        "success": False,
+        "msg": "Invalid parent SN",
+    }
 
     api.session.post = MagicMock(return_value=mock_response)
 
@@ -241,7 +231,7 @@ async def test_fetch_sub_devices_rejected():
 @pytest.mark.asyncio
 async def test_fetch_sub_devices_exception():
     """Verify that an exception during sub-device fetch is caught and logged."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api = HyxiApiClient("ak", "sk", "https://api.com", AsyncMock())
 
     # Force an exception during the request
     api.session.post = MagicMock(side_effect=Exception("Network Timeout"))
