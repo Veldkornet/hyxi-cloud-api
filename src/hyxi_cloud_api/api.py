@@ -429,6 +429,8 @@ INTERNAL_ERROR_MAP = {
 }
 
 
+_PARENT_DEVICE_TYPES = ("COLLECTOR", "DMU", "INVERTER")
+
 # Official HYXI Device Type Reference Table
 DEVICE_TYPE_MAP = {
     "HYBRID_INVERTER": "Hybrid Inverter",
@@ -1191,9 +1193,8 @@ class HyxiApiClient:
                     metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
                     # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-                    if any(
-                        x in dev_type.upper() for x in ["COLLECTOR", "DMU", "INVERTER"]
-                    ):
+                    dev_type_upper = dev_type.upper()
+                    if any(x in dev_type_upper for x in _PARENT_DEVICE_TYPES):
                         await self._fetch_sub_devices(
                             sn, now, metric_tasks, discovered_sns
                         )
