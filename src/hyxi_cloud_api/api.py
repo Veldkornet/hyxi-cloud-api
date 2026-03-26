@@ -19,7 +19,8 @@ from datetime import datetime
 import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
-_BATTERY_DEVICE_TYPES = ("INVERTER", "ESS", "HALO", "1", "15")
+_battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15")
+_parent_device_types = ("COLLECTOR", "DMU", "INVERTER")
 
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
@@ -429,8 +430,6 @@ INTERNAL_ERROR_MAP = {
 }
 
 
-_PARENT_DEVICE_TYPES = ("COLLECTOR", "DMU", "INVERTER")
-
 # Official HYXI Device Type Reference Table
 DEVICE_TYPE_MAP = {
     "HYBRID_INVERTER": "Hybrid Inverter",
@@ -459,8 +458,6 @@ RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number
 # Precomputed hashes for HMAC signature
 _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
 _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
-
-_PARENT_DEVICE_TYPES = ("COLLECTOR", "DMU", "INVERTER")
 
 
 def _parse_data_list(data_list: list) -> dict:
@@ -585,9 +582,26 @@ def _sanitize_dict(raw: dict) -> dict:
             result[k] = "[REDACTED]"
         elif k in _SENSITIVE_KEYS and v:
             result[k] = _mask_id(str(v))
+        elif isinstance(v, dict):
+            result[k] = _sanitize_dict(v)
+        elif isinstance(v, list):
+            result[k] = _sanitize_list(v)
         else:
             result[k] = v
     return result
+
+
+def _sanitize_list(raw_list: list) -> list:
+    """Recursively sanitize items in a list."""
+    sanitized = []
+    for item in raw_list:
+        if isinstance(item, dict):
+            sanitized.append(_sanitize_dict(item))
+        elif isinstance(item, list):
+            sanitized.append(_sanitize_list(item))
+        else:
+            sanitized.append(item)
+    return sanitized
 
 
 class HyxiApiClient:
@@ -807,7 +821,7 @@ class HyxiApiClient:
         }
 
         device_type_code = entry.get("device_type_code", "").upper()
-        if any(x in device_type_code for x in _BATTERY_DEVICE_TYPES):
+        if any(x in device_type_code for x in _battery_device_types):
             base_info.update(
                 {
                     "batCap": _get_f("batCap", i_raw),
@@ -916,7 +930,7 @@ class HyxiApiClient:
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
                 # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-                if any(x in dev_type for x in _PARENT_DEVICE_TYPES):
+                if any(x in dev_type for x in _parent_device_types):
                     _LOGGER.debug(
                         "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
                         _mask_id(sn),
@@ -1196,7 +1210,7 @@ class HyxiApiClient:
 
                     # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
                     dev_type_upper = dev_type.upper()
-                    if any(x in dev_type_upper for x in _PARENT_DEVICE_TYPES):
+                    if any(x in dev_type_upper for x in _parent_device_types):
                         await self._fetch_sub_devices(
                             sn, now, metric_tasks, discovered_sns
                         )
