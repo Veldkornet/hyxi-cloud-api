@@ -19,6 +19,8 @@ from datetime import datetime
 import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
+_BATTERY_DEVICE_TYPES = ("INVERTER", "ESS", "HALO", "1", "15")
+
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
     "1088": "AC voltage overvoltage",
@@ -800,10 +802,8 @@ class HyxiApiClient:
             "swVerSlave": i_raw.get("swVerSlave"),
         }
 
-        if any(
-            x in entry.get("device_type_code", "").upper()
-            for x in ["INVERTER", "ESS", "HALO", "1", "15"]
-        ):
+        device_type_code = entry.get("device_type_code", "").upper()
+        if any(x in device_type_code for x in _BATTERY_DEVICE_TYPES):
             base_info.update(
                 {
                     "batCap": _get_f("batCap", i_raw),
