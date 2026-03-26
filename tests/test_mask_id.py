@@ -122,7 +122,7 @@ class TestSanitizeDict:
             "hwVer": "V00.00.01",
             "model": "HYX-H10K-HT",
             "alarmstate": True,
-            "alarmState": False
+            "alarmState": False,
         }
         result = _sanitize_dict(raw)
         assert result == raw
