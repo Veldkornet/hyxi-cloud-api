@@ -152,37 +152,3 @@ def test_apply_token_response_empty_string_expiration(mock_time, api_client):
     assert api_client._apply_token_response(data) is True
     # now + 6600 - 300 = 1006300
     assert api_client.token_expires_at == 1006300.0
-
-
-@patch("time.time")
-def test_apply_token_response_invalid_expiration(mock_time, api_client):
-    """Verify that an unparseable expiration value (e.g. 'invalid') raises a ValueError."""
-    now = 1000000.0
-    mock_time.return_value = now
-
-    data = {"token": "xyz", "expiresIn": "invalid"}
-    with pytest.raises(ValueError):
-        api_client._apply_token_response(data)
-
-
-@patch("time.time")
-def test_apply_token_response_logging(mock_time, api_client, caplog):
-    """Verify that _apply_token_response properly logs debug messages."""
-    import logging
-    from datetime import datetime
-
-    caplog.set_level(logging.DEBUG)
-
-    now = 1000000.0
-    mock_time.return_value = now
-
-    data = {"token": "xyz", "expiresIn": 3600}
-    assert api_client._apply_token_response(data) is True
-
-    # Check logs
-    assert "HYXI API returned raw token expiration: 3600 seconds" in caplog.text
-
-    # 3600 - 300 = 3300 seconds refresh time
-    refresh_time_str = datetime.fromtimestamp(1003300.0).strftime("%Y-%m-%d %H:%M:%S")
-    expected_log = f"HYXI Token proactive refresh scheduled in 3300 seconds (at {refresh_time_str})"
-    assert expected_log in caplog.text

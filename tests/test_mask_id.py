@@ -117,7 +117,13 @@ class TestSanitizeDict:
 
     def test_non_sensitive_keys_are_unchanged(self):
         """Keys not in the sensitive list must pass through unmodified."""
-        raw = {"ratedPower": "10000", "hwVer": "V00.00.01", "model": "HYX-H10K-HT"}
+        raw = {
+            "ratedPower": "10000",
+            "hwVer": "V00.00.01",
+            "model": "HYX-H10K-HT",
+            "alarmstate": True,
+            "alarmState": False,
+        }
         result = _sanitize_dict(raw)
         assert result == raw
 

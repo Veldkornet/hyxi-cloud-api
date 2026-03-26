@@ -1,7 +1,7 @@
 """Tests for exception handling in _fetch_devices_for_plant."""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import aiohttp
 import pytest
@@ -17,14 +17,12 @@ async def test_fetch_devices_for_plant_api_error(caplog):
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
     mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
-    yielded_response.json = AsyncMock(
-        return_value={
-            "success": False,
-            "message": "Plant not found",
-        }
-    )
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.raise_for_status = MagicMock()
+    yielded_response.json.return_value = {
+        "success": False,
+        "message": "Plant not found",
+    }
     yielded_response.raise_for_status = MagicMock()
     yielded_response.status = 200
 
@@ -69,14 +67,12 @@ async def test_fetch_devices_for_plant_invalid_json(caplog):
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
     mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
-    yielded_response.json = AsyncMock(
-        side_effect=aiohttp.ContentTypeError(
-            request_info=MagicMock(),
-            history=(),
-            message="Attempt to decode JSON with unexpected mimetype",
-        )
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.raise_for_status = MagicMock()
+    yielded_response.json.side_effect = aiohttp.ContentTypeError(
+        request_info=MagicMock(),
+        history=(),
+        message="Attempt to decode JSON with unexpected mimetype",
     )
     yielded_response.status = 200
 

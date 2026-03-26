@@ -19,6 +19,9 @@ from datetime import datetime
 import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
+_battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15")
+_parent_device_types = ("COLLECTOR", "DMU", "INVERTER")
+
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
     "1088": "AC voltage overvoltage",
@@ -494,29 +497,25 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         return 0.0
 
 
-_COLLECTOR_EXCLUDE_METRICS = (
-    "bat",
-    "pv",
-    "grid",
-    "pbat",
-    "load",
-    "ph1",
-    "ph2",
-    "ph3",
-)
-
-
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
-    filtered = {}
-    for k, v in m_raw.items():
-        k_lower = k.lower()
-        for x in _COLLECTOR_EXCLUDE_METRICS:
-            if x in k_lower:
-                break
-        else:
-            filtered[k] = v
-    return filtered
+    return {
+        k: v
+        for k, v in m_raw.items()
+        if not any(
+            x in k.lower()
+            for x in [
+                "bat",
+                "pv",
+                "grid",
+                "pbat",
+                "load",
+                "ph1",
+                "ph2",
+                "ph3",
+            ]
+        )
+    }
 
 
 def _compute_derived_metrics(m_raw: dict) -> dict:
@@ -581,11 +580,8 @@ def _sanitize_dict(raw: dict) -> dict:
     for k, v in raw.items():
         if k == "plantAddress":
             result[k] = "[REDACTED]"
-        elif (k in _SENSITIVE_KEYS or k.lower() == "alarmstate") and v:
-            if k in _SENSITIVE_KEYS:
-                result[k] = _mask_id(str(v))
-            else:
-                result[k] = v
+        elif k in _SENSITIVE_KEYS and v:
+            result[k] = _mask_id(str(v))
         else:
             result[k] = v
     return result
@@ -807,10 +803,8 @@ class HyxiApiClient:
             "swVerSlave": i_raw.get("swVerSlave"),
         }
 
-        if any(
-            x in entry.get("device_type_code", "").upper()
-            for x in ["INVERTER", "ESS", "HALO", "1", "15"]
-        ):
+        device_type_code = entry.get("device_type_code", "").upper()
+        if any(x in device_type_code for x in _battery_device_types):
             base_info.update(
                 {
                     "batCap": _get_f("batCap", i_raw),
@@ -919,7 +913,7 @@ class HyxiApiClient:
                 metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
                 # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-                if any(x in dev_type for x in ["COLLECTOR", "DMU", "INVERTER"]):
+                if any(x in dev_type for x in _parent_device_types):
                     _LOGGER.debug(
                         "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
                         _mask_id(sn),
@@ -1198,9 +1192,8 @@ class HyxiApiClient:
                     metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
                     # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-                    if any(
-                        x in dev_type.upper() for x in ["COLLECTOR", "DMU", "INVERTER"]
-                    ):
+                    dev_type_upper = dev_type.upper()
+                    if any(x in dev_type_upper for x in _parent_device_types):
                         await self._fetch_sub_devices(
                             sn, now, metric_tasks, discovered_sns
                         )

@@ -23,16 +23,15 @@ async def test_fetch_device_metrics_fixed():
     entry = {"metrics": {}}
 
     mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
-    yielded_response.json = AsyncMock(
+    mock_response.__aenter__.return_value.json = AsyncMock(
         return_value={
             "success": True,
             "data": [],
         }
     )
-    yielded_response.status = 200
-    yielded_response.raise_for_status = MagicMock()
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
     fake_session.get.return_value = mock_response
 
@@ -54,16 +53,15 @@ async def test_fetch_device_info_fixed():
     entry = {"metrics": {}}
 
     mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
-    yielded_response.json = AsyncMock(
+    mock_response.__aenter__.return_value.json = AsyncMock(
         return_value={
             "success": True,
             "data": [],
         }
     )
-    yielded_response.status = 200
-    yielded_response.raise_for_status = MagicMock()
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
     fake_session.get.return_value = mock_response
 
