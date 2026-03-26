@@ -201,12 +201,10 @@ async def test_execute_fetch_all_concurrent():
     api._fetch_devices_for_plant = MagicMock(side_effect=mock_fetch_devices)
 
     # Configure the mock response to simulate aiohttp's async context manager.
-    mock_response = MagicMock()
-    yielded_response = MagicMock()
-    mock_response.__aenter__.return_value = yielded_response
-    yielded_response.json = AsyncMock(return_value=fake_plants_response)
-    yielded_response.status = 200
-    yielded_response.raise_for_status = MagicMock()
+    mock_response = AsyncMock()
+    mock_response.__aenter__.return_value.json.return_value = fake_plants_response
+    mock_response.__aenter__.return_value.status = 200
+    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
     api.session.post = MagicMock(return_value=mock_response)
 
@@ -370,7 +368,6 @@ async def test_fetch_all_for_device_non_collector():
 
     api._fetch_device_info = MagicMock(side_effect=dummy_info)
     api._fetch_device_metrics = MagicMock(side_effect=dummy_metrics)
-    api._fetch_ems_basic_data = AsyncMock()
 
     sn = "SN_456"
     entry = {"initial": "state2"}
