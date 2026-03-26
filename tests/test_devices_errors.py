@@ -1,7 +1,7 @@
 """Tests for exception handling in _fetch_devices_for_plant."""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import aiohttp
 import pytest
