@@ -806,10 +806,7 @@ class HyxiApiClient:
         }
 
         device_type_code = entry.get("device_type_code", "").upper()
-        if any(
-            x in device_type_code
-            for x in _BATTERY_DEVICE_TYPES
-        ):
+        if any(x in device_type_code for x in _BATTERY_DEVICE_TYPES):
             base_info.update(
                 {
                     "batCap": _get_f("batCap", i_raw),
