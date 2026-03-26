@@ -1197,9 +1197,7 @@ class HyxiApiClient:
 
                     # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
                     dev_type_upper = dev_type.upper()
-                    if any(
-                        x in dev_type_upper for x in _PARENT_DEVICE_TYPES
-                    ):
+                    if any(x in dev_type_upper for x in _PARENT_DEVICE_TYPES):
                         await self._fetch_sub_devices(
                             sn, now, metric_tasks, discovered_sns
                         )
