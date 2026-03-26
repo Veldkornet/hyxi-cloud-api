@@ -5,12 +5,48 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient
+from src.hyxi_cloud_api.api import HyxiApiClient, _sanitize_dict
 
 
 # Mock aiohttp before importing the API client
 mock_aiohttp = MagicMock()
 sys.modules["aiohttp"] = mock_aiohttp
+
+
+def test_sanitize_dict_recursive():
+    """Verify that _sanitize_dict masks sensitive keys in nested dicts and lists."""
+    raw = {
+        "plantAddress": "123 Secret St",
+        "deviceSn": "SN123456789",
+        "normalKey": "normalValue",
+        "data": [
+            {
+                "deviceSn": "SN987654321",
+                "nested": {"plantId": "PID123", "normal": "value"},
+            },
+            "not a dict",
+        ],
+        "nestedDict": {"batSn": "BAT12345"},
+        "nestedList": [[{"deviceSn": "SN0000"}]],
+    }
+
+    sanitized = _sanitize_dict(raw)
+
+    assert sanitized["plantAddress"] == "[REDACTED]"
+    assert sanitized["deviceSn"] == "SN1XXXXX789"
+    assert sanitized["normalKey"] == "normalValue"
+
+    # Check nested list of dicts
+    assert sanitized["data"][0]["deviceSn"] == "SN9XXXXX321"
+    assert sanitized["data"][0]["nested"]["plantId"] == "****"
+    assert sanitized["data"][0]["nested"]["normal"] == "value"
+    assert sanitized["data"][1] == "not a dict"
+
+    # Check nested dict
+    assert sanitized["nestedDict"]["batSn"] == "BATXX345"
+
+    # Check nested list
+    assert sanitized["nestedList"][0][0]["deviceSn"] == "****"
 
 
 @pytest.mark.asyncio
@@ -31,7 +67,6 @@ async def test_fetch_device_metrics_fixed():
     )
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
     mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
     fake_session.get.return_value = mock_response
 
@@ -61,7 +96,6 @@ async def test_fetch_device_info_fixed():
     )
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
     mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
 
     fake_session.get.return_value = mock_response
 
