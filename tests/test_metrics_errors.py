@@ -37,6 +37,7 @@ async def test_fetch_device_metrics_invalid_json(caplog):
 
     mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
+    yielded_response.raise_for_status = MagicMock()
     yielded_response.json = AsyncMock(
         side_effect=aiohttp.ContentTypeError(
             request_info=MagicMock(),
@@ -65,6 +66,7 @@ async def test_fetch_device_metrics_api_error(caplog):
 
     mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value
+    yielded_response.raise_for_status = MagicMock()
     yielded_response.json = AsyncMock(
         return_value={
             "success": False,
