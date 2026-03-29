@@ -1128,6 +1128,7 @@ class HyxiApiClient:
 
         return device_fetch_tasks, alarm_fetch_tasks
 
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
     async def _fetch_and_process_alarms(
         self,
         alarm_fetch_tasks,
