@@ -36,6 +36,8 @@ jobs:
             pkg-containers.githubusercontent.com:443
             pypi.org:443
             rekor.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
             tuf-repo-cdn.sigstore.dev:443
 
       - name: Checkout Code
