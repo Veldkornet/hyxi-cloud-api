@@ -1117,14 +1117,10 @@ class HyxiApiClient:
 
         return plants
 
-    async def _process_plants_data(
-        self, plants, now, results, allow_back_discovery: bool = False
-    ):
-        """Helper to concurrently process plants to gather metrics and alarms."""
-        metric_tasks = []
+    def _build_plant_tasks(self, plants, now, metric_tasks, discovered_sns):
+        """Extract plant processing loop to synchronously build tasks."""
         device_fetch_tasks = []
         alarm_fetch_tasks = []
-        discovered_sns = set()
 
         for p in plants:
             plant_id = p.get("plantId")
@@ -1138,20 +1134,54 @@ class HyxiApiClient:
             )
             alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
 
+        return device_fetch_tasks, alarm_fetch_tasks
+
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    async def _fetch_and_process_alarms(
+        self,
+        alarm_fetch_tasks,
+        plants,
+        discovered_sns,
+        now,
+        metric_tasks,
+        allow_back_discovery: bool = False,
+    ):
+        """Helper to execute alarm tasks and trigger back-discovery processing."""
+        if not alarm_fetch_tasks:
+            return []
+
+        alarm_results = await asyncio.gather(*alarm_fetch_tasks)
+        return await self._process_alarms_and_back_discovery(
+            alarm_results,
+            plants,
+            discovered_sns,
+            now,
+            metric_tasks,
+            allow_back_discovery=allow_back_discovery,
+        )
+
+    async def _process_plants_data(
+        self, plants, now, results, allow_back_discovery: bool = False
+    ):
+        """Helper to concurrently process plants to gather metrics and alarms."""
+        metric_tasks = []
+        discovered_sns = set()
+
+        device_fetch_tasks, alarm_fetch_tasks = self._build_plant_tasks(
+            plants, now, metric_tasks, discovered_sns
+        )
+
         if device_fetch_tasks:
             await asyncio.gather(*device_fetch_tasks)
 
-        plant_alarms = []
-        if alarm_fetch_tasks:
-            alarm_results = await asyncio.gather(*alarm_fetch_tasks)
-            plant_alarms = await self._process_alarms_and_back_discovery(
-                alarm_results,
-                plants,
-                discovered_sns,
-                now,
-                metric_tasks,
-                allow_back_discovery=allow_back_discovery,
-            )
+        plant_alarms = await self._fetch_and_process_alarms(
+            alarm_fetch_tasks,
+            plants,
+            discovered_sns,
+            now,
+            metric_tasks,
+            allow_back_discovery=allow_back_discovery,
+        )
 
         # 3. Concurrent Metrics
         if metric_tasks:
