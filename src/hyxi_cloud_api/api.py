@@ -21,6 +21,16 @@ import aiohttp
 _LOGGER = logging.getLogger(__name__)
 _battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15")
 _parent_device_types = ("COLLECTOR", "DMU", "INVERTER")
+_COLLECTOR_FILTER_KEYWORDS = (
+    "bat",
+    "pv",
+    "grid",
+    "pbat",
+    "load",
+    "ph1",
+    "ph2",
+    "ph3",
+)
 
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
@@ -499,23 +509,15 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
 
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
-    return {
-        k: v
-        for k, v in m_raw.items()
-        if not any(
-            x in k.lower()
-            for x in [
-                "bat",
-                "pv",
-                "grid",
-                "pbat",
-                "load",
-                "ph1",
-                "ph2",
-                "ph3",
-            ]
-        )
-    }
+    filtered = {}
+    for k, v in m_raw.items():
+        k_lower = k.lower()
+        for x in _COLLECTOR_FILTER_KEYWORDS:
+            if x in k_lower:
+                break
+        else:
+            filtered[k] = v
+    return filtered
 
 
 def _compute_derived_metrics(m_raw: dict) -> dict:
@@ -919,29 +921,37 @@ class HyxiApiClient:
                     [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
                 )
 
-            for d in devices:
-                sn = d.get("deviceSn")
-                if not sn:
-                    continue
-
-                discovered_sns.add(sn)
-                entry, dev_type = self._build_device_entry(sn, d, now)
-
-                metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
-
-                # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-                if any(x in dev_type for x in _parent_device_types):
-                    _LOGGER.debug(
-                        "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
-                        _mask_id(sn),
-                        dev_type,
-                    )
-                    await self._fetch_sub_devices(sn, now, metric_tasks, discovered_sns)
+            await self._process_devices_for_plant(
+                devices, now, metric_tasks, discovered_sns
+            )
 
         except Exception as e:
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
+
+    async def _process_devices_for_plant(
+        self, devices: list[dict], now: str, metric_tasks: list, discovered_sns: set
+    ):
+        """Helper to process a list of devices, extracting metrics and sub-devices."""
+        for d in devices:
+            sn = d.get("deviceSn")
+            if not sn:
+                continue
+
+            discovered_sns.add(sn)
+            entry, dev_type = self._build_device_entry(sn, d, now)
+
+            metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+
+            # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
+            if any(x in dev_type for x in _parent_device_types):
+                _LOGGER.debug(
+                    "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
+                    _mask_id(sn),
+                    dev_type,
+                )
+                await self._fetch_sub_devices(sn, now, metric_tasks, discovered_sns)
 
     async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict]:
         """Fetch the list of sub-devices from the API."""
@@ -1109,14 +1119,10 @@ class HyxiApiClient:
 
         return plants
 
-    async def _process_plants_data(
-        self, plants, now, results, allow_back_discovery: bool = False
-    ):
-        """Helper to concurrently process plants to gather metrics and alarms."""
-        metric_tasks = []
+    def _build_plant_tasks(self, plants, now, metric_tasks, discovered_sns):
+        """Extract plant processing loop to synchronously build tasks."""
         device_fetch_tasks = []
         alarm_fetch_tasks = []
-        discovered_sns = set()
 
         for p in plants:
             plant_id = p.get("plantId")
@@ -1130,20 +1136,54 @@ class HyxiApiClient:
             )
             alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
 
+        return device_fetch_tasks, alarm_fetch_tasks
+
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    async def _fetch_and_process_alarms(
+        self,
+        alarm_fetch_tasks,
+        plants,
+        discovered_sns,
+        now,
+        metric_tasks,
+        allow_back_discovery: bool = False,
+    ):
+        """Helper to execute alarm tasks and trigger back-discovery processing."""
+        if not alarm_fetch_tasks:
+            return []
+
+        alarm_results = await asyncio.gather(*alarm_fetch_tasks)
+        return await self._process_alarms_and_back_discovery(
+            alarm_results,
+            plants,
+            discovered_sns,
+            now,
+            metric_tasks,
+            allow_back_discovery=allow_back_discovery,
+        )
+
+    async def _process_plants_data(
+        self, plants, now, results, allow_back_discovery: bool = False
+    ):
+        """Helper to concurrently process plants to gather metrics and alarms."""
+        metric_tasks = []
+        discovered_sns = set()
+
+        device_fetch_tasks, alarm_fetch_tasks = self._build_plant_tasks(
+            plants, now, metric_tasks, discovered_sns
+        )
+
         if device_fetch_tasks:
             await asyncio.gather(*device_fetch_tasks)
 
-        plant_alarms = []
-        if alarm_fetch_tasks:
-            alarm_results = await asyncio.gather(*alarm_fetch_tasks)
-            plant_alarms = await self._process_alarms_and_back_discovery(
-                alarm_results,
-                plants,
-                discovered_sns,
-                now,
-                metric_tasks,
-                allow_back_discovery=allow_back_discovery,
-            )
+        plant_alarms = await self._fetch_and_process_alarms(
+            alarm_fetch_tasks,
+            plants,
+            discovered_sns,
+            now,
+            metric_tasks,
+            allow_back_discovery=allow_back_discovery,
+        )
 
         # 3. Concurrent Metrics
         if metric_tasks:
