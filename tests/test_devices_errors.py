@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import aiohttp
 import pytest
 
-from hyxi_cloud_api.api import HyxiApiClient
+from hyxi_cloud_api.api import HyxiApiClient, FetchState
 
 
 @pytest.mark.asyncio
@@ -28,15 +28,12 @@ async def test_fetch_devices_for_plant_api_error(caplog):
 
     mock_session.post.return_value = mock_response
 
-    metric_tasks = []
-    discovered_sns = set()
-    await api._fetch_devices_for_plant(
-        "plant123", "2024-01-01", metric_tasks, discovered_sns
-    )
+    state = FetchState(now="2024-01-01")
+    await api._fetch_devices_for_plant("plant123", state)
 
     assert "HYXI API Device Fetch Rejected for Plant" in caplog.text
-    assert not metric_tasks
-    assert not discovered_sns
+    assert not state.metric_tasks
+    assert not state.discovered_sns
 
 
 @pytest.mark.asyncio
@@ -48,15 +45,12 @@ async def test_fetch_devices_for_plant_network_error(caplog):
 
     mock_session.post.side_effect = aiohttp.ClientError("Connection reset")
 
-    metric_tasks = []
-    discovered_sns = set()
-    await api._fetch_devices_for_plant(
-        "plant123", "2024-01-01", metric_tasks, discovered_sns
-    )
+    state = FetchState(now="2024-01-01")
+    await api._fetch_devices_for_plant("plant123", state)
 
     assert "Error fetching devices for plant" in caplog.text
-    assert not metric_tasks
-    assert not discovered_sns
+    assert not state.metric_tasks
+    assert not state.discovered_sns
 
 
 @pytest.mark.asyncio
@@ -78,12 +72,9 @@ async def test_fetch_devices_for_plant_invalid_json(caplog):
 
     mock_session.post.return_value = mock_response
 
-    metric_tasks = []
-    discovered_sns = set()
-    await api._fetch_devices_for_plant(
-        "plant123", "2024-01-01", metric_tasks, discovered_sns
-    )
+    state = FetchState(now="2024-01-01")
+    await api._fetch_devices_for_plant("plant123", state)
 
     assert "Error fetching devices for plant" in caplog.text
-    assert not metric_tasks
-    assert not discovered_sns
+    assert not state.metric_tasks
+    assert not state.discovered_sns
