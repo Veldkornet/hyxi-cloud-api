@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock
 import pytest
-from src.hyxi_cloud_api.api import HyxiApiClient
+from src.hyxi_cloud_api.api import HyxiApiClient, FetchState
 
 
 def _setup_mock_api():
@@ -56,11 +56,12 @@ def _setup_mock_api():
 async def test_collector_discovery_only():
     """Verify that a Collector is discovered correctly."""
     api = _setup_mock_api()
-    results = {}
+    state = FetchState(now="2024-01-01")
 
     await api._process_plants_data(
-        [{"plantId": "Pl123"}], "2024-01-01", results, allow_back_discovery=True
+        [{"plantId": "Pl123"}], state, allow_back_discovery=True
     )
+    results = state.results
 
     assert "COLL_001" in results
     assert results["COLL_001"]["device_type_code"] == "COLLECTOR"
@@ -70,11 +71,12 @@ async def test_collector_discovery_only():
 async def test_sub_device_discovery_triggered_by_collector():
     """Verify that discovering a Collector triggers discovery of its sub-devices."""
     api = _setup_mock_api()
-    results = {}
+    state = FetchState(now="2024-01-01")
 
     await api._process_plants_data(
-        [{"plantId": "Pl123"}], "2024-01-01", results, allow_back_discovery=True
+        [{"plantId": "Pl123"}], state, allow_back_discovery=True
     )
+    results = state.results
 
     assert "INV_001" in results
     assert results["INV_001"]["model"] == "Hybrid Inverter"
@@ -125,10 +127,11 @@ async def test_back_discovery_and_recursive_probe():
 
     api._fetch_all_for_device = MagicMock(side_effect=mock_fetch_all)
 
-    results = {}
+    state = FetchState(now="2024-01-01")
     await api._process_plants_data(
-        [{"plantId": "Pl123"}], "2024-01-01", results, allow_back_discovery=True
+        [{"plantId": "Pl123"}], state, allow_back_discovery=True
     )
+    results = state.results
 
     # Check both were found!
     assert "HIDDEN_COLL" in results
@@ -215,17 +218,16 @@ async def test_fetch_sub_devices_rejected():
 
     api.session.post = MagicMock(return_value=mock_response)
 
-    metric_tasks = []
-    discovered_sns = set()
+    state = FetchState(now="Plant123")
 
     with pytest.MonkeyPatch.context() as m:
         mock_logger = MagicMock()
         m.setattr("src.hyxi_cloud_api.api._LOGGER", mock_logger)
 
-        await api._fetch_sub_devices("BAD_SN", "Plant123", metric_tasks, discovered_sns)
+        await api._fetch_sub_devices("BAD_SN", state)
 
-        assert len(metric_tasks) == 0
-        assert len(discovered_sns) == 0
+        assert len(state.metric_tasks) == 0
+        assert len(state.discovered_sns) == 0
 
         # Verify the logger was called with the correct error message
         mock_logger.error.assert_called_once()
@@ -241,19 +243,16 @@ async def test_fetch_sub_devices_exception():
     # Force an exception during the request
     api.session.post = MagicMock(side_effect=Exception("Network Timeout"))
 
-    metric_tasks = []
-    discovered_sns = set()
+    state = FetchState(now="Plant123")
 
     with pytest.MonkeyPatch.context() as m:
         mock_logger = MagicMock()
         m.setattr("src.hyxi_cloud_api.api._LOGGER", mock_logger)
 
-        await api._fetch_sub_devices(
-            "SOME_SN", "Plant123", metric_tasks, discovered_sns
-        )
+        await api._fetch_sub_devices("SOME_SN", state)
 
-        assert len(metric_tasks) == 0
-        assert len(discovered_sns) == 0
+        assert len(state.metric_tasks) == 0
+        assert len(state.discovered_sns) == 0
 
         # Verify the logger caught the exception
         mock_logger.error.assert_called_once()
