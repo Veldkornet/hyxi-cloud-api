@@ -21,6 +21,16 @@ import aiohttp
 _LOGGER = logging.getLogger(__name__)
 _battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15")
 _parent_device_types = ("COLLECTOR", "DMU", "INVERTER")
+_COLLECTOR_FILTER_KEYWORDS = (
+    "bat",
+    "pv",
+    "grid",
+    "pbat",
+    "load",
+    "ph1",
+    "ph2",
+    "ph3",
+)
 
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
@@ -499,23 +509,15 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
 
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
-    return {
-        k: v
-        for k, v in m_raw.items()
-        if not any(
-            x in k.lower()
-            for x in [
-                "bat",
-                "pv",
-                "grid",
-                "pbat",
-                "load",
-                "ph1",
-                "ph2",
-                "ph3",
-            ]
-        )
-    }
+    filtered = {}
+    for k, v in m_raw.items():
+        k_lower = k.lower()
+        for x in _COLLECTOR_FILTER_KEYWORDS:
+            if x in k_lower:
+                break
+        else:
+            filtered[k] = v
+    return filtered
 
 
 def _compute_derived_metrics(m_raw: dict) -> dict:
