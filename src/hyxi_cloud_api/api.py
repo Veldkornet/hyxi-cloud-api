@@ -896,40 +896,46 @@ class HyxiApiClient:
 
         return sn, entry
 
+    async def _fetch_device_list_for_plant(self, plant_id: str) -> list[dict] | None:
+        """Fetch the raw device list from the API for a specific plant."""
+        d_path = "/api/plant/v1/devicePage"
+        _, res_d = await self._request(
+            "POST",
+            d_path,
+            json={"plantId": plant_id, "pageSize": 50, "currentPage": 1},
+        )
+
+        if not res_d.get("success"):
+            _LOGGER.error(
+                "HYXI API Device Fetch Rejected for Plant %s: %s",
+                _mask_id(plant_id),
+                _sanitize_dict(res_d),
+            )
+            return None
+
+        data_val = res_d.get("data", {})
+        devices = (
+            data_val
+            if isinstance(data_val, list)
+            else data_val.get("deviceList", [])
+            if isinstance(data_val, dict)
+            else []
+        )
+
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "HYXI Discovered Devices for Plant %s: %s",
+                _mask_id(plant_id),
+                [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
+            )
+        return devices
+
     async def _fetch_devices_for_plant(self, plant_id, state: FetchState):
         """Helper to fetch devices for a single plant concurrently."""
-        d_path = "/api/plant/v1/devicePage"
         try:
-            _, res_d = await self._request(
-                "POST",
-                d_path,
-                json={"plantId": plant_id, "pageSize": 50, "currentPage": 1},
-            )
-
-            if not res_d.get("success"):
-                _LOGGER.error(
-                    "HYXI API Device Fetch Rejected for Plant %s: %s",
-                    _mask_id(plant_id),
-                    _sanitize_dict(res_d),
-                )
+            devices = await self._fetch_device_list_for_plant(plant_id)
+            if devices is None:
                 return
-
-            data_val = res_d.get("data", {})
-            devices = (
-                data_val
-                if isinstance(data_val, list)
-                else data_val.get("deviceList", [])
-                if isinstance(data_val, dict)
-                else []
-            )
-
-            # 👇 Log the devices discovered for this plant
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                _LOGGER.debug(
-                    "HYXI Discovered Devices for Plant %s: %s",
-                    _mask_id(plant_id),
-                    [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
-                )
 
             await self._process_devices_for_plant(devices, state)
 
