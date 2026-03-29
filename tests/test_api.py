@@ -175,6 +175,30 @@ async def test_query_ems_basic_details_success():
     assert result["cuvolt"] == "480"
 
 
+@pytest.mark.asyncio
+async def test_fetch_ems_basic_data_no_data(caplog):
+    """Test _fetch_ems_basic_data when no basic details are returned."""
+    caplog.set_level(logging.DEBUG)
+
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api.query_ems_basic_details = AsyncMock(return_value={})
+
+    ems_sn = "EMS123"
+    entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
+
+    await api._fetch_ems_basic_data(ems_sn, entry)
+
+    # Assert query_ems_basic_details was called
+    api.query_ems_basic_details.assert_called_once_with("EMS123")
+
+    # Assert entry['metrics'] is unchanged
+    assert entry["metrics"] == {"existing_metric": "value"}
+
+    # Assert the correct debug log was emitted
+    assert "HYXI EMS telemetry probe returned no data for " in caplog.text
+
+
 # --- TEST 5: Concurrent Execution of Fetch All ---
 @pytest.mark.asyncio
 async def test_execute_fetch_all_concurrent():
