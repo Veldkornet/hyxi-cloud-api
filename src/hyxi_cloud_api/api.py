@@ -1162,14 +1162,23 @@ class HyxiApiClient:
             allow_back_discovery=allow_back_discovery,
         )
 
+    async def _execute_device_tasks(self, device_fetch_tasks):
+        """Helper to conditionally execute device tasks concurrently."""
+        if device_fetch_tasks:
+            await asyncio.gather(*device_fetch_tasks)
+
+    async def _execute_metric_tasks(self, plant_alarms, state: FetchState):
+        """Helper to conditionally execute metrics and map alarms."""
+        if state.metric_tasks:
+            await self._execute_metrics_and_map_alarms(plant_alarms, state)
+
     async def _process_plants_data(
         self, plants, state: FetchState, allow_back_discovery: bool = False
     ):
         """Helper to concurrently process plants to gather metrics and alarms."""
         device_fetch_tasks, alarm_fetch_tasks = self._build_plant_tasks(plants, state)
 
-        if device_fetch_tasks:
-            await asyncio.gather(*device_fetch_tasks)
+        await self._execute_device_tasks(device_fetch_tasks)
 
         plant_alarms = await self._fetch_and_process_alarms(
             alarm_fetch_tasks,
@@ -1179,8 +1188,7 @@ class HyxiApiClient:
         )
 
         # 3. Concurrent Metrics
-        if state.metric_tasks:
-            await self._execute_metrics_and_map_alarms(plant_alarms, state)
+        await self._execute_metric_tasks(plant_alarms, state)
 
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     async def _process_alarms_and_back_discovery(
