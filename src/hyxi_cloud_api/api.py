@@ -919,29 +919,37 @@ class HyxiApiClient:
                     [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
                 )
 
-            for d in devices:
-                sn = d.get("deviceSn")
-                if not sn:
-                    continue
-
-                discovered_sns.add(sn)
-                entry, dev_type = self._build_device_entry(sn, d, now)
-
-                metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
-
-                # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-                if any(x in dev_type for x in _parent_device_types):
-                    _LOGGER.debug(
-                        "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
-                        _mask_id(sn),
-                        dev_type,
-                    )
-                    await self._fetch_sub_devices(sn, now, metric_tasks, discovered_sns)
+            await self._process_devices_for_plant(
+                devices, now, metric_tasks, discovered_sns
+            )
 
         except Exception as e:
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
+
+    async def _process_devices_for_plant(
+        self, devices: list[dict], now: str, metric_tasks: list, discovered_sns: set
+    ):
+        """Helper to process a list of devices, extracting metrics and sub-devices."""
+        for d in devices:
+            sn = d.get("deviceSn")
+            if not sn:
+                continue
+
+            discovered_sns.add(sn)
+            entry, dev_type = self._build_device_entry(sn, d, now)
+
+            metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+
+            # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
+            if any(x in dev_type for x in _parent_device_types):
+                _LOGGER.debug(
+                    "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
+                    _mask_id(sn),
+                    dev_type,
+                )
+                await self._fetch_sub_devices(sn, now, metric_tasks, discovered_sns)
 
     async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict]:
         """Fetch the list of sub-devices from the API."""
