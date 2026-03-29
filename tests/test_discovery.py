@@ -84,44 +84,19 @@ async def test_sub_device_discovery_triggered_by_collector():
 
 
 @pytest.mark.asyncio
-async def test_back_discovery_and_recursive_probe():
-    """Verify that a device found ONLY in alarms triggers a recursive probe."""
+async def test_back_discovery_finds_hidden_device():
+    """Verify that a non-parent device found ONLY in alarms is discovered."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
-
-    # 1. No devices in the main list
     api._fetch_devices_for_plant = AsyncMock()
 
-    # 2. Alarm list has a "hidden" Collector
     alarm = {
-        "deviceSn": "HIDDEN_COLL",
-        "deviceType": "COLLECTOR",
-        "deviceName": "Hidden Collector",
+        "deviceSn": "HIDDEN_INV",
+        "deviceType": "1",
+        "deviceName": "Hidden Inverter",
     }
     api._fetch_alarms_for_plant = AsyncMock(return_value=[alarm])
 
-    # 3. Mock the sub-device probe for the hidden collector
-    mock_sub_response = MagicMock()
-    mock_sub_response.__aenter__.return_value.raise_for_status = MagicMock()
-    mock_sub_response.__aenter__.return_value.status = 200
-    mock_sub_response.__aenter__.return_value.json = AsyncMock(
-        return_value={
-            "success": True,
-            "data": {
-                "childDevice": [
-                    {
-                        "deviceSn": "HIDDEN_INV",
-                        "deviceType": "1",
-                        "deviceName": "Hidden Inverter",
-                    }
-                ]
-            },
-        }
-    )
-    api.session.post = MagicMock(return_value=mock_sub_response)
-    api.session.get = MagicMock(return_value=mock_sub_response)
-
-    # Mock metric/info tasks by replacing the underlying methods
     async def mock_fetch_all(sn, entry, dev_type):
         return (sn, entry)
 
@@ -131,11 +106,57 @@ async def test_back_discovery_and_recursive_probe():
     await api._process_plants_data(
         [{"plantId": "Pl123"}], state, allow_back_discovery=True
     )
-    results = state.results
 
-    # Check both were found!
-    assert "HIDDEN_COLL" in results
-    assert "HIDDEN_INV" in results
+    assert "HIDDEN_INV" in state.results
+    assert state.results["HIDDEN_INV"]["device_type_code"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_recursive_probe_of_hidden_collector():
+    """Verify that a hidden Collector triggers a sub-device probe."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._fetch_devices_for_plant = AsyncMock()
+
+    alarm = {
+        "deviceSn": "HIDDEN_COLL",
+        "deviceType": "COLLECTOR",
+        "deviceName": "Hidden Collector",
+    }
+    api._fetch_alarms_for_plant = AsyncMock(return_value=[alarm])
+
+    mock_sub_response = MagicMock()
+    mock_sub_response.__aenter__.return_value.raise_for_status = MagicMock()
+    mock_sub_response.__aenter__.return_value.status = 200
+    mock_sub_response.__aenter__.return_value.json = AsyncMock(
+        return_value={
+            "success": True,
+            "data": {
+                "childDevice": [
+                    {
+                        "deviceSn": "CHILD_INV",
+                        "deviceType": "1",
+                        "deviceName": "Child Inverter",
+                    }
+                ]
+            },
+        }
+    )
+    api.session.post = MagicMock(return_value=mock_sub_response)
+    api.session.get = MagicMock(return_value=mock_sub_response)
+
+    async def mock_fetch_all(sn, entry, dev_type):
+        return (sn, entry)
+
+    api._fetch_all_for_device = MagicMock(side_effect=mock_fetch_all)
+
+    state = FetchState(now="2024-01-01")
+    await api._process_plants_data(
+        [{"plantId": "Pl123"}], state, allow_back_discovery=True
+    )
+
+    assert "HIDDEN_COLL" in state.results
+    assert "CHILD_INV" in state.results
 
 
 @pytest.mark.asyncio
