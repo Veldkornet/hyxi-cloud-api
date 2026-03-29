@@ -29,9 +29,7 @@ async def test_fetch_devices_for_plant_api_error(caplog):
     mock_session.post.return_value = mock_response
 
     state = FetchState(now="2024-01-01")
-    await api._fetch_devices_for_plant(
-        "plant123", state
-    )
+    await api._fetch_devices_for_plant("plant123", state)
 
     assert "HYXI API Device Fetch Rejected for Plant" in caplog.text
     assert not state.metric_tasks
@@ -48,9 +46,7 @@ async def test_fetch_devices_for_plant_network_error(caplog):
     mock_session.post.side_effect = aiohttp.ClientError("Connection reset")
 
     state = FetchState(now="2024-01-01")
-    await api._fetch_devices_for_plant(
-        "plant123", state
-    )
+    await api._fetch_devices_for_plant("plant123", state)
 
     assert "Error fetching devices for plant" in caplog.text
     assert not state.metric_tasks
@@ -77,9 +73,7 @@ async def test_fetch_devices_for_plant_invalid_json(caplog):
     mock_session.post.return_value = mock_response
 
     state = FetchState(now="2024-01-01")
-    await api._fetch_devices_for_plant(
-        "plant123", state
-    )
+    await api._fetch_devices_for_plant("plant123", state)
 
     assert "Error fetching devices for plant" in caplog.text
     assert not state.metric_tasks

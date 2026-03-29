@@ -246,9 +246,7 @@ async def test_fetch_sub_devices_exception():
         mock_logger = MagicMock()
         m.setattr("src.hyxi_cloud_api.api._LOGGER", mock_logger)
 
-        await api._fetch_sub_devices(
-            "SOME_SN", state
-        )
+        await api._fetch_sub_devices("SOME_SN", state)
 
         assert len(state.metric_tasks) == 0
         assert len(state.discovered_sns) == 0
