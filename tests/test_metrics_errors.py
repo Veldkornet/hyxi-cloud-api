@@ -111,3 +111,20 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     )
     # Ensure entry was not updated with metrics
     assert not entry["metrics"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_ems_basic_data_error(caplog):
+    """Test that _fetch_ems_basic_data propagates errors from query_ems_basic_details."""
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Mock query_ems_basic_details to raise an Exception
+    api.query_ems_basic_details = AsyncMock(
+        side_effect=Exception("EMS data fetch failed")
+    )
+
+    entry = {"metrics": {}, "device_type_code": "EMS"}
+
+    with pytest.raises(Exception, match="EMS data fetch failed"):
+        await api._fetch_ems_basic_data("10602251600016", entry)
