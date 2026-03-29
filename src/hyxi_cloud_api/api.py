@@ -919,14 +919,18 @@ class HyxiApiClient:
                     [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
                 )
 
-            await self._process_devices_for_plant(devices, now, metric_tasks, discovered_sns)
+            await self._process_devices_for_plant(
+                devices, now, metric_tasks, discovered_sns
+            )
 
         except Exception as e:
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
 
-    async def _process_devices_for_plant(self, devices: list[dict], now: str, metric_tasks: list, discovered_sns: set):
+    async def _process_devices_for_plant(
+        self, devices: list[dict], now: str, metric_tasks: list, discovered_sns: set
+    ):
         """Helper to process a list of devices, extracting metrics and sub-devices."""
         for d in devices:
             sn = d.get("deviceSn")
