@@ -1,6 +1,5 @@
 """Tests for _filter_collector_metrics optimization."""
 
-import pytest
 from src.hyxi_cloud_api.api import _filter_collector_metrics
 
 
