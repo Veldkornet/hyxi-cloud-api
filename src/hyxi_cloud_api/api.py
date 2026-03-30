@@ -37,7 +37,6 @@ _COLLECTOR_FILTER_KEYWORDS = (
     "bat",
     "pv",
     "grid",
-    "pbat",
     "load",
     "ph1",
     "ph2",
@@ -522,13 +521,20 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
     filtered = {}
+    k1, k2, k3, k4, k5, k6, k7 = _COLLECTOR_FILTER_KEYWORDS
     for k, v in m_raw.items():
-        k_lower = k.lower()
-        for x in _COLLECTOR_FILTER_KEYWORDS:
-            if x in k_lower:
-                break
-        else:
-            filtered[k] = v
+        kl = k.lower()
+        if (
+            k1 in kl
+            or k2 in kl
+            or k3 in kl
+            or k4 in kl
+            or k5 in kl
+            or k6 in kl
+            or k7 in kl
+        ):
+            continue
+        filtered[k] = v
     return filtered
 
 
