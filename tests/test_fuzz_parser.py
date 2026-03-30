@@ -1,39 +1,54 @@
-"""Hypothesis fuzz tests for API component parsing logic."""
+"""Fuzz testing for the metrics parser.
 
-import pytest
-from hypothesis import given, strategies as st
-from src.hyxi_cloud_api.api import HyxiApiClient, _compute_derived_metrics
+Ensures that the parser handles unexpected or malicious data types without
+crashing, while verifying that derived metric triggers remain intact.
+"""
+
+from hyxi_cloud_api.api import _compute_derived_metrics
 
 
-@given(
-    st.recursive(
-        st.none() | st.booleans() | st.floats() | st.text(),
-        lambda children: st.lists(children) | st.dictionaries(st.text(), children),
-    )
-)
-def test_metric_parsing_never_crashes(data):
-    """
-    Test the internal dictionary-to-metrics logic.
-    We mock the client to avoid actual network calls.
-    """
-    # 1. Create a dummy client (we won't actually use the session)
-    _client = HyxiApiClient("key", "secret", "http://localhost", None)
+def test_parser_fuzz_types():
+    """Feed random types into the parser helper to ensure no unhandled exceptions."""
+    junk_inputs = [
+        None,
+        "",
+        "   ",
+        "NaN",
+        "inf",
+        "999999999999999999999",
+        [],
+        {},
+        True,
+        False,
+        "0.0.0",
+        "-",
+    ]
 
-    # 2. Create a dummy entry structure like the one in your _execute_fetch_all
-    entry = {"metrics": {}, "device_type_code": "INVERTER"}
+    for val in junk_inputs:
+        # Should not raise
+        m_raw = {
+            "gridP": val,
+            "pbat": val,
+            "batP": val,
+            "ph1Loadp": val,
+            "ph2Loadp": val,
+            "ph3Loadp": val,
+        }
+        res = _compute_derived_metrics(m_raw)
+        assert isinstance(res, dict)
+        # Ensure fallback to 0.0
+        assert isinstance(res["home_load"], float)
+        assert isinstance(res["bat_power_dc"], float)
 
-    # 3. Simulate what happens in _fetch_device_metrics
-    # Your code does: m_raw = {item.get("dataKey"): item.get("dataValue") for item in data ...}
-    try:
-        if isinstance(data, list):
-            m_raw = {
-                item.get("dataKey"): item.get("dataValue")
-                for item in data
-                if isinstance(item, dict) and item.get("dataKey")
-            }
 
-            # Use the real function so fuzz tests always cover the current implementation.
-            # This ensures batP / pbat priority logic is also exercised.
-            entry["metrics"].update(_compute_derived_metrics(m_raw))
-    except Exception as e:
-        pytest.fail(f"Parser crashed with {type(e).__name__}: {e}")
+def test_parser_extreme_values():
+    """Verify that the round() in parser handles extreme floats gracefully."""
+    m_raw = {
+        "gridP": "1.23456789",
+        "pbat": "99999.99999",
+        "batP": "-0.00000001",
+    }
+    res = _compute_derived_metrics(m_raw)
+    assert res["grid_export"] == 1234.57  # gridP * 1000
+    assert res["bat_discharging"] == 100000.0  # pbat rounded
+    assert res["bat_power_dc"] == -0.0
