@@ -372,54 +372,40 @@ ALARM_CODE_MAP = {
     "7429": "Battery radiator overheating alarm",
     "7430": "Battery radiator under temperature alarm",
     "7431": "Battery relay malfunction",
-    "7488": "Communication abnormality between main and auxiliary DSP",
-    "7489": "DSP2 communication exception",
-    "7491": "Fan alarm",
-    "7492": "Inverter over temperature alarm",
-    "7493": "Boost over temperature alarm",
-    "7494": "DSP over temperature alarm",
-    "7495": "Inverter under temperature alarm",
-    "7496": "Boost under temperature alarm",
-    "7497": "DSP under temperature alarm",
-    "7498": "ARM communication abnormality",
-    "7499": "Inverter over temperature and load drop alarm",
-    "7502": "Temperature alarm",
-    "7505": "DC lightning protection",
-    "7506": "Communication lightning protection",
-    "7552": "Communication with the electricity meter",
-    "7553": "Communication with battery",
-    "7554": "Overload fault",
-    "7555": "Product type error",
-    "7556": "AFCI communication failure",
-    "7557": "Power level mismatch",
-    "7558": "AFCI arc fault",
-    "7559": "Insufficient off grid energy supply",
-    "7560": "Battery sleep mode",
-    "7561": "Battery emergency stop fault",
-    "7562": "Optimizer communication failure",
-    "7563": "Load point table fault",
-    "7564": "Off grid overload fault",
-    "7565": "Grid overload fault",
-    "7566": "Battery not connected to high voltage",
-    "7567": "Insufficient Off Grid SOC",
-    "7568": "Battery Strong Charging Request",
-    "7570": "Battery overdischarge protection alarm",
-    "7581": "ARM slave 2 version mismatch",
-    "7582": "ARM slave 3 version mismatch",
-    "7583": "ARM Slave 4 Version Mismatch",
-    "7584": "ARM slave 5 version mismatch",
-    "7585": "ARM Slave 6 Version Mismatch",
-    "7586": "ARM slave 7 version mismatch",
-    "7596": "Parallel battery parallel failure alarm",
-    "7626": "PV1 overload",
-    "7660": "Hardware balanced bridge current overcurrent",
-    "7662": "Balance bridge overcurrent",
-    "8435": "1.5V reference voltage abnormal",
-    "8436": "0.5V reference voltage abnormal",
-    "8437": "DSP chip self-test fault",
-    "8438": "Real time detection of faults in AC side relay operation",
-    "9615": "Insufficient Off Grid SOC",
-    "9616": "Battery Strong Charging Request",
+    "7432": "Communication with the electricity meter",
+    "7433": "Communication with battery",
+    "7434": "Overload fault",
+    "7435": "Product type error",
+    "7436": "AFCI communication failure",
+    "7437": "Power level mismatch",
+    "7438": "AFCI arc fault",
+    "7439": "Insufficient off grid energy supply",
+    "7440": "Battery sleep mode",
+    "7441": "Battery emergency stop fault",
+    "7442": "Optimizer communication failure",
+    "7443": "Load point table fault",
+    "7444": "Off grid overload fault",
+    "7445": "Grid overload fault",
+    "7446": "Battery not connected to high voltage",
+    "7447": "Insufficient Off Grid SOC",
+    "7448": "Battery Strong Charging Request",
+    "7450": "Battery overdischarge protection alarm",
+    "7461": "ARM slave 2 version mismatch",
+    "7462": "ARM slave 3 version mismatch",
+    "7463": "ARM Slave 4 Version Mismatch",
+    "7464": "ARM slave 5 version mismatch",
+    "7465": "ARM Slave 6 Version Mismatch",
+    "7466": "ARM slave 7 version mismatch",
+    "7476": "Parallel battery parallel failure alarm",
+    "7506": "PV1 overload",
+    "7540": "Hardware balanced bridge current overcurrent",
+    "7542": "Balance bridge overcurrent",
+    "8315": "1.5V reference voltage abnormal",
+    "8316": "0.5V reference voltage abnormal",
+    "8317": "DSP chip self-test fault",
+    "8318": "Real time detection of faults in AC side relay operation",
+    "9495": "Insufficient Off Grid SOC",
+    "9496": "Battery Strong Charging Request",
 }
 
 # Official HYXI Authentication & Common Exception Table
@@ -544,14 +530,21 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
     grid = _get_f("gridP", m_raw, 1000.0)
     pbat = _get_f("pbat", m_raw)
 
+    # 🚀 Accuracy: batP is the raw DC power (V×I) at the battery terminals.
+    # pbat is a firmware-reported AC-equivalent figure that can under-report
+    # due to inverter efficiency derating. Prefer batP when available.
+    bat_p_dc = _get_f("batP", m_raw)
+    power_source = bat_p_dc if bat_p_dc != 0.0 else pbat
+
     return {
         "home_load": _get_f("ph1Loadp", m_raw)
         + _get_f("ph2Loadp", m_raw)
         + _get_f("ph3Loadp", m_raw),
         "grid_import": abs(grid) if grid < 0 else 0.0,
         "grid_export": grid if grid > 0 else 0.0,
-        "bat_charging": abs(pbat) if pbat < 0 else 0.0,
-        "bat_discharging": pbat if pbat > 0 else 0.0,
+        "bat_charging": abs(power_source) if power_source < 0 else 0.0,
+        "bat_discharging": power_source if power_source > 0 else 0.0,
+        "bat_power_dc": bat_p_dc,
         "bat_charge_total": _get_f("batCharge", m_raw),
         "bat_discharge_total": _get_f("batDisCharge", m_raw),
     }
@@ -782,7 +775,7 @@ class HyxiApiClient:
                 else:
                     entry["metrics"].update(m_raw)
 
-                if "gridP" in m_raw or "pbat" in m_raw:
+                if "gridP" in m_raw or "pbat" in m_raw or "batP" in m_raw:
                     entry["metrics"].update(_compute_derived_metrics(m_raw))
             else:
                 _LOGGER.warning(
