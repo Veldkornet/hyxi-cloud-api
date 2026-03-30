@@ -15,8 +15,14 @@ async def test_api_parsing():
         "success": True,
         "data": [
             {"dataKey": "totalE", "dataValue": "2731.9"},
-            {"dataKey": "pbat", "dataValue": "-500"},  # -500W AC-reported power (charging)
-            {"dataKey": "batP", "dataValue": "-469"},  # -469W raw DC power (V×I) — preferred
+            {
+                "dataKey": "pbat",
+                "dataValue": "-500",
+            },  # -500W AC-reported power (charging)
+            {
+                "dataKey": "batP",
+                "dataValue": "-469",
+            },  # -469W raw DC power (V×I) — preferred
             {"dataKey": "gridP", "dataValue": "1.5"},  # 1.5 kW exported
         ],
     }
