@@ -1,10 +1,6 @@
-import sys
+"""Tests for the _build_device_entry method in HyxiApiClient."""
+
 from unittest.mock import MagicMock
-
-# Mock aiohttp
-sys.modules['aiohttp'] = MagicMock()
-
-import pytest
 from src.hyxi_cloud_api.api import HyxiApiClient
 
 def test_build_device_entry_complete():
