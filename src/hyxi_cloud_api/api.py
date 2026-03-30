@@ -1176,7 +1176,7 @@ class HyxiApiClient:
     async def _execute_metric_tasks(self, plant_alarms, state: FetchState):
         """Helper to conditionally execute metrics and map alarms."""
         if state.metric_tasks:
-            await self._execute_metrics_and_map_alarms(plant_alarms, state)
+            await HyxiApiClient._execute_metrics_and_map_alarms(plant_alarms, state)
 
     async def _process_plants_data(
         self, plants, state: FetchState, allow_back_discovery: bool = False
@@ -1260,7 +1260,8 @@ class HyxiApiClient:
 
         return plant_alarms
 
-    async def _execute_metrics_and_map_alarms(self, plant_alarms, state: FetchState):
+    @staticmethod
+    async def _execute_metrics_and_map_alarms(plant_alarms, state: FetchState):
         """Helper to execute metric tasks and map alarms to devices."""
         # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
         alarms_by_sn = defaultdict(list)
