@@ -3,6 +3,7 @@
 import pytest
 from src.hyxi_cloud_api.api import _filter_collector_metrics
 
+
 def test_filter_collector_metrics_filtering():
     """Verify that sensitive metrics are filtered out."""
     m_raw = {
@@ -15,7 +16,7 @@ def test_filter_collector_metrics_filtering():
         "temp": "40.5",
         "vpv1": "400",
         "vbat": "52",
-        "soc": "100"
+        "soc": "100",
     }
 
     filtered = _filter_collector_metrics(m_raw)
@@ -37,14 +38,17 @@ def test_filter_collector_metrics_filtering():
     assert filtered["temp"] == "40.5"
     assert filtered["soc"] == "100"
 
+
 def test_filter_collector_metrics_empty():
     """Verify empty dict handling."""
-    assert _filter_collector_metrics({}) == {}
+    assert not _filter_collector_metrics({})
+
 
 def test_filter_collector_metrics_no_match():
     """Verify dict with no matches handling."""
     m_raw = {"abc": "123", "def": "456"}
     assert _filter_collector_metrics(m_raw) == m_raw
+
 
 def test_filter_collector_metrics_case_insensitivity():
     """Verify case insensitivity of filtering."""
