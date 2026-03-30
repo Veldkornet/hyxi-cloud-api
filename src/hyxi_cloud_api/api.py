@@ -946,6 +946,7 @@ class HyxiApiClient:
 
     async def _process_devices_for_plant(self, devices: list[dict], state: FetchState):
         """Helper to process a list of devices, extracting metrics and sub-devices."""
+        sub_device_tasks = []
         for d in devices:
             sn = d.get("deviceSn")
             if not sn:
@@ -963,7 +964,10 @@ class HyxiApiClient:
                     _mask_id(sn),
                     dev_type,
                 )
-                await self._fetch_sub_devices(sn, state)
+                sub_device_tasks.append(self._fetch_sub_devices(sn, state))
+
+        if sub_device_tasks:
+            await asyncio.gather(*sub_device_tasks)
 
     async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict]:
         """Fetch the list of sub-devices from the API."""
@@ -1209,6 +1213,7 @@ class HyxiApiClient:
             "HYXI Processing alarms (allow_back_discovery=%s)", allow_back_discovery
         )
         plant_alarms = []
+        sub_device_tasks = []
         for i, alarms in enumerate(alarm_results):
             if not isinstance(alarms, list):
                 continue
@@ -1256,7 +1261,10 @@ class HyxiApiClient:
                     # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
                     dev_type_upper = dev_type.upper()
                     if any(x in dev_type_upper for x in _parent_device_types):
-                        await self._fetch_sub_devices(sn, state)
+                        sub_device_tasks.append(self._fetch_sub_devices(sn, state))
+
+        if sub_device_tasks:
+            await asyncio.gather(*sub_device_tasks)
 
         return plant_alarms
 
