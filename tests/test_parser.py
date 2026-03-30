@@ -15,7 +15,8 @@ async def test_api_parsing():
         "success": True,
         "data": [
             {"dataKey": "totalE", "dataValue": "2731.9"},
-            {"dataKey": "pbat", "dataValue": "-500"},  # -500 means charging
+            {"dataKey": "pbat", "dataValue": "-500"},  # -500W AC-reported power (charging)
+            {"dataKey": "batP", "dataValue": "-469"},  # -469W raw DC power (V×I) — preferred
             {"dataKey": "gridP", "dataValue": "1.5"},  # 1.5 kW exported
         ],
     }
@@ -49,9 +50,48 @@ async def test_api_parsing():
     # Verify inline math converter (gridP * 1000)
     assert entry["metrics"]["grid_export"] == 1500.0
 
-    # Verify battery logic correctly assigned the negative number to the 'charging' sensor
-    assert entry["metrics"]["bat_charging"] == 500.0
-    assert entry["metrics"]["bat_discharging"] == 0
+    # batP takes priority over pbat for the derived sensors (raw DC power is more accurate)
+    assert entry["metrics"]["bat_charging"] == 469.0
+    assert entry["metrics"]["bat_discharging"] == 0.0
+
+    # bat_power_dc is directly exposed as the raw DC value
+    assert entry["metrics"]["bat_power_dc"] == -469.0
+
+
+@pytest.mark.asyncio
+async def test_api_parsing_batp_only():
+    """Verify derived metrics are computed when only batP is present (no pbat/gridP)."""
+    # Real-world scenario: inverter reporting batP but no pbat or gridP
+    fake_json = {
+        "success": True,
+        "data": [
+            {"dataKey": "batV", "dataValue": "521.5"},
+            {"dataKey": "batI", "dataValue": "0.9"},
+            {"dataKey": "batP", "dataValue": "469"},  # Discharging
+        ],
+    }
+
+    mock_response = MagicMock()
+    mock_response.json = AsyncMock(return_value=fake_json)
+    mock_response.raise_for_status = MagicMock()
+
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+
+    api = HyxiApiClient(
+        access_key="test_ak",
+        secret_key="test_sk",
+        base_url="https://test.com",
+        session=mock_session,
+    )
+
+    entry = {"metrics": {}, "device_type_code": "1"}  # Inverter
+    await api._fetch_device_metrics("SN123", entry)
+
+    # Derived metrics should still fire when only batP is present
+    assert entry["metrics"]["bat_discharging"] == 469.0
+    assert entry["metrics"]["bat_charging"] == 0.0
+    assert entry["metrics"]["bat_power_dc"] == 469.0
 
 
 @pytest.mark.asyncio
