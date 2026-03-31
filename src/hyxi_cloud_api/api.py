@@ -14,8 +14,7 @@ import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC
-from datetime import datetime
+from datetime import UTC, datetime
 
 import aiohttp
 
