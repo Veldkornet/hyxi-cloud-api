@@ -819,7 +819,8 @@ class HyxiApiClient:
             )
         return {}
 
-    def _extract_device_info_metadata(self, entry, i_raw):
+    @staticmethod
+    def _extract_device_info_metadata(entry, i_raw):
         """Helper to extract metadata from device info."""
         sw_ver = i_raw.get("swVerSys") or i_raw.get("swVerMaster") or i_raw.get("swVer")
         if sw_ver:
@@ -870,7 +871,7 @@ class HyxiApiClient:
                         "HYXI Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
                     )
 
-                self._extract_device_info_metadata(entry, i_raw)
+                HyxiApiClient._extract_device_info_metadata(entry, i_raw)
             else:
                 _LOGGER.warning(
                     "HYXI INFO API Rejected for %s: %s",
