@@ -953,7 +953,7 @@ class HyxiApiClient:
                 continue
 
             state.discovered_sns.add(sn)
-            entry, dev_type = self._build_device_entry(sn, d, state.now)
+            entry, dev_type = HyxiApiClient._build_device_entry(sn, d, state.now)
 
             state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
@@ -1010,7 +1010,7 @@ class HyxiApiClient:
                     continue
 
                 state.discovered_sns.add(sn)
-                entry, raw_type = self._build_device_entry(sn, c, state.now)
+                entry, raw_type = HyxiApiClient._build_device_entry(sn, c, state.now)
 
                 # These are real devices, so fetch their metrics/info
                 state.metric_tasks.append(
@@ -1312,7 +1312,8 @@ class HyxiApiClient:
 
         return state.results
 
-    def _build_device_entry(self, sn, device_data, now):
+    @staticmethod
+    def _build_device_entry(sn, device_data, now):
         """Build a standardized device entry dictionary from raw API data."""
         dev_type = str(device_data.get("deviceType") or "UNKNOWN")
         friendly_name = (
