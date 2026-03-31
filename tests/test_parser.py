@@ -228,3 +228,43 @@ def test_compute_derived_metrics_invalid():
     assert res["grid_import"] == 0.0
     assert res["bat_discharging"] == 0.0
     assert res["home_load"] == 0.0
+
+
+def test_compute_derived_metrics_zero_edges():
+    """Test derived metrics logic correctly handles boundary/zero conditions."""
+    # Test strict zero values and fallback behavior when batP == 0.0
+    m_raw = {
+        "gridP": "0.0",
+        "batP": "0.0",
+        "pbat": "100.0",  # Since batP is zero, power_source should fall back to pbat
+    }
+    res = _compute_derived_metrics(m_raw)
+    assert res["grid_import"] == 0.0
+    assert res["grid_export"] == 0.0
+    assert res["bat_power_dc"] == 0.0
+    assert res["bat_charging"] == 0.0
+    assert res["bat_discharging"] == 100.0
+
+    # Test small positive float epsilon
+    m_raw_positive = {
+        "gridP": "0.0001",
+        "batP": "0.01",
+        "pbat": "0.01",
+    }
+    res_pos = _compute_derived_metrics(m_raw_positive)
+    assert res_pos["grid_import"] == 0.0
+    assert res_pos["grid_export"] == 0.1  # 0.0001 * 1000
+    assert res_pos["bat_charging"] == 0.0
+    assert res_pos["bat_discharging"] == 0.01
+
+    # Test small negative float epsilon
+    m_raw_negative = {
+        "gridP": "-0.0001",
+        "batP": "-0.01",
+        "pbat": "-0.01",
+    }
+    res_neg = _compute_derived_metrics(m_raw_negative)
+    assert res_neg["grid_import"] == 0.1  # abs(-0.0001 * 1000)
+    assert res_neg["grid_export"] == 0.0
+    assert res_neg["bat_charging"] == 0.01
+    assert res_neg["bat_discharging"] == 0.0
