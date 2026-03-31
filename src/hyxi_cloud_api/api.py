@@ -674,7 +674,7 @@ class HyxiApiClient:
         async with request_func(url, headers=headers, **kwargs) as response:
             status = response.status
 
-            if is_token_request and status in [401, 403]:
+            if is_token_request and status in (401, 403):
                 return status, {}
 
             response.raise_for_status()
@@ -727,13 +727,13 @@ class HyxiApiClient:
                 "POST", path, is_token_request=True, json={"grantType": 1}
             )
 
-            if status in [401, 403]:
+            if status in (401, 403):
                 _LOGGER.error("HYXI API: Token request unauthorized (401/403)")
                 return "auth_failed"
 
             if not res.get("success"):
                 _LOGGER.error("HYXI API Token Rejected: %s", _sanitize_dict(res))
-                if res.get("code") in [401, 403, "401", "403"]:
+                if res.get("code") in (401, 403, "401", "403"):
                     return "auth_failed"
                 return False
 
@@ -1104,7 +1104,7 @@ class HyxiApiClient:
 
         if not res_p.get("success"):
             # 🚀 If the server rejects the token, wipe it and force a retry!
-            if res_p.get("code") in ["A000002", "A000005"]:
+            if res_p.get("code") in ("A000002", "A000005"):
                 _LOGGER.debug(
                     "HYXI Server rejected our token (A000002/A000005). "
                     "Forcing immediate token refresh..."
