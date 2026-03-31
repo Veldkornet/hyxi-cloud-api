@@ -1,0 +1,70 @@
+"""Tests for fetching plants from the API."""
+
+from unittest.mock import AsyncMock, MagicMock
+
+import aiohttp
+import pytest
+
+from src.hyxi_cloud_api.api import HyxiApiClient
+
+
+@pytest.mark.asyncio
+async def test_fetch_plants_success():
+    """Verify that _fetch_plants returns a list of plants on success."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {
+                "success": True,
+                "data": {"list": [{"plantId": "Pl123"}, {"plantId": "Pl456"}]},
+            },
+        )
+    )
+
+    plants = await api._fetch_plants()
+    assert len(plants) == 2
+    assert plants[0]["plantId"] == "Pl123"
+    assert plants[1]["plantId"] == "Pl456"
+
+
+@pytest.mark.asyncio
+async def test_fetch_plants_token_rejection():
+    """Verify that _fetch_plants handles token rejection correctly."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.token = "Bearer old_token"
+    api.token_expires_at = 9999999999.0
+
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {"success": False, "code": "A000002", "message": "Invalid access token"},
+        )
+    )
+
+    with pytest.raises(aiohttp.ClientError, match="Server rejected token"):
+        await api._fetch_plants()
+
+    assert api.token is None
+    assert api.token_expires_at == 0
+
+
+@pytest.mark.asyncio
+async def test_fetch_plants_generic_failure():
+    """Verify that _fetch_plants returns None on generic failure."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.token = "Bearer good_token"
+    api.token_expires_at = 9999999999.0
+
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {"success": False, "code": "C000001", "message": "Parameter error"},
+        )
+    )
+
+    plants = await api._fetch_plants()
+
+    assert plants is None
+    assert api.token == "Bearer good_token"
+    assert api.token_expires_at == 9999999999.0
