@@ -1242,7 +1242,7 @@ class HyxiApiClient:
                     )
 
                     device_name = a.get("deviceName")
-                    if not device_name or device_name == "":
+                    if not device_name:
                         device_name = f"{friendly_name} {sn}"
 
                     entry = {
@@ -1318,7 +1318,7 @@ class HyxiApiClient:
         )
 
         device_name = device_data.get("deviceName") or device_data.get("alias")
-        if not device_name or device_name == "":
+        if not device_name:
             device_name = f"{friendly_name} {sn}"
 
         entry = {
