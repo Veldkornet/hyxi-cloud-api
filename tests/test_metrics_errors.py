@@ -128,3 +128,31 @@ async def test_fetch_ems_basic_data_error(caplog):
 
     with pytest.raises(Exception, match="EMS data fetch failed"):
         await api._fetch_ems_basic_data("10602251600016", entry)
+
+
+@pytest.mark.asyncio
+async def test_query_ems_basic_details_error(caplog):
+    """Test that query_ems_basic_details handles exceptions gracefully."""
+    caplog.set_level(logging.ERROR)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Inject mock directly into the module resolving all patch issues
+    import hyxi_cloud_api.api as api_mod  # pylint: disable=import-outside-toplevel
+
+    mock_logger = MagicMock()
+    api_mod._LOGGER = mock_logger
+
+    # Mock _request to raise an Exception to cover the error path in query_ems_basic_details
+    api._request = AsyncMock(side_effect=Exception("EMS query failed"))
+
+    result = await api.query_ems_basic_details("10602251600016")
+
+    assert result == {}
+
+    # Verify the mock logger was called instead of using caplog directly (like other tests here)
+    mock_logger.error.assert_called_with(
+        "HYXI EMS Basic Data Request Failed for %s: %s",
+        "106XXXXXXXX016",
+        api._request.side_effect,
+    )
