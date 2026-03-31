@@ -13,6 +13,7 @@ import logging
 import os
 import time
 from collections import defaultdict
+import re
 from dataclasses import dataclass, field
 from datetime import UTC
 from datetime import datetime
@@ -42,6 +43,8 @@ _COLLECTOR_FILTER_KEYWORDS = (
     "ph2",
     "ph3",
 )
+
+_COLLECTOR_FILTER_REGEX = re.compile("|".join(_COLLECTOR_FILTER_KEYWORDS))
 
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
@@ -507,19 +510,8 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
     filtered = {}
-    # Optimization: Unrolled loop for small keyword list (~28% faster than nested loop)
-    # pylint: disable=too-many-boolean-expressions
     for k, v in m_raw.items():
-        kl = k.lower()
-        if (
-            "bat" in kl
-            or "pv" in kl
-            or "grid" in kl
-            or "load" in kl
-            or "ph1" in kl
-            or "ph2" in kl
-            or "ph3" in kl
-        ):
+        if _COLLECTOR_FILTER_REGEX.search(k.lower()):
             continue
         filtered[k] = v
     return filtered
