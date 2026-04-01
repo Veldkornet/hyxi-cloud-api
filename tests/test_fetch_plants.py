@@ -28,8 +28,9 @@ async def test_fetch_plants_success():
     assert plants[1]["plantId"] == "Pl456"
 
 
+@pytest.mark.parametrize("error_code", ["A000002", "A000005"])
 @pytest.mark.asyncio
-async def test_fetch_plants_token_rejection():
+async def test_fetch_plants_token_rejection(error_code):
     """Verify that _fetch_plants handles token rejection correctly."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api.token = "Bearer old_token"
@@ -38,7 +39,7 @@ async def test_fetch_plants_token_rejection():
     api._request = AsyncMock(
         return_value=(
             200,
-            {"success": False, "code": "A000002", "message": "Invalid access token"},
+            {"success": False, "code": error_code, "message": "Invalid access token"},
         )
     )
 
