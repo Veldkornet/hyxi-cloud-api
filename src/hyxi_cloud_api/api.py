@@ -738,7 +738,7 @@ class HyxiApiClient:
                 return False
 
             return self._apply_token_response(res.get("data", {}))
-        except Exception as e:
+        except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error("HYXI Token Request Failed: %s", e)
         return False
 
@@ -774,7 +774,7 @@ class HyxiApiClient:
                     _mask_id(sn),
                     res_q.get("message"),
                 )
-        except Exception as e:
+        except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
 
     async def _fetch_ems_basic_data(self, ems_sn, entry):
@@ -804,7 +804,7 @@ class HyxiApiClient:
             if res.get("code") == "0":
                 data = res.get("data", [])
                 return _parse_ems_kv(data)
-        except Exception as e:
+        except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error(
                 "HYXI EMS Basic Data Request Failed for %s: %s", _mask_id(ems_sn), e
             )
@@ -870,7 +870,7 @@ class HyxiApiClient:
                     res_i.get("message"),
                 )
 
-        except Exception as e:
+        except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error("Error fetching device info for %s: %s", _mask_id(sn), e)
 
     async def _fetch_all_for_device(self, sn, entry, dev_type):
@@ -931,7 +931,7 @@ class HyxiApiClient:
 
             await self._process_devices_for_plant(devices, state)
 
-        except Exception as e:
+        except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
@@ -1009,7 +1009,7 @@ class HyxiApiClient:
                     self._fetch_all_for_device(sn, entry, raw_type)
                 )
 
-        except Exception as e:
+        except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error(
                 "Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e
             )
@@ -1052,7 +1052,7 @@ class HyxiApiClient:
                 )
 
             return alarms
-        except Exception as e:
+        except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error(
                 "Error fetching alarms for plant %s: %s", _mask_id(plant_id), e
             )
