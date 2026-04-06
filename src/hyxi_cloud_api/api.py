@@ -9,6 +9,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import json
 import logging
 import os
 import time
@@ -663,7 +664,7 @@ class HyxiApiClient:
         timestamp = str(now_ms)
 
         # 🚀 Generate a truly unique Nonce for concurrent requests
-        nonce = os.urandom(16).hex()
+        nonce = os.urandom(4).hex()
 
         hex_hash = _GRANT_TYPE_HASH if is_token_request else _EMPTY_STR_HASH
         string_to_sign = f"{path}\n{method.upper()}\n{hex_hash}\n"
@@ -703,6 +704,9 @@ class HyxiApiClient:
         )
 
         kwargs.setdefault("timeout", 15)
+
+        if "json" in kwargs:
+            kwargs["data"] = json.dumps(kwargs.pop("json"))
 
         request_func = getattr(self.session, method.lower())
         async with request_func(url, headers=headers, **kwargs) as response:
