@@ -6,6 +6,7 @@ from src.hyxi_cloud_api.api import _sanitize_list
 
 def test_sanitize_list_empty():
     """Test that an empty list returns an empty list."""
+    # pylint: disable=use-implicit-booleaness-not-comparison
     assert _sanitize_list([]) == []
 
 
