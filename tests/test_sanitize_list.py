@@ -36,3 +36,18 @@ def test_sanitize_list_with_dicts(mock_mask):
     assert result[1] is None
     assert result[0]["deviceSn"] == "MASKED"
     mock_mask.assert_called_once_with("123456789")
+
+
+def test_sanitize_list_whitespace_strings():
+    """Test that strings with only whitespace are not converted to None."""
+    raw = [" ", "  ", "\t", "\n"]
+    assert _sanitize_list(raw) == [" ", "  ", "\t", "\n"]
+
+
+def test_sanitize_list_no_mutation():
+    """Test that _sanitize_list does not mutate the original list."""
+    raw = ["deviceSn", "123456789", ""]
+    original = raw.copy()
+    result = _sanitize_list(raw)
+    assert raw == original
+    assert result != original
