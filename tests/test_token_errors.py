@@ -8,6 +8,7 @@ import pytest
 import hyxi_cloud_api.api as api_mod
 from hyxi_cloud_api.api import HyxiApiClient
 
+
 @pytest.mark.asyncio
 async def test_refresh_token_exception_handling(caplog):
     """Test that _refresh_token handles exceptions from _request gracefully."""
