@@ -633,17 +633,16 @@ def _sanitize_dict(raw: dict) -> dict:
 
 def _sanitize_list(raw_list: list) -> list:
     """Recursively sanitize items in a list, converting empty strings to None."""
-    sanitized = []
-    for item in raw_list:
-        if isinstance(item, dict):
-            sanitized.append(_sanitize_dict(item))
-        elif isinstance(item, list):
-            sanitized.append(_sanitize_list(item))
-        elif item == "":
-            sanitized.append(None)
-        else:
-            sanitized.append(item)
-    return sanitized
+    return [
+        _sanitize_dict(item)
+        if isinstance(item, dict)
+        else _sanitize_list(item)
+        if isinstance(item, list)
+        else None
+        if item == ""
+        else item
+        for item in raw_list
+    ]
 
 
 class HyxiApiClient:
