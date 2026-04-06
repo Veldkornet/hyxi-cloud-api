@@ -630,15 +630,12 @@ def _sanitize_dict(raw: dict) -> dict:
 
 def _sanitize_list(raw_list: list) -> list:
     """Recursively sanitize items in a list."""
-    sanitized = []
-    for item in raw_list:
-        if isinstance(item, dict):
-            sanitized.append(_sanitize_dict(item))
-        elif isinstance(item, list):
-            sanitized.append(_sanitize_list(item))
-        else:
-            sanitized.append(item)
-    return sanitized
+    return [
+        _sanitize_dict(item) if isinstance(item, dict)
+        else _sanitize_list(item) if isinstance(item, list)
+        else item
+        for item in raw_list
+    ]
 
 
 class HyxiApiClient:
