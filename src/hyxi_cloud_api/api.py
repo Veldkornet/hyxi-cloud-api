@@ -515,12 +515,14 @@ def _parse_ems_kv(data: list) -> dict:
 
     Keys are lowercased to match HA sensor entity key conventions.
     """
+    if not isinstance(data, list):
+        return {}
     return {
         prop.lower(): item.get("value")
         for module in data
         if isinstance(module, dict)
         for item in module.get("filedKv", ())
-        if (prop := item.get("prop"))
+        if isinstance(item, dict) and (prop := item.get("prop"))
     }
 
 
@@ -537,12 +539,9 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
 
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
-    filtered = {}
-    for k, v in m_raw.items():
-        if _COLLECTOR_FILTER_REGEX.search(k.lower()):
-            continue
-        filtered[k] = v
-    return filtered
+    return {
+        k: v for k, v in m_raw.items() if not _COLLECTOR_FILTER_REGEX.search(k.lower())
+    }
 
 
 def _compute_derived_metrics(m_raw: dict) -> dict:
@@ -631,17 +630,16 @@ def _sanitize_dict(raw: dict) -> dict:
 
 def _sanitize_list(raw_list: list) -> list:
     """Recursively sanitize items in a list, converting empty strings to None."""
-    sanitized = []
-    for item in raw_list:
-        if isinstance(item, dict):
-            sanitized.append(_sanitize_dict(item))
-        elif isinstance(item, list):
-            sanitized.append(_sanitize_list(item))
-        elif item == "":
-            sanitized.append(None)
-        else:
-            sanitized.append(item)
-    return sanitized
+    return [
+        _sanitize_dict(item)
+        if isinstance(item, dict)
+        else _sanitize_list(item)
+        if isinstance(item, list)
+        else None
+        if item == ""
+        else item
+        for item in raw_list
+    ]
 
 
 class HyxiApiClient:
