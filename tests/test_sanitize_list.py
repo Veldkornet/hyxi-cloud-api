@@ -39,6 +39,7 @@ def test_sanitize_list_with_dicts(mock_mask):
 
 
 def test_sanitize_list_falsy_values():
+<<<<<<< HEAD
     """Test that falsy values like 0 and False are not converted to None."""
     raw = [0, False, None, ""]
     assert _sanitize_list(raw) == [0, False, None, None]
@@ -48,6 +49,12 @@ def test_sanitize_list_other_iterables():
     """Test that other iterables like tuples and sets are passed through untouched."""
     raw = [(1, 2), {3, 4}]
     assert _sanitize_list(raw) == [(1, 2), {3, 4}]
+=======
+    """Test that falsy values other than empty strings are preserved."""
+    raw = [0, 0.0, False, (1, "")]
+    expected = [0, 0.0, False, (1, "")]
+    assert _sanitize_list(raw) == expected
+>>>>>>> origin/main
 
 
 def test_sanitize_list_whitespace_strings():
