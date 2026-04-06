@@ -36,3 +36,10 @@ def test_sanitize_list_with_dicts(mock_mask):
     assert result[1] is None
     assert result[0]["deviceSn"] == "MASKED"
     mock_mask.assert_called_once_with("123456789")
+
+
+def test_sanitize_list_falsy_values():
+    """Test that falsy values other than empty strings are preserved."""
+    raw = [0, 0.0, False, (1, "")]
+    expected = [0, 0.0, False, (1, "")]
+    assert _sanitize_list(raw) == expected
