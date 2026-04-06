@@ -43,3 +43,18 @@ def test_sanitize_list_falsy_values():
     raw = [0, 0.0, False, (1, "")]
     expected = [0, 0.0, False, (1, "")]
     assert _sanitize_list(raw) == expected
+
+
+def test_sanitize_list_whitespace_strings():
+    """Test that strings with only whitespace are not converted to None."""
+    raw = [" ", "  ", "\t", "\n"]
+    assert _sanitize_list(raw) == [" ", "  ", "\t", "\n"]
+
+
+def test_sanitize_list_no_mutation():
+    """Test that _sanitize_list does not mutate the original list."""
+    raw = ["deviceSn", "123456789", ""]
+    original = raw.copy()
+    result = _sanitize_list(raw)
+    assert raw == original
+    assert result != original
