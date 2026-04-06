@@ -538,9 +538,7 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
     return {
-        k: v
-        for k, v in m_raw.items()
-        if not _COLLECTOR_FILTER_REGEX.search(k.lower())
+        k: v for k, v in m_raw.items() if not _COLLECTOR_FILTER_REGEX.search(k.lower())
     }
 
 
