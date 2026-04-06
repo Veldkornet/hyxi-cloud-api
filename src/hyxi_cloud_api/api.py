@@ -515,12 +515,14 @@ def _parse_ems_kv(data: list) -> dict:
 
     Keys are lowercased to match HA sensor entity key conventions.
     """
+    if not isinstance(data, list):
+        return {}
     return {
         prop.lower(): item.get("value")
         for module in data
         if isinstance(module, dict)
         for item in module.get("filedKv", ())
-        if (prop := item.get("prop"))
+        if isinstance(item, dict) and (prop := item.get("prop"))
     }
 
 
