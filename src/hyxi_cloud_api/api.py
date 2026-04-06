@@ -576,19 +576,19 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
 
-    Replaces middle characters with 'X' to preserve the true length while
-    hiding the sensitive portion. IDs shorter than 8 characters are fully
-    redacted as '****' to prevent short numeric IDs from being revealed.
+    Masks all but the last 4 characters with 'X' to preserve the true length
+    while hiding the sensitive portion. IDs shorter than 8 characters are
+    fully redacted as '****' to prevent short numeric IDs from being revealed.
 
-    Example: '10602251600016' -> '106XXXXXXXX016'
+    Example: '10602251600016' -> 'XXXXXXXXXX0016'
     """
     if not value:
         return "****"
     id_str = str(value)
     if len(id_str) < 8:
         return "****"
-    middle_len = len(id_str) - 6
-    return f"{id_str[:3]}{'X' * middle_len}{id_str[-3:]}"
+    mask_len = len(id_str) - 4
+    return f"{'X' * mask_len}{id_str[-4:]}"
 
 
 # Keys in raw API response dicts that contain identifying or personal information.
