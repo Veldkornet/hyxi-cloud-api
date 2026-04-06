@@ -28,6 +28,7 @@ class FetchState:
     metric_tasks: list = field(default_factory=list)
     discovered_sns: set = field(default_factory=set)
     results: dict = field(default_factory=dict)
+    plants: list = field(default_factory=list)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -1162,12 +1163,12 @@ class HyxiApiClient:
 
         return plants
 
-    def _build_plant_tasks(self, plants, state: FetchState):
+    def _build_plant_tasks(self, state: FetchState):
         """Extract plant processing loop to synchronously build tasks."""
         device_fetch_tasks = []
         alarm_fetch_tasks = []
 
-        for p in plants:
+        for p in state.plants:
             plant_id = p.get("plantId")
             if not plant_id:
                 continue
@@ -1177,11 +1178,9 @@ class HyxiApiClient:
 
         return device_fetch_tasks, alarm_fetch_tasks
 
-    # pylint: disable=too-many-arguments,too-many-positional-arguments
     async def _fetch_and_process_alarms(
         self,
         alarm_fetch_tasks,
-        plants,
         state: FetchState,
         allow_back_discovery: bool = False,
     ):
@@ -1192,7 +1191,6 @@ class HyxiApiClient:
         alarm_results = await asyncio.gather(*alarm_fetch_tasks)
         return await self._process_alarms_and_back_discovery(
             alarm_results,
-            plants,
             state,
             allow_back_discovery=allow_back_discovery,
         )
@@ -1210,16 +1208,15 @@ class HyxiApiClient:
             await HyxiApiClient._execute_metrics_and_map_alarms(plant_alarms, state)
 
     async def _process_plants_data(
-        self, plants, state: FetchState, allow_back_discovery: bool = False
+        self, state: FetchState, allow_back_discovery: bool = False
     ):
         """Helper to concurrently process plants to gather metrics and alarms."""
-        device_fetch_tasks, alarm_fetch_tasks = self._build_plant_tasks(plants, state)
+        device_fetch_tasks, alarm_fetch_tasks = self._build_plant_tasks(state)
 
         await HyxiApiClient._execute_device_tasks(device_fetch_tasks)
 
         plant_alarms = await self._fetch_and_process_alarms(
             alarm_fetch_tasks,
-            plants,
             state,
             allow_back_discovery=allow_back_discovery,
         )
@@ -1267,11 +1264,9 @@ class HyxiApiClient:
         if any(x in dev_type_upper for x in _parent_device_types):
             sub_device_tasks.append(self._fetch_sub_devices(sn, state))
 
-    # pylint: disable=too-many-arguments,too-many-positional-arguments
     async def _process_alarms_and_back_discovery(
         self,
         alarm_results,
-        plants,
         state: FetchState,
         allow_back_discovery: bool = False,
     ):
@@ -1286,7 +1281,7 @@ class HyxiApiClient:
                 continue
 
             plant_alarms.extend(alarms)
-            plant_id = plants[i].get("plantId")
+            plant_id = state.plants[i].get("plantId")
 
             # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
             if allow_back_discovery:
@@ -1334,10 +1329,11 @@ class HyxiApiClient:
         plants = await self._fetch_plants()
         if plants is None:
             return None
+        state.plants = plants
 
         # 2 & 3. Process Plants for Devices, Alarms, and Metrics
         await self._process_plants_data(
-            plants, state, allow_back_discovery=allow_back_discovery
+            state, allow_back_discovery=allow_back_discovery
         )
 
         return state.results
