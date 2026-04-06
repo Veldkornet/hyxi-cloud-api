@@ -1,7 +1,7 @@
 """Tests for the _sanitize_dict function in hyxi_cloud_api.api."""
 
 from unittest.mock import patch
-from src.hyxi_cloud_api.api import _sanitize_dict
+from src.hyxi_cloud_api.api import _sanitize_dict, _sanitize_list
 
 
 def test_sanitize_dict_plant_address():
@@ -104,3 +104,37 @@ def test_sanitize_dict_no_mutation():
     result = _sanitize_dict(raw)
     assert raw == original
     assert result != original
+
+
+def test_sanitize_list():
+    """Test that _sanitize_list correctly handles edge cases and recursively sanitizes items."""
+    # Empty list
+    assert _sanitize_list([]) == []
+
+    # Empty string
+    assert _sanitize_list([""]) == [None]
+
+    # Regular items
+    assert _sanitize_list([1, "string", True, None]) == [1, "string", True, None]
+
+    # Nested list
+    assert _sanitize_list([[1, ""]]) == [[1, None]]
+
+    # Nested dictionary with sensitive key
+    raw_list = [
+        {"deviceSn": "123456789", "normalKey": "value"},
+        "normal string",
+        "",
+        [{"plantId": "987654321", "otherKey": 123}, ""]
+    ]
+    with patch("src.hyxi_cloud_api.api._SENSITIVE_KEYS", {"deviceSn", "plantId"}):
+        with patch("src.hyxi_cloud_api.api._mask_id", return_value="MASKED"):
+            result = _sanitize_list(raw_list)
+
+    expected = [
+        {"deviceSn": "MASKED", "normalKey": "value"},
+        "normal string",
+        None,
+        [{"plantId": "MASKED", "otherKey": 123}, None]
+    ]
+    assert result == expected
