@@ -661,7 +661,7 @@ class HyxiApiClient:
         timestamp = str(now_ms)
 
         # 🚀 Generate a truly unique Nonce for concurrent requests
-        nonce = os.urandom(4).hex()
+        nonce = os.urandom(16).hex()
 
         hex_hash = _GRANT_TYPE_HASH if is_token_request else _EMPTY_STR_HASH
         string_to_sign = f"{path}\n{method.upper()}\n{hex_hash}\n"
