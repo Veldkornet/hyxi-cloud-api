@@ -146,19 +146,31 @@ def test_sanitize_list_edge_cases():
     assert _sanitize_list([0, 0.0, False]) == [0, 0.0, False]
 
     # Non-list iterables (like tuples) should be converted to lists
-    assert _sanitize_list((1, "", 3)) == [1, None, 3]
+    # Type ignore because we are intentionally testing bad typing behavior
+    assert _sanitize_list((1, "", 3)) == [1, None, 3]  # type: ignore
 
     # Deeply nested combinations
     raw_list = [
-        {"deviceSn": "123", "nested_list": ["", 1, {"plantId": "456"}], "nested_dict": {"token": "abc"}},
-        [[{ "password": "xyz", "empty": "" }, ""]]
+        {
+            "deviceSn": "123",
+            "nested_list": ["", 1, {"plantId": "456"}],
+            "nested_dict": {"token": "abc"},
+        },
+        [[{"password": "xyz", "empty": ""}, ""]],
     ]
-    with patch("src.hyxi_cloud_api.api._SENSITIVE_KEYS", {"deviceSn", "plantId", "token", "password"}):
+    with patch(
+        "src.hyxi_cloud_api.api._SENSITIVE_KEYS",
+        {"deviceSn", "plantId", "token", "password"},
+    ):
         with patch("src.hyxi_cloud_api.api._mask_id", return_value="MASKED"):
             result = _sanitize_list(raw_list)
 
     expected = [
-        {"deviceSn": "MASKED", "nested_list": [None, 1, {"plantId": "MASKED"}], "nested_dict": {"token": "MASKED"}},
-        [[{ "password": "MASKED", "empty": "" }, None]]
+        {
+            "deviceSn": "MASKED",
+            "nested_list": [None, 1, {"plantId": "MASKED"}],
+            "nested_dict": {"token": "MASKED"},
+        },
+        [[{"password": "MASKED", "empty": ""}, None]],
     ]
     assert result == expected
