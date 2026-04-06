@@ -48,3 +48,18 @@ def test_sanitize_list_other_iterables():
     """Test that other iterables like tuples and sets are passed through untouched."""
     raw = [(1, 2), {3, 4}]
     assert _sanitize_list(raw) == [(1, 2), {3, 4}]
+
+
+def test_sanitize_list_whitespace_strings():
+    """Test that strings with only whitespace are not converted to None."""
+    raw = [" ", "  ", "\t", "\n"]
+    assert _sanitize_list(raw) == [" ", "  ", "\t", "\n"]
+
+
+def test_sanitize_list_no_mutation():
+    """Test that _sanitize_list does not mutate the original list."""
+    raw = ["deviceSn", "123456789", ""]
+    original = raw.copy()
+    result = _sanitize_list(raw)
+    assert raw == original
+    assert result != original
