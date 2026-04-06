@@ -2,14 +2,16 @@
 
 from src.hyxi_cloud_api.api import FetchState
 
+
 def test_fetch_state_initialization():
     """Verify that FetchState initializes with correct default values."""
     state = FetchState(now="2023-10-27T10:00:00Z")
 
     assert state.now == "2023-10-27T10:00:00Z"
-    assert state.metric_tasks == []
-    assert state.discovered_sns == set()
-    assert state.results == {}
+    assert not state.metric_tasks
+    assert not state.discovered_sns
+    assert not state.results
+
 
 def test_fetch_state_isolation():
     """Verify that default factories create isolated objects per instance."""
@@ -22,9 +24,10 @@ def test_fetch_state_isolation():
     state1.results["key"] = "value"
 
     # Verify state2 is unaffected
-    assert state2.metric_tasks == []
-    assert state2.discovered_sns == set()
-    assert state2.results == {}
+    assert not state2.metric_tasks
+    assert not state2.discovered_sns
+    assert not state2.results
+
 
 def test_fetch_state_custom_initialization():
     """Verify that FetchState can be initialized with custom values."""
