@@ -57,10 +57,9 @@ async def test_collector_discovery_only():
     """Verify that a Collector is discovered correctly."""
     api = _setup_mock_api()
     state = FetchState(now="2024-01-01")
+    state.plants = [{"plantId": "Pl123"}]
 
-    await api._process_plants_data(
-        [{"plantId": "Pl123"}], state, allow_back_discovery=True
-    )
+    await api._process_plants_data(state, allow_back_discovery=True)
     results = state.results
 
     assert "COLL_001" in results
@@ -72,10 +71,9 @@ async def test_sub_device_discovery_triggered_by_collector():
     """Verify that discovering a Collector triggers discovery of its sub-devices."""
     api = _setup_mock_api()
     state = FetchState(now="2024-01-01")
+    state.plants = [{"plantId": "Pl123"}]
 
-    await api._process_plants_data(
-        [{"plantId": "Pl123"}], state, allow_back_discovery=True
-    )
+    await api._process_plants_data(state, allow_back_discovery=True)
     results = state.results
 
     assert "INV_001" in results
@@ -103,9 +101,8 @@ async def test_back_discovery_finds_hidden_device():
     api._fetch_all_for_device = MagicMock(side_effect=mock_fetch_all)
 
     state = FetchState(now="2024-01-01")
-    await api._process_plants_data(
-        [{"plantId": "Pl123"}], state, allow_back_discovery=True
-    )
+    state.plants = [{"plantId": "Pl123"}]
+    await api._process_plants_data(state, allow_back_discovery=True)
 
     assert "HIDDEN_INV" in state.results
     assert state.results["HIDDEN_INV"]["device_type_code"] == "1"
@@ -151,9 +148,8 @@ async def test_recursive_probe_of_hidden_collector():
     api._fetch_all_for_device = MagicMock(side_effect=mock_fetch_all)
 
     state = FetchState(now="2024-01-01")
-    await api._process_plants_data(
-        [{"plantId": "Pl123"}], state, allow_back_discovery=True
-    )
+    state.plants = [{"plantId": "Pl123"}]
+    await api._process_plants_data(state, allow_back_discovery=True)
 
     assert "HIDDEN_COLL" in state.results
     assert "CHILD_INV" in state.results
