@@ -11,7 +11,7 @@ class TestMaskId:
     def test_normal_sn_is_masked_with_x_padding(self):
         """A typical device SN should be masked using X characters, preserving length."""
         result = _mask_id("HYXABC12345678")
-        assert result == "HYXXXXXXXXX678"  # HYX + 8 X's + 678 = 14 chars
+        assert result == "XXXXXXXXXX5678"  # 10 X's + 5678 = 14 chars
         assert len(result) == len("HYXABC12345678")
 
     def test_normal_sn_does_not_expose_full_value(self):
@@ -28,7 +28,7 @@ class TestMaskId:
     def test_exactly_8_chars_is_masked(self):
         """An 8-character ID sits on the threshold and should be partially masked."""
         result = _mask_id("ABCD1234")
-        assert result == "ABCXX234"  # ABC + 2 X's + 234 = 8 chars
+        assert result == "XXXX1234"  # 4 X's + 1234 = 8 chars
         assert len(result) == 8
 
     def test_empty_string_returns_redacted(self):
@@ -61,14 +61,14 @@ class TestMaskId:
     def test_numeric_plant_id_long_enough_is_masked(self):
         """A long numeric plant ID (e.g. 8+ digits) should be partially masked."""
         result = _mask_id("123456789")
-        assert result == "123XXX789"
+        assert result == "XXXXX6789"
         assert len(result) == 9
 
     def test_output_uses_x_characters(self):
         """Masked output must use 'X' as the padding character."""
         result = _mask_id("HYXABC12345678")
-        middle = result[3:-3]
-        assert all(c == "X" for c in middle)
+        masked_part = result[:-4]
+        assert all(c == "X" for c in masked_part)
 
 
 class TestSanitizeDict:

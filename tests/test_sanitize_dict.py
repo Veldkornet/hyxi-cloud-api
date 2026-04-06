@@ -59,6 +59,33 @@ def test_sanitize_dict_alarmstate_passthrough():
     assert result["alarmState"] == "inactive"
 
 
+@patch("src.hyxi_cloud_api.api._mask_id", return_value="MASKED")
+def test_sanitize_dict_auth_keys(mock_mask_id):
+    """Test that authentication keys are correctly masked."""
+    raw = {
+        "token": "secret_token_123",
+        "access_token": "secret_access_token",
+        "refresh_token": "secret_refresh_token",
+        "password": "super_secret_password",
+    }
+    with patch(
+        "src.hyxi_cloud_api.api._SENSITIVE_KEYS",
+        {"token", "access_token", "refresh_token", "password"},
+    ):
+        result = _sanitize_dict(raw)
+
+    assert result["token"] == "MASKED"
+    assert result["access_token"] == "MASKED"
+    assert result["refresh_token"] == "MASKED"
+    assert result["password"] == "MASKED"
+
+    assert mock_mask_id.call_count == 4
+    mock_mask_id.assert_any_call("secret_token_123")
+    mock_mask_id.assert_any_call("secret_access_token")
+    mock_mask_id.assert_any_call("secret_refresh_token")
+    mock_mask_id.assert_any_call("super_secret_password")
+
+
 def test_sanitize_dict_other_keys():
     """Test that non-sensitive, normal keys are not altered."""
     raw = {

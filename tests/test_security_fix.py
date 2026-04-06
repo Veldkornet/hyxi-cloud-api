@@ -33,17 +33,17 @@ def test_sanitize_dict_recursive():
     sanitized = _sanitize_dict(raw)
 
     assert sanitized["plantAddress"] == "[REDACTED]"
-    assert sanitized["deviceSn"] == "SN1XXXXX789"
+    assert sanitized["deviceSn"] == "XXXXXXX6789"
     assert sanitized["normalKey"] == "normalValue"
 
     # Check nested list of dicts
-    assert sanitized["data"][0]["deviceSn"] == "SN9XXXXX321"
+    assert sanitized["data"][0]["deviceSn"] == "XXXXXXX4321"
     assert sanitized["data"][0]["nested"]["plantId"] == "****"
     assert sanitized["data"][0]["nested"]["normal"] == "value"
     assert sanitized["data"][1] == "not a dict"
 
     # Check nested dict
-    assert sanitized["nestedDict"]["batSn"] == "BATXX345"
+    assert sanitized["nestedDict"]["batSn"] == "XXXX2345"
 
     # Check nested list
     assert sanitized["nestedList"][0][0]["deviceSn"] == "****"

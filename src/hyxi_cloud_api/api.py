@@ -515,16 +515,13 @@ def _parse_ems_kv(data: list) -> dict:
 
     Keys are lowercased to match HA sensor entity key conventions.
     """
-    res = {}
-    for module in data:
-        if not isinstance(module, dict):
-            continue
-        field_kv = module.get("filedKv", [])
-        for item in field_kv:
-            prop = item.get("prop")
-            if prop:
-                res[prop.lower()] = item.get("value")
-    return res
+    return {
+        prop.lower(): item.get("value")
+        for module in data
+        if isinstance(module, dict)
+        for item in module.get("filedKv", ())
+        if (prop := item.get("prop"))
+    }
 
 
 def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
@@ -576,19 +573,19 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
 
-    Replaces middle characters with 'X' to preserve the true length while
-    hiding the sensitive portion. IDs shorter than 8 characters are fully
-    redacted as '****' to prevent short numeric IDs from being revealed.
+    Masks all but the last 4 characters with 'X' to preserve the true length
+    while hiding the sensitive portion. IDs shorter than 8 characters are
+    fully redacted as '****' to prevent short numeric IDs from being revealed.
 
-    Example: '10602251600016' -> '106XXXXXXXX016'
+    Example: '10602251600016' -> 'XXXXXXXXXX0016'
     """
     if not value:
         return "****"
     id_str = str(value)
     if len(id_str) < 8:
         return "****"
-    middle_len = len(id_str) - 6
-    return f"{id_str[:3]}{'X' * middle_len}{id_str[-3:]}"
+    mask_len = len(id_str) - 4
+    return f"{'X' * mask_len}{id_str[-4:]}"
 
 
 # Keys in raw API response dicts that contain identifying or personal information.
@@ -603,6 +600,10 @@ _SENSITIVE_KEYS = frozenset(
         "plantName",
         "deviceName",
         "alarmName",
+        "token",
+        "access_token",
+        "refresh_token",
+        "password",
     }
 )
 
@@ -629,10 +630,11 @@ def _sanitize_dict(raw: dict) -> dict:
 
 
 def _sanitize_list(raw_list: list) -> list:
-    """Recursively sanitize items in a list."""
+    """Recursively sanitize items in a list, converting empty strings to None."""
     return [
         _sanitize_dict(item) if isinstance(item, dict)
         else _sanitize_list(item) if isinstance(item, list)
+        else None if item == ""
         else item
         for item in raw_list
     ]
@@ -658,7 +660,7 @@ class HyxiApiClient:
         timestamp = str(now_ms)
 
         # 🚀 Generate a truly unique Nonce for concurrent requests
-        nonce = os.urandom(4).hex()
+        nonce = os.urandom(16).hex()
 
         hex_hash = _GRANT_TYPE_HASH if is_token_request else _EMPTY_STR_HASH
         string_to_sign = f"{path}\n{method.upper()}\n{hex_hash}\n"

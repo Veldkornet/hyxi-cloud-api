@@ -24,7 +24,7 @@ async def test_fetch_device_info_network_error(caplog):
     await api._fetch_device_info("10602251600016", entry)
 
     assert (
-        "Error fetching device info for 106XXXXXXXX016: Connection reset" in caplog.text
+        "Error fetching device info for XXXXXXXXXX0016: Connection reset" in caplog.text
     )
     # Ensure it didn't crash and entry was not updated with metrics
     assert "sw_version" not in entry
@@ -54,7 +54,7 @@ async def test_fetch_device_info_invalid_json(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_info("10602251600016", entry)
 
-    assert "Error fetching device info for 106XXXXXXXX016" in caplog.text
+    assert "Error fetching device info for XXXXXXXXXX0016" in caplog.text
     assert "sw_version" not in entry
 
 
@@ -81,5 +81,5 @@ async def test_fetch_device_info_api_error(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_info("10602251600016", entry)
 
-    assert "HYXI INFO API Rejected for 106XXXXXXXX016: Device not found" in caplog.text
+    assert "HYXI INFO API Rejected for XXXXXXXXXX0016: Device not found" in caplog.text
     assert "sw_version" not in entry

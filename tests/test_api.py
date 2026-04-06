@@ -349,11 +349,11 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
     assert "60701251900927" not in log_text
 
     # Assert logs contain the masked versions
-    assert "106XXXXXXXX016" in log_text
-    assert "607XXXXXXXX927" in log_text
+    assert "XXXXXXXXXX0016" in log_text
+    assert "XXXXXXXXXX0927" in log_text
 
     # Ensure plant ID itself is masked
-    assert "123XX678" in log_text
+    assert "XXXX5678" in log_text
 
 
 @pytest.mark.asyncio
