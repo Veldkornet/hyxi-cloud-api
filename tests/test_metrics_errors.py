@@ -136,7 +136,10 @@ async def test_query_ems_basic_details_error(caplog):
 
     assert result == {}
 
-    assert "HYXI EMS Basic Data Request Failed for XXXXXXXXXX0016: EMS query failed" in caplog.text
+    assert (
+        "HYXI EMS Basic Data Request Failed for XXXXXXXXXX0016: EMS query failed"
+        in caplog.text
+    )
 
 
 @pytest.mark.asyncio
@@ -153,4 +156,7 @@ async def test_query_ems_basic_details_network_error(caplog):
 
     assert result == {}
 
-    assert "HYXI EMS Basic Data Request Failed for XXXXXXXXXX0016: Connection reset" in caplog.text
+    assert (
+        "HYXI EMS Basic Data Request Failed for XXXXXXXXXX0016: Connection reset"
+        in caplog.text
+    )
