@@ -1070,8 +1070,8 @@ class HyxiApiClient:
             # Enrichment: Map raw alarmCodes to official descriptions
             for a in alarms:
                 code = str(a.get("alarmCode", ""))
-                if code in ALARM_CODE_MAP:
-                    a["alarmName"] = ALARM_CODE_MAP[code]
+                if alarm_name := ALARM_CODE_MAP.get(code):
+                    a["alarmName"] = alarm_name
 
             # 👇 Dump the EXACT active alarms the cloud sends back
             if _LOGGER.isEnabledFor(logging.DEBUG):
