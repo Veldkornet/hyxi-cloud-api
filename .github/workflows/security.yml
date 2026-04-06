@@ -44,6 +44,7 @@ jobs:
             actions-results-receiver-production.githubapp.com:443
             productionresultssa12.blob.core.windows.net:443
             release-assets.githubusercontent.com:443
+            api.osv.dev:443
 
       - name: Checkout Code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -65,6 +66,12 @@ jobs:
         with:
           sarif_file: bandit-results.sarif
 
+      - name: OSV-Scanner (Dependency Vulnerabilities)
+        uses: google/osv-scanner-action/osv-scanner-action@c51854704019a247608d928f370c98740469d4b5 # v2.3.5
+        with:
+          scan-args: |-
+            --no-resolve
+
   dependency-review:
     name: Dependency Review
     if: github.event_name == 'pull_request'
@@ -79,6 +86,8 @@ jobs:
         with:
           egress-policy: block
           allowed-endpoints: >
+            api.osv.dev:443
+            api.deps.dev:443
             api.github.com:443
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
@@ -100,3 +109,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Review Dependencies
         uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          retry-on-snapshot-warnings: true
+          retry-on-snapshot-warnings-timeout: 60
