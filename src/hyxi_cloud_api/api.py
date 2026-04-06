@@ -680,15 +680,15 @@ class HyxiApiClient:
         signature = base64.b64encode(hmac_bytes).decode("utf-8")
 
         headers = {
-            "AccessKey": self.access_key,
-            "Timestamp": timestamp,
-            "Nonce": nonce,
-            "Sign": signature,
+            "accessKey": self.access_key,
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "sign": signature,
             "Content-Type": "application/json",
         }
 
         if is_token_request:
-            headers["Sign-headers"] = "grantType"
+            headers["sign-headers"] = "grantType"
         elif token_str:
             headers["Authorization"] = token_str
 
