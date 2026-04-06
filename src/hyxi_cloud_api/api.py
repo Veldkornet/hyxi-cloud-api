@@ -603,6 +603,10 @@ _SENSITIVE_KEYS = frozenset(
         "plantName",
         "deviceName",
         "alarmName",
+        "token",
+        "access_token",
+        "refresh_token",
+        "password",
     }
 )
 
