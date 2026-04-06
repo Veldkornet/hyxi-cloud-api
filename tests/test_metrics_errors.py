@@ -23,7 +23,7 @@ async def test_fetch_device_metrics_network_error(caplog):
     # Use a longer SN so it's not fully masked to ****
     await api._fetch_device_metrics("10602251600016", entry)
 
-    assert "Error fetching metrics for 106XXXXXXXX016: Connection reset" in caplog.text
+    assert "Error fetching metrics for XXXXXXXXXX0016: Connection reset" in caplog.text
     # Ensure it didn't crash and entry was not updated with metrics
     assert not entry["metrics"]
 
@@ -53,7 +53,7 @@ async def test_fetch_device_metrics_invalid_json(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_metrics("10602251600016", entry)
 
-    assert "Error fetching metrics for 106XXXXXXXX016" in caplog.text
+    assert "Error fetching metrics for XXXXXXXXXX0016" in caplog.text
     assert not entry["metrics"]
 
 
@@ -82,7 +82,7 @@ async def test_fetch_device_metrics_api_error(caplog):
     await api._fetch_device_metrics("10602251600016", entry)
 
     assert (
-        "HYXI API metrics rejected for 106XXXXXXXX016: Device not found" in caplog.text
+        "HYXI API metrics rejected for XXXXXXXXXX0016: Device not found" in caplog.text
     )
     assert not entry["metrics"]
 
@@ -107,7 +107,7 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     await api._fetch_ems_basic_data("10602251600016", entry)
 
     mock_logger.debug.assert_called_with(
-        "HYXI EMS telemetry probe returned no data for %s", "106XXXXXXXX016"
+        "HYXI EMS telemetry probe returned no data for %s", "XXXXXXXXXX0016"
     )
     # Ensure entry was not updated with metrics
     assert not entry["metrics"]
@@ -153,6 +153,6 @@ async def test_query_ems_basic_details_error(caplog):
     # Verify the mock logger was called instead of using caplog directly (like other tests here)
     mock_logger.error.assert_called_with(
         "HYXI EMS Basic Data Request Failed for %s: %s",
-        "106XXXXXXXX016",
+        "XXXXXXXXXX0016",
         api._request.side_effect,
     )
