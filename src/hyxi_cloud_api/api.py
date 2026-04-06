@@ -632,9 +632,12 @@ def _sanitize_dict(raw: dict) -> dict:
 def _sanitize_list(raw_list: list) -> list:
     """Recursively sanitize items in a list, converting empty strings to None."""
     return [
-        _sanitize_dict(item) if isinstance(item, dict)
-        else _sanitize_list(item) if isinstance(item, list)
-        else None if item == ""
+        _sanitize_dict(item)
+        if isinstance(item, dict)
+        else _sanitize_list(item)
+        if isinstance(item, list)
+        else None
+        if item == ""
         else item
         for item in raw_list
     ]
