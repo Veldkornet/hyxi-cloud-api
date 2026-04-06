@@ -1227,6 +1227,47 @@ class HyxiApiClient:
         # 3. Concurrent Metrics
         await self._execute_metric_tasks(plant_alarms, state)
 
+    def _handle_back_discovery_alarm(self, a, plant_id, state: FetchState, sub_device_tasks):
+        """Helper to process a single alarm for back-discovery of unlisted devices."""
+        sn = a.get("deviceSn")
+        # Robustness: Skip null, empty, or dummy SNs (less than 5 chars)
+        if not sn or len(str(sn)) < 5 or sn in state.discovered_sns:
+            return
+
+        _LOGGER.info(
+            "HYXI Back-discovering device %s found in alarms for plant %s...",
+            _mask_id(sn),
+            _mask_id(plant_id),
+        )
+        state.discovered_sns.add(sn)
+        dev_type = str(a.get("deviceType") or "UNKNOWN")
+        friendly_name = (
+            DEVICE_TYPE_MAP.get(dev_type)
+            or dev_type.replace("_", " ").title()
+        )
+
+        device_name = a.get("deviceName")
+        if not device_name:
+            device_name = f"{friendly_name} {sn}"
+
+        entry = {
+            "sn": sn,
+            "device_name": device_name,
+            "model": friendly_name,
+            "device_type_code": dev_type,
+            "sw_version": None,
+            "hw_version": None,
+            "metrics": {"last_seen": state.now},
+        }
+        state.metric_tasks.append(
+            self._fetch_all_for_device(sn, entry, dev_type)
+        )
+
+        # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
+        dev_type_upper = dev_type.upper()
+        if any(x in dev_type_upper for x in _parent_device_types):
+            sub_device_tasks.append(self._fetch_sub_devices(sn, state))
+
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     async def _process_alarms_and_back_discovery(
         self,
@@ -1251,44 +1292,7 @@ class HyxiApiClient:
             # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
             if allow_back_discovery:
                 for a in alarms:
-                    sn = a.get("deviceSn")
-                    # Robustness: Skip null, empty, or dummy SNs (less than 5 chars)
-                    if not sn or len(str(sn)) < 5 or sn in state.discovered_sns:
-                        continue
-
-                    _LOGGER.info(
-                        "HYXI Back-discovering device %s found in alarms for plant %s...",
-                        _mask_id(sn),
-                        _mask_id(plant_id),
-                    )
-                    state.discovered_sns.add(sn)
-                    dev_type = str(a.get("deviceType") or "UNKNOWN")
-                    friendly_name = (
-                        DEVICE_TYPE_MAP.get(dev_type)
-                        or dev_type.replace("_", " ").title()
-                    )
-
-                    device_name = a.get("deviceName")
-                    if not device_name:
-                        device_name = f"{friendly_name} {sn}"
-
-                    entry = {
-                        "sn": sn,
-                        "device_name": device_name,
-                        "model": friendly_name,
-                        "device_type_code": dev_type,
-                        "sw_version": None,
-                        "hw_version": None,
-                        "metrics": {"last_seen": state.now},
-                    }
-                    state.metric_tasks.append(
-                        self._fetch_all_for_device(sn, entry, dev_type)
-                    )
-
-                    # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-                    dev_type_upper = dev_type.upper()
-                    if any(x in dev_type_upper for x in _parent_device_types):
-                        sub_device_tasks.append(self._fetch_sub_devices(sn, state))
+                    self._handle_back_discovery_alarm(a, plant_id, state, sub_device_tasks)
 
         if sub_device_tasks:
             await asyncio.gather(*sub_device_tasks)
