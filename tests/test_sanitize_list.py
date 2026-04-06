@@ -36,3 +36,15 @@ def test_sanitize_list_with_dicts(mock_mask):
     assert result[1] is None
     assert result[0]["deviceSn"] == "MASKED"
     mock_mask.assert_called_once_with("123456789")
+
+
+def test_sanitize_list_falsy_values():
+    """Test that falsy values like 0 and False are not converted to None."""
+    raw = [0, False, None, ""]
+    assert _sanitize_list(raw) == [0, False, None, None]
+
+
+def test_sanitize_list_other_iterables():
+    """Test that other iterables like tuples and sets are passed through untouched."""
+    raw = [(1, 2), {3, 4}]
+    assert _sanitize_list(raw) == [(1, 2), {3, 4}]
