@@ -97,18 +97,10 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     # Mock query_ems_basic_details to return None (no data)
     api.query_ems_basic_details = AsyncMock(return_value=None)
 
-    # Inject mock directly into the module resolving all patch issues
-    import hyxi_cloud_api.api as api_mod  # pylint: disable=import-outside-toplevel
-
-    mock_logger = MagicMock()
-    api_mod._LOGGER = mock_logger
-
     entry = {"metrics": {}, "device_type_code": "EMS"}
     await api._fetch_ems_basic_data("10602251600016", entry)
 
-    mock_logger.debug.assert_called_with(
-        "HYXI EMS telemetry probe returned no data for %s", "XXXXXXXXXX0016"
-    )
+    assert "HYXI EMS telemetry probe returned no data for XXXXXXXXXX0016" in caplog.text
     # Ensure entry was not updated with metrics
     assert not entry["metrics"]
 
@@ -137,12 +129,6 @@ async def test_query_ems_basic_details_error(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    # Inject mock directly into the module resolving all patch issues
-    import hyxi_cloud_api.api as api_mod  # pylint: disable=import-outside-toplevel
-
-    mock_logger = MagicMock()
-    api_mod._LOGGER = mock_logger
-
     # Mock _request to raise an Exception to cover the error path in query_ems_basic_details
     api._request = AsyncMock(side_effect=Exception("EMS query failed"))
 
@@ -150,9 +136,21 @@ async def test_query_ems_basic_details_error(caplog):
 
     assert result == {}
 
-    # Verify the mock logger was called instead of using caplog directly (like other tests here)
-    mock_logger.error.assert_called_with(
-        "HYXI EMS Basic Data Request Failed for %s: %s",
-        "XXXXXXXXXX0016",
-        api._request.side_effect,
-    )
+    assert "HYXI EMS Basic Data Request Failed for XXXXXXXXXX0016: EMS query failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_query_ems_basic_details_network_error(caplog):
+    """Test that query_ems_basic_details handles network errors gracefully."""
+    caplog.set_level(logging.ERROR)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Mock _request to raise a ClientError to cover the network error path
+    api._request = AsyncMock(side_effect=aiohttp.ClientError("Connection reset"))
+
+    result = await api.query_ems_basic_details("10602251600016")
+
+    assert result == {}
+
+    assert "HYXI EMS Basic Data Request Failed for XXXXXXXXXX0016: Connection reset" in caplog.text
