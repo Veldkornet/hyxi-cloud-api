@@ -109,7 +109,7 @@ def test_sanitize_dict_no_mutation():
 def test_sanitize_list():
     """Test that _sanitize_list correctly handles edge cases and recursively sanitizes items."""
     # Empty list
-    assert _sanitize_list([]) == []
+    assert not _sanitize_list([])
 
     # Empty string
     assert _sanitize_list([""]) == [None]
@@ -125,7 +125,7 @@ def test_sanitize_list():
         {"deviceSn": "123456789", "normalKey": "value"},
         "normal string",
         "",
-        [{"plantId": "987654321", "otherKey": 123}, ""]
+        [{"plantId": "987654321", "otherKey": 123}, ""],
     ]
     with patch("src.hyxi_cloud_api.api._SENSITIVE_KEYS", {"deviceSn", "plantId"}):
         with patch("src.hyxi_cloud_api.api._mask_id", return_value="MASKED"):
@@ -135,6 +135,6 @@ def test_sanitize_list():
         {"deviceSn": "MASKED", "normalKey": "value"},
         "normal string",
         None,
-        [{"plantId": "MASKED", "otherKey": 123}, None]
+        [{"plantId": "MASKED", "otherKey": 123}, None],
     ]
     assert result == expected
