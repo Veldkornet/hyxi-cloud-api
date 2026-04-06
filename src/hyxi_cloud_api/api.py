@@ -1227,7 +1227,9 @@ class HyxiApiClient:
         # 3. Concurrent Metrics
         await self._execute_metric_tasks(plant_alarms, state)
 
-    def _handle_back_discovery_alarm(self, a, plant_id, state: FetchState, sub_device_tasks):
+    def _handle_back_discovery_alarm(
+        self, a, plant_id, state: FetchState, sub_device_tasks
+    ):
         """Helper to process a single alarm for back-discovery of unlisted devices."""
         sn = a.get("deviceSn")
         # Robustness: Skip null, empty, or dummy SNs (less than 5 chars)
@@ -1242,8 +1244,7 @@ class HyxiApiClient:
         state.discovered_sns.add(sn)
         dev_type = str(a.get("deviceType") or "UNKNOWN")
         friendly_name = (
-            DEVICE_TYPE_MAP.get(dev_type)
-            or dev_type.replace("_", " ").title()
+            DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
         )
 
         device_name = a.get("deviceName")
@@ -1259,9 +1260,7 @@ class HyxiApiClient:
             "hw_version": None,
             "metrics": {"last_seen": state.now},
         }
-        state.metric_tasks.append(
-            self._fetch_all_for_device(sn, entry, dev_type)
-        )
+        state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
         dev_type_upper = dev_type.upper()
@@ -1292,7 +1291,9 @@ class HyxiApiClient:
             # 🚀 Back-Discovery: Check if alarms contain SNs we didn't find in devicePage
             if allow_back_discovery:
                 for a in alarms:
-                    self._handle_back_discovery_alarm(a, plant_id, state, sub_device_tasks)
+                    self._handle_back_discovery_alarm(
+                        a, plant_id, state, sub_device_tasks
+                    )
 
         if sub_device_tasks:
             await asyncio.gather(*sub_device_tasks)
