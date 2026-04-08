@@ -644,7 +644,7 @@ def _sanitize_list(raw_list: list) -> list:
     ]
 
 
-class HyxiApiClient:
+class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     """Client for interacting with the HYXI Cloud API."""
 
     def __init__(
@@ -657,6 +657,15 @@ class HyxiApiClient:
         self.session = session
         self.token = None
         self.token_expires_at = 0
+
+        # Structural & Metadata Cache
+        self._discovery_cache = {
+            "plants": None,  # List[dict]
+            "device_info": {},  # SN -> dict (static data)
+            "hierarchy": {},  # SN -> List[dict] (sub-devices)
+        }
+        self._discovery_cache_time = 0
+        self._discovery_cache_ttl = 3600  # 1 hour default
 
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXI's official Java SDK implementation."""
@@ -852,10 +861,15 @@ class HyxiApiClient:
     def _extract_device_info_metadata(entry, i_raw):
         """Helper to extract metadata from device info."""
         sw_ver = i_raw.get("swVerSys") or i_raw.get("swVerMaster") or i_raw.get("swVer")
+        hw_ver = i_raw.get("hwVer")
         if sw_ver:
             entry["sw_version"] = sw_ver
+        if hw_ver:
+            entry["hw_version"] = hw_ver
 
         base_info = {
+            "hw_version": hw_ver,
+            "_sw_ver_sys": sw_ver,
             "signalIntensity": i_raw.get("signalIntensity"),
             "signalVal": i_raw.get("signalVal"),
             "wifiVer": i_raw.get("wifiVer"),
@@ -878,6 +892,7 @@ class HyxiApiClient:
             )
 
         entry["metrics"].update(base_info)
+        return base_info
 
     async def _fetch_device_info(self, sn, entry):
         """Helper to fetch static device info (firmware, capacity, limits)."""
@@ -900,7 +915,16 @@ class HyxiApiClient:
                         "HYXI Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
                     )
 
-                HyxiApiClient._extract_device_info_metadata(entry, i_raw)
+                base_info = HyxiApiClient._extract_device_info_metadata(entry, i_raw)
+                # Store in cache
+                if sn not in self._discovery_cache["device_info"]:
+                    # Ensure we preserve the name if it was set during discovery
+                    self._discovery_cache["device_info"][sn] = {
+                        "model": entry["model"],
+                        "device_type_code": entry["device_type_code"],
+                        "device_name": entry["device_name"],
+                    }
+                self._discovery_cache["device_info"][sn].update(base_info)
             else:
                 _LOGGER.warning(
                     "HYXI INFO API Rejected for %s: %s",
@@ -914,10 +938,10 @@ class HyxiApiClient:
     async def _fetch_all_for_device(self, sn, entry, dev_type):
         """Fires off concurrent tasks for Data and Info, merging the results."""
         tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
+        is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")
 
-        if dev_type != "COLLECTOR":
+        if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
-
             tasks.append(asyncio.create_task(self._fetch_ems_basic_data(sn, entry)))
 
         # Wait for them to finish
@@ -985,6 +1009,12 @@ class HyxiApiClient:
             state.discovered_sns.add(sn)
             entry, dev_type = HyxiApiClient._build_device_entry(sn, d, state.now)
 
+            # Update cache with basic entry structure
+            self._discovery_cache["device_info"][sn] = {
+                "model": entry["model"],
+                "device_type_code": entry["device_type_code"],
+            }
+
             state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
             # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
@@ -1042,6 +1072,12 @@ class HyxiApiClient:
                 state.discovered_sns.add(sn)
                 entry, raw_type = HyxiApiClient._build_device_entry(sn, c, state.now)
 
+                # Update cache
+                self._discovery_cache["device_info"][sn] = {
+                    "model": entry["model"],
+                    "device_type_code": entry["device_type_code"],
+                }
+
                 # These are real devices, so fetch their metrics/info
                 state.metric_tasks.append(
                     self._fetch_all_for_device(sn, entry, raw_type)
@@ -1096,13 +1132,16 @@ class HyxiApiClient:
             )
             return []
 
-    async def get_all_device_data(self, allow_back_discovery: bool = False):
+    async def get_all_device_data(
+        self, allow_back_discovery: bool = False, force_discovery: bool = False
+    ):
         """Fetches data with built-in retry logic and returns attempt count."""
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 data = await self._execute_fetch_all(
-                    allow_back_discovery=allow_back_discovery
+                    allow_back_discovery=allow_back_discovery,
+                    force_discovery=force_discovery,
                 )
                 if data == "auth_failed":
                     return None  # Hard fail, don't retry bad credentials
@@ -1167,7 +1206,7 @@ class HyxiApiClient:
 
         return plants
 
-    def _build_plant_tasks(self, state: FetchState):
+    def _build_plant_tasks(self, state: FetchState, include_devices: bool = True):
         """Extract plant processing loop to synchronously build tasks."""
         device_fetch_tasks = []
         alarm_fetch_tasks = []
@@ -1177,7 +1216,10 @@ class HyxiApiClient:
             if not plant_id:
                 continue
 
-            device_fetch_tasks.append(self._fetch_devices_for_plant(plant_id, state))
+            if include_devices:
+                device_fetch_tasks.append(
+                    self._fetch_devices_for_plant(plant_id, state)
+                )
             alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
 
         return device_fetch_tasks, alarm_fetch_tasks
@@ -1316,8 +1358,10 @@ class HyxiApiClient:
                 entry["alarms"] = alarms_by_sn.get(sn, [])
                 state.results[sn] = entry
 
-    async def _execute_fetch_all(self, allow_back_discovery: bool = False):
-        """The actual fetching logic moved to a private method for the retry loop."""
+    async def _execute_fetch_all(
+        self, allow_back_discovery: bool = False, force_discovery: bool = False
+    ):
+        """The actual fetching logic with discovery caching support."""
 
         token_status = await self._refresh_token()
 
@@ -1329,13 +1373,53 @@ class HyxiApiClient:
         now = datetime.now(UTC).isoformat()
         state = FetchState(now=now)
 
-        # 1. Get Plants
+        use_cache = (
+            not force_discovery
+            and self._discovery_cache["plants"] is not None
+            and (time.time() - self._discovery_cache_time) < self._discovery_cache_ttl
+        )
+
+        if use_cache:
+            _LOGGER.debug("HYXI using cached discovery data (Fast Polling)")
+            state.plants = self._discovery_cache["plants"]
+            # Reconstruct entries from hierarchy or known SNS
+            for sn, info in self._discovery_cache["device_info"].items():
+                entry = {
+                    "sn": sn,
+                    "device_name": info.get("device_name", f"{info['model']} {sn}"),
+                    "model": info["model"],
+                    "device_type_code": info["device_type_code"],
+                    "sw_version": info.get("_sw_ver_sys"),
+                    "hw_version": info.get("hw_version"),
+                    "metrics": {"last_seen": now},
+                }
+                state.metric_tasks.append(
+                    self._fetch_all_for_device(sn, entry, info["device_type_code"])
+                )
+            state.discovered_sns = set(self._discovery_cache["device_info"].keys())
+
+            # Fetch alarms (to allow back-discovery if enabled) and metrics
+            _, alarm_fetch_tasks = self._build_plant_tasks(state, include_devices=False)
+            plant_alarms = await self._fetch_and_process_alarms(
+                alarm_fetch_tasks,
+                state,
+                allow_back_discovery=allow_back_discovery,
+            )
+            await self._execute_metric_tasks(plant_alarms, state)
+            return state.results
+
+        # Full Discovery Path
         plants = await self._fetch_plants()
         if plants is None:
             return None
         state.plants = plants
 
-        # 2 & 3. Process Plants for Devices, Alarms, and Metrics
+        # Clear cache for fresh discovery
+        self._discovery_cache["plants"] = plants
+        self._discovery_cache_time = time.time()
+        self._discovery_cache["device_info"].clear()
+        self._discovery_cache["hierarchy"].clear()
+
         await self._process_plants_data(
             state, allow_back_discovery=allow_back_discovery
         )

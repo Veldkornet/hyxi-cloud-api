@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hyxi-cloud-api"
-version = "1.0.10"
+version = "1.1.0"
 authors = [
   { name="Veldkornet", email="veldkornet@outlook.com" },
 ]
@@ -12,7 +12,7 @@ description = "An async API client for HYXi Cloud."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "aiohttp>=3.13.3",
+    "aiohttp>=3.13.4",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
