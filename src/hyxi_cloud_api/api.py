@@ -938,7 +938,10 @@ class HyxiApiClient:
     async def _fetch_all_for_device(self, sn, entry, dev_type, skip_info=False):
         """Fires off concurrent tasks for Data and Info, merging the results."""
         tasks = []
-        if not skip_info:
+        is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")
+        
+        # Communication units only receive dynamic data through Info, so they cannot skip it.
+        if not skip_info or is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_info(sn, entry)))
         else:
             # Re-apply cached info to metrics
@@ -947,9 +950,8 @@ class HyxiApiClient:
             if sw_ver := cached_info.get("_sw_ver_sys"):
                 entry["sw_version"] = sw_ver
 
-        if dev_type != "COLLECTOR":
+        if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
-
             tasks.append(asyncio.create_task(self._fetch_ems_basic_data(sn, entry)))
 
         # Wait for them to finish
@@ -1424,7 +1426,8 @@ class HyxiApiClient:
         # Clear cache for fresh discovery
         self._discovery_cache["plants"] = plants
         self._discovery_cache_time = time.time()
-        # We don't wipe device_info yet, we'll update it as we go
+        self._discovery_cache["device_info"].clear()
+        self._discovery_cache["hierarchy"].clear()
 
         await self._process_plants_data(
             state, allow_back_discovery=allow_back_discovery

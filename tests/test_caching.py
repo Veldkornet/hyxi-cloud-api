@@ -78,5 +78,5 @@ async def test_discovery_caching_logic():
             (200, metrics_resp),
             (200, {}), # EMS
         ]
-        res3 = await client.get_all_device_data(force_discovery=True)
+        await client.get_all_device_data(force_discovery=True)
         assert mock_req.call_count == 7
