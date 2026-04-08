@@ -1216,7 +1216,7 @@ class HyxiApiClient:
 
         return plants
 
-    def _build_plant_tasks(self, state: FetchState):
+    def _build_plant_tasks(self, state: FetchState, include_devices: bool = True):
         """Extract plant processing loop to synchronously build tasks."""
         device_fetch_tasks = []
         alarm_fetch_tasks = []
@@ -1226,7 +1226,8 @@ class HyxiApiClient:
             if not plant_id:
                 continue
 
-            device_fetch_tasks.append(self._fetch_devices_for_plant(plant_id, state))
+            if include_devices:
+                device_fetch_tasks.append(self._fetch_devices_for_plant(plant_id, state))
             alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
 
         return device_fetch_tasks, alarm_fetch_tasks
@@ -1408,7 +1409,7 @@ class HyxiApiClient:
             state.discovered_sns = set(self._discovery_cache["device_info"].keys())
 
             # Fetch alarms (to allow back-discovery if enabled) and metrics
-            _, alarm_fetch_tasks = self._build_plant_tasks(state)
+            _, alarm_fetch_tasks = self._build_plant_tasks(state, include_devices=False)
             plant_alarms = await self._fetch_and_process_alarms(
                 alarm_fetch_tasks,
                 state,
