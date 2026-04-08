@@ -644,7 +644,7 @@ def _sanitize_list(raw_list: list) -> list:
     ]
 
 
-class HyxiApiClient:
+class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     """Client for interacting with the HYXI Cloud API."""
 
     def __init__(
@@ -1217,7 +1217,9 @@ class HyxiApiClient:
                 continue
 
             if include_devices:
-                device_fetch_tasks.append(self._fetch_devices_for_plant(plant_id, state))
+                device_fetch_tasks.append(
+                    self._fetch_devices_for_plant(plant_id, state)
+                )
             alarm_fetch_tasks.append(self._fetch_alarms_for_plant(plant_id))
 
         return device_fetch_tasks, alarm_fetch_tasks
@@ -1392,9 +1394,7 @@ class HyxiApiClient:
                     "metrics": {"last_seen": now},
                 }
                 state.metric_tasks.append(
-                    self._fetch_all_for_device(
-                        sn, entry, info["device_type_code"]
-                    )
+                    self._fetch_all_for_device(sn, entry, info["device_type_code"])
                 )
             state.discovered_sns = set(self._discovery_cache["device_info"].keys())
 
