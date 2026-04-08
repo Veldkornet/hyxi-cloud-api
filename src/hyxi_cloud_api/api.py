@@ -935,20 +935,10 @@ class HyxiApiClient:
         except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error("Error fetching device info for %s: %s", _mask_id(sn), e)
 
-    async def _fetch_all_for_device(self, sn, entry, dev_type, skip_info=False):
+    async def _fetch_all_for_device(self, sn, entry, dev_type):
         """Fires off concurrent tasks for Data and Info, merging the results."""
-        tasks = []
+        tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
         is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")
-        
-        # Communication units only receive dynamic data through Info, so they cannot skip it.
-        if not skip_info or is_comm_unit:
-            tasks.append(asyncio.create_task(self._fetch_device_info(sn, entry)))
-        else:
-            # Re-apply cached info to metrics
-            cached_info = self._discovery_cache["device_info"].get(sn, {})
-            entry["metrics"].update(cached_info)
-            if sw_ver := cached_info.get("_sw_ver_sys"):
-                entry["sw_version"] = sw_ver
 
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
@@ -1403,7 +1393,7 @@ class HyxiApiClient:
                 }
                 state.metric_tasks.append(
                     self._fetch_all_for_device(
-                        sn, entry, info["device_type_code"], skip_info=True
+                        sn, entry, info["device_type_code"]
                     )
                 )
             state.discovered_sns = set(self._discovery_cache["device_info"].keys())

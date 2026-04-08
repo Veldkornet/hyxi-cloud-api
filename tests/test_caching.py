@@ -49,23 +49,26 @@ async def test_discovery_caching_logic():
         # Second call: Should use cache (Fast Poll)
         # Sequence expected for Fast Poll:
         # 1. Alarms (for Plant)
-        # 2. Metrics (for SN)
-        # 3. EMS Probe
+        # 2. Info (for SN)
+        # 3. Metrics (for SN)
+        # 4. EMS Probe
         mock_req.reset_mock()
         mock_req.side_effect = [
             (200, alarms_resp),
+            (200, info_resp),
             (200, metrics_resp),
             (200, {}), # EMS
         ]
         
         res2 = await client.get_all_device_data()
         assert res2["data"]["S1"]["sw_version"] == "V1" # Still there from cache
-        assert mock_req.call_count == 3
+        assert mock_req.call_count == 4
         
         # Verify specific URL paths for fast poll
         calls = mock_req.call_args_list
         assert calls[0][0][1] == "/api/alarm/v1/plantAlarmPage"
-        assert calls[1][0][1] == "/api/device/v1/queryDeviceData"
+        assert calls[1][0][1] == "/api/device/v1/queryDeviceInfo"
+        assert calls[2][0][1] == "/api/device/v1/queryDeviceData"
 
         # Third call: Force discovery
         mock_req.reset_mock()
