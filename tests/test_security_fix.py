@@ -7,7 +7,6 @@ import pytest
 
 from src.hyxi_cloud_api.api import HyxiApiClient, _sanitize_dict
 
-
 # Mock aiohttp before importing the API client
 mock_aiohttp = MagicMock()
 sys.modules["aiohttp"] = mock_aiohttp

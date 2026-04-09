@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import aiohttp
 import pytest
 
-from hyxi_cloud_api.api import HyxiApiClient, FetchState
+from hyxi_cloud_api.api import FetchState, HyxiApiClient
 
 
 @pytest.mark.asyncio

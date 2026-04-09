@@ -1,7 +1,9 @@
 """Hypothesis fuzz tests for API component parsing logic."""
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
+
 from hyxi_cloud_api.api import HyxiApiClient, _compute_derived_metrics
 
 

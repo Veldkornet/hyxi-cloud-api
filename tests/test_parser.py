@@ -22,7 +22,7 @@ async def test_api_parsing():
             {
                 "dataKey": "batP",
                 "dataValue": "-469",
-            },  # -469W raw DC power (V×I) — preferred
+            },  # -469W raw DC power (VxI) — preferred
             {"dataKey": "gridP", "dataValue": "1.5"},  # 1.5 kW exported
         ],
     }

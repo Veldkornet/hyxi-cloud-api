@@ -1,8 +1,10 @@
 """Tests for the recursive device discovery and sensor extraction logic."""
 
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from src.hyxi_cloud_api.api import HyxiApiClient, FetchState
+
+from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
 
 
 def _setup_mock_api():

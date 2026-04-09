@@ -1,6 +1,7 @@
 """Tests for the _sanitize_list function in hyxi_cloud_api.api."""
 
 from unittest.mock import patch
+
 from src.hyxi_cloud_api.api import _sanitize_list
 
 

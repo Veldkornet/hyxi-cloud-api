@@ -2,8 +2,8 @@
 
 import logging
 from unittest.mock import AsyncMock, MagicMock
-import aiohttp
 
+import aiohttp
 import pytest
 
 from src.hyxi_cloud_api.api import HyxiApiClient, _parse_ems_kv
