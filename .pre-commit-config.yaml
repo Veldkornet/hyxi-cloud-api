@@ -9,15 +9,16 @@ repos:
     rev: v2.4.2
     hooks:
       - id: codespell
-  - repo: local
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
     hooks:
       - id: mypy
-        name: mypy (local)
-        entry: ./.venv/bin/mypy
-        language: system
-        types: [python]
-        args: [--explicit-package-bases, src]
+        args: [--ignore-missing-imports, --explicit-package-bases, src]
         pass_filenames: false
+        additional_dependencies:
+          - types-requests
+          - types-setuptools
+          - aiohttp
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0
     hooks:
