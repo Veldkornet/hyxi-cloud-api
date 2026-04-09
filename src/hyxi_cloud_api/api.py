@@ -569,6 +569,15 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
         "bat_power_dc": bat_p_dc,
         "bat_charge_total": _get_f("batCharge", m_raw),
         "bat_discharge_total": _get_f("batDisCharge", m_raw),
+        # PV String Powers (Derived if missing)
+        "pv1p": _get_f("pv1p", m_raw)
+        or round(_get_f("pv1v", m_raw) * _get_f("pv1i", m_raw), 2),
+        "pv2p": _get_f("pv2p", m_raw)
+        or round(_get_f("pv2v", m_raw) * _get_f("pv2i", m_raw), 2),
+        "pv3p": _get_f("pv3p", m_raw)
+        or round(_get_f("pv3v", m_raw) * _get_f("pv3i", m_raw), 2),
+        "pv4p": _get_f("pv4p", m_raw)
+        or round(_get_f("pv4v", m_raw) * _get_f("pv4i", m_raw), 2),
     }
 
 
