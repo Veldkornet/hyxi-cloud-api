@@ -12,11 +12,12 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 from collections import defaultdict
-import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 import aiohttp
 
@@ -535,7 +536,7 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         if val is None or val == "":
             return 0.0
         return round(float(val) * mult, 2)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return 0.0
 
 
@@ -551,7 +552,7 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
     grid = _get_f("gridP", m_raw, 1000.0)
     pbat = _get_f("pbat", m_raw)
 
-    # 🚀 Accuracy: batP is the raw DC power (V×I) at the battery terminals.
+    # 🚀 Accuracy: batP is the raw DC power (VxI) at the battery terminals.
     # pbat is a firmware-reported AC-equivalent figure that can under-report
     # due to inverter efficiency derating. Prefer batP when available.
     bat_p_dc = _get_f("batP", m_raw)
@@ -609,13 +610,13 @@ _SENSITIVE_KEYS = frozenset(
 )
 
 
-def _sanitize_dict(raw: dict) -> dict:
+def _sanitize_dict(raw: dict) -> dict[str, Any]:
     """Return a copy of a raw API response dict with sensitive fields masked.
 
     Used before logging raw API payloads so that SNs, plant IDs, and personal
     details (e.g. home address) are never written to the log in plain text.
     """
-    result = {}
+    result: dict[str, Any] = {}
     for k, v in raw.items():
         if k == "plantAddress":
             result[k] = "[REDACTED]"
@@ -630,7 +631,7 @@ def _sanitize_dict(raw: dict) -> dict:
     return result
 
 
-def _sanitize_list(raw_list: list) -> list:
+def _sanitize_list(raw_list: list) -> list[Any]:
     """Recursively sanitize items in a list, converting empty strings to None."""
     return [
         _sanitize_dict(item)
@@ -655,16 +656,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         self._secret_key_bytes = secret_key.encode("utf-8")
         self.base_url = base_url.rstrip("/")
         self.session = session
-        self.token = None
-        self.token_expires_at = 0
+        self.token: str | None = None
+        self.token_expires_at: float = 0.0
 
         # Structural & Metadata Cache
-        self._discovery_cache = {
-            "plants": None,  # List[dict]
+        self._discovery_cache: dict[str, Any] = {
+            "plants": None,  # list[dict] | None
             "device_info": {},  # SN -> dict (static data)
-            "hierarchy": {},  # SN -> List[dict] (sub-devices)
+            "hierarchy": {},  # SN -> list[dict] (sub-devices)
         }
-        self._discovery_cache_time = 0
+        self._discovery_cache_time: float = 0.0
         self._discovery_cache_ttl = 3600  # 1 hour default
 
     def _generate_headers(self, path, method, is_token_request=False):
@@ -735,7 +736,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         if not token_val:
             return False
 
-        self.token = f"Bearer {token_val}"
+        self.token = str(f"Bearer {token_val}")
 
         # 1. Grab the raw expiration value exactly as the API sent it
         raw_expires_in = data.get("expiresIn") or data.get("expires_in")
@@ -744,12 +745,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             raw_expires_in,
         )
 
-        # 2. Default to 6600 if the API didn't provide one
-        expires_in = raw_expires_in or 6600
-
         # 3. Apply the 5-minute (300s) safety buffer
         buffer_secs = 300
-        self.token_expires_at = time.time() + int(expires_in) - buffer_secs
+        expires_at_val = raw_expires_in or 6600
+        self.token_expires_at = time.time() + float(expires_at_val) - buffer_secs
 
         # 4. Log the actual scheduled refresh time
         refresh_time_str = datetime.fromtimestamp(self.token_expires_at).strftime(
@@ -757,7 +756,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         )
         _LOGGER.debug(
             "HYXI Token proactive refresh scheduled in %s seconds (at %s)",
-            int(expires_in) - buffer_secs,
+            int(float(expires_at_val)) - buffer_secs,
             refresh_time_str,
         )
         return True
@@ -1010,10 +1009,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             entry, dev_type = HyxiApiClient._build_device_entry(sn, d, state.now)
 
             # Update cache with basic entry structure
-            self._discovery_cache["device_info"][sn] = {
-                "model": entry["model"],
-                "device_type_code": entry["device_type_code"],
-            }
+            info_cache = self._discovery_cache.get("device_info")
+            if isinstance(info_cache, dict):
+                info_cache[sn] = {
+                    "model": entry["model"],
+                    "device_type_code": entry["device_type_code"],
+                }
 
             state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
@@ -1073,10 +1074,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 entry, raw_type = HyxiApiClient._build_device_entry(sn, c, state.now)
 
                 # Update cache
-                self._discovery_cache["device_info"][sn] = {
-                    "model": entry["model"],
-                    "device_type_code": entry["device_type_code"],
-                }
+                info_cache = self._discovery_cache.get("device_info")
+                if isinstance(info_cache, dict):
+                    info_cache[sn] = {
+                        "model": entry["model"],
+                        "device_type_code": entry["device_type_code"],
+                    }
 
                 # These are real devices, so fetch their metrics/info
                 state.metric_tasks.append(
@@ -1183,8 +1186,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             # 🚀 If the server rejects the token, wipe it and force a retry!
             if res_p.get("code") in ("A000002", "A000005"):
                 _LOGGER.debug(
-                    "HYXI Server rejected our token (A000002/A000005). "
-                    "Forcing immediate token refresh..."
+                    "HYXI Server rejected our token (A000002/A000005). Forcing immediate token refresh..."
                 )
                 self.token = None
                 self.token_expires_at = 0
@@ -1321,7 +1323,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             "HYXI Processing alarms (allow_back_discovery=%s)", allow_back_discovery
         )
         plant_alarms = []
-        sub_device_tasks = []
+        sub_device_tasks: list[asyncio.Task] = []
         for i, alarms in enumerate(alarm_results):
             if not isinstance(alarms, list):
                 continue
@@ -1381,22 +1383,24 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
         if use_cache:
             _LOGGER.debug("HYXI using cached discovery data (Fast Polling)")
-            state.plants = self._discovery_cache["plants"]
+            state.plants = self._discovery_cache.get("plants") or []
             # Reconstruct entries from hierarchy or known SNS
-            for sn, info in self._discovery_cache["device_info"].items():
-                entry = {
-                    "sn": sn,
-                    "device_name": info.get("device_name", f"{info['model']} {sn}"),
-                    "model": info["model"],
-                    "device_type_code": info["device_type_code"],
-                    "sw_version": info.get("_sw_ver_sys"),
-                    "hw_version": info.get("hw_version"),
-                    "metrics": {"last_seen": now},
-                }
-                state.metric_tasks.append(
-                    self._fetch_all_for_device(sn, entry, info["device_type_code"])
-                )
-            state.discovered_sns = set(self._discovery_cache["device_info"].keys())
+            info_cache = self._discovery_cache.get("device_info")
+            if isinstance(info_cache, dict):
+                for sn, info in info_cache.items():
+                    entry = {
+                        "sn": sn,
+                        "device_name": info.get("device_name", f"{info['model']} {sn}"),
+                        "model": info["model"],
+                        "device_type_code": info["device_type_code"],
+                        "sw_version": info.get("_sw_ver_sys"),
+                        "hw_version": info.get("hw_version"),
+                        "metrics": {"last_seen": now},
+                    }
+                    state.metric_tasks.append(
+                        self._fetch_all_for_device(sn, entry, info["device_type_code"])
+                    )
+                state.discovered_sns = set(info_cache.keys())
 
             # Fetch alarms (to allow back-discovery if enabled) and metrics
             _, alarm_fetch_tasks = self._build_plant_tasks(state, include_devices=False)
