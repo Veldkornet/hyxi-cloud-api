@@ -96,4 +96,8 @@ class TestComputeDerivedMetrics:
             "bat_power_dc": 0.0,
             "bat_charge_total": 0.0,
             "bat_discharge_total": 0.0,
+            "pv1p": 0.0,
+            "pv2p": 0.0,
+            "pv3p": 0.0,
+            "pv4p": 0.0,
         }
