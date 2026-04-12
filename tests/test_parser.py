@@ -216,9 +216,7 @@ def test_batp_trigger_logic():
 def test_compute_derived_metrics_empty():
     """Test robustness with missing keys."""
     res = _compute_derived_metrics({})
-    assert res["home_load"] == 0.0
-    assert res["grid_import"] == 0.0
-    assert res["bat_charging"] == 0.0
+    assert not res
 
 
 def test_compute_derived_metrics_invalid():

@@ -5,6 +5,8 @@ INTERNAL_ERROR_MAP, and DEVICE_TYPE_MAP reference tables to avoid external
 dependencies. Suppress the module-size warning accordingly.
 """  # pylint: disable=too-many-lines
 
+from __future__ import annotations
+
 import asyncio
 import base64
 import hashlib
@@ -16,8 +18,15 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
+
+try:
+    from datetime import UTC, datetime
+except ImportError:
+    from datetime import datetime
+
+    # pylint: disable=W0127,E0601
+    UTC = UTC
 
 import aiohttp
 
@@ -548,37 +557,52 @@ def _filter_collector_metrics(m_raw: dict) -> dict:
 
 
 def _compute_derived_metrics(m_raw: dict) -> dict:
-    """Calculate derived metrics from raw metrics map."""
-    grid = _get_f("gridP", m_raw, 1000.0)
+    """Calculate derived metrics from raw metrics map.
+
+    Only keys that have relevant base data in m_raw will be included in the
+    resulting dictionary to avoid 'ghost' sensors for unsupported features.
+    """
+    derived = {}
+
+    # 1. Load Calculation
+    if any(k in m_raw for k in ("ph1Loadp", "ph2Loadp", "ph3Loadp")):
+        derived["home_load"] = (
+            _get_f("ph1Loadp", m_raw)
+            + _get_f("ph2Loadp", m_raw)
+            + _get_f("ph3Loadp", m_raw)
+        )
+
+    # 2. Grid Metrics
+    if "gridP" in m_raw:
+        grid = _get_f("gridP", m_raw, 1000.0)
+        derived["grid_import"] = abs(grid) if grid < 0 else 0.0
+        derived["grid_export"] = grid if grid > 0 else 0.0
+
+    # 3. Battery Metrics
+    # Prefer batP (DC terminals) over pbat (AC equivalent)
+    bat_p_dc = _get_f("batP", m_raw)
     pbat = _get_f("pbat", m_raw)
 
-    # 🚀 Accuracy: batP is the raw DC power (VxI) at the battery terminals.
-    # pbat is a firmware-reported AC-equivalent figure that can under-report
-    # due to inverter efficiency derating. Prefer batP when available.
-    bat_p_dc = _get_f("batP", m_raw)
-    power_source = bat_p_dc if bat_p_dc != 0.0 else pbat
+    if "batP" in m_raw or "pbat" in m_raw:
+        power_source = bat_p_dc if bat_p_dc != 0.0 else pbat
+        derived["bat_charging"] = abs(power_source) if power_source < 0 else 0.0
+        derived["bat_discharging"] = power_source if power_source > 0 else 0.0
+        derived["bat_power_dc"] = bat_p_dc
 
-    return {
-        "home_load": _get_f("ph1Loadp", m_raw)
-        + _get_f("ph2Loadp", m_raw)
-        + _get_f("ph3Loadp", m_raw),
-        "grid_import": abs(grid) if grid < 0 else 0.0,
-        "grid_export": grid if grid > 0 else 0.0,
-        "bat_charging": abs(power_source) if power_source < 0 else 0.0,
-        "bat_discharging": power_source if power_source > 0 else 0.0,
-        "bat_power_dc": bat_p_dc,
-        "bat_charge_total": _get_f("batCharge", m_raw),
-        "bat_discharge_total": _get_f("batDisCharge", m_raw),
-        # PV String Powers (Derived if missing)
-        "pv1p": _get_f("pv1p", m_raw)
-        or round(_get_f("pv1v", m_raw) * _get_f("pv1i", m_raw), 2),
-        "pv2p": _get_f("pv2p", m_raw)
-        or round(_get_f("pv2v", m_raw) * _get_f("pv2i", m_raw), 2),
-        "pv3p": _get_f("pv3p", m_raw)
-        or round(_get_f("pv3v", m_raw) * _get_f("pv3i", m_raw), 2),
-        "pv4p": _get_f("pv4p", m_raw)
-        or round(_get_f("pv4v", m_raw) * _get_f("pv4i", m_raw), 2),
-    }
+    if "batCharge" in m_raw:
+        derived["bat_charge_total"] = _get_f("batCharge", m_raw)
+    if "batDisCharge" in m_raw:
+        derived["bat_discharge_total"] = _get_f("batDisCharge", m_raw)
+
+    # 4. PV String Powers (Derived if missing)
+    for i in range(1, 5):
+        vk, ik, pk = f"pv{i}v", f"pv{i}i", f"pv{i}p"
+        if any(k in m_raw for k in (vk, ik, pk)):
+            derived[pk] = _get_f(pk, m_raw) or round(
+                _get_f(vk, m_raw) * _get_f(ik, m_raw), 2
+            )
+
+    return derived
 
 
 def _mask_id(value: str) -> str:

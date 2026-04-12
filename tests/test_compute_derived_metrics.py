@@ -85,19 +85,25 @@ class TestComputeDerivedMetrics:
         assert result["bat_discharge_total"] == 45.6
 
     def test_empty_dict(self):
-        """Test empty dict returns all zeros."""
+        """Test empty dict returns empty dict (no ghost sensors)."""
         result = _compute_derived_metrics({})
-        assert result == {
-            "home_load": 0.0,
-            "grid_import": 0.0,
-            "grid_export": 0.0,
-            "bat_charging": 0.0,
-            "bat_discharging": 0.0,
-            "bat_power_dc": 0.0,
-            "bat_charge_total": 0.0,
-            "bat_discharge_total": 0.0,
-            "pv1p": 0.0,
-            "pv2p": 0.0,
-            "pv3p": 0.0,
-            "pv4p": 0.0,
-        }
+        assert not result
+
+    def test_selective_pv_strings(self):
+        """Test that only PV strings present in input are present in output."""
+        data = {"pv1v": 100, "pv1i": 5}  # PV1 only
+        result = _compute_derived_metrics(data)
+        assert "pv1p" in result
+        assert result["pv1p"] == 500.0
+        assert "pv2p" not in result
+        assert "pv3p" not in result
+        assert "pv4p" not in result
+
+    def test_selective_load(self):
+        """Test that home_load is only present if phase loads exist."""
+        result = _compute_derived_metrics({"gridP": 1.0})
+        assert "home_load" not in result
+
+        result = _compute_derived_metrics({"ph1Loadp": 100.0})
+        assert "home_load" in result
+        assert result["home_load"] == 100.0
