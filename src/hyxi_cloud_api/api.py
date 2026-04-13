@@ -547,7 +547,7 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         if val is None or val == "":
             return 0.0
         return round(float(val) * mult, 2)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return 0.0
 
 
@@ -597,12 +597,22 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
         derived["bat_discharge_total"] = _get_f("batDisCharge", m_raw)
 
     # 4. PV String Powers (Derived if missing)
-    for i in range(1, 5):
-        vk, ik, pk = f"pv{i}v", f"pv{i}i", f"pv{i}p"
-        if any(k in m_raw for k in (vk, ik, pk)):
-            derived[pk] = _get_f(pk, m_raw) or round(
-                _get_f(vk, m_raw) * _get_f(ik, m_raw), 2
-            )
+    if "pv1v" in m_raw or "pv1i" in m_raw or "pv1p" in m_raw:
+        derived["pv1p"] = _get_f("pv1p", m_raw) or round(
+            _get_f("pv1v", m_raw) * _get_f("pv1i", m_raw), 2
+        )
+    if "pv2v" in m_raw or "pv2i" in m_raw or "pv2p" in m_raw:
+        derived["pv2p"] = _get_f("pv2p", m_raw) or round(
+            _get_f("pv2v", m_raw) * _get_f("pv2i", m_raw), 2
+        )
+    if "pv3v" in m_raw or "pv3i" in m_raw or "pv3p" in m_raw:
+        derived["pv3p"] = _get_f("pv3p", m_raw) or round(
+            _get_f("pv3v", m_raw) * _get_f("pv3i", m_raw), 2
+        )
+    if "pv4v" in m_raw or "pv4i" in m_raw or "pv4p" in m_raw:
+        derived["pv4p"] = _get_f("pv4p", m_raw) or round(
+            _get_f("pv4v", m_raw) * _get_f("pv4i", m_raw), 2
+        )
 
     return derived
 
