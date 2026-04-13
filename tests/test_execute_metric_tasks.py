@@ -27,10 +27,7 @@ async def test_execute_metric_tasks_with_tasks():
     state.metric_tasks = [AsyncMock()]
     plant_alarms = {}
 
-    with patch(
-        "asyncio.gather",
-        new_callable=AsyncMock
-    ) as mock_gather:
+    with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
         await HyxiApiClient._execute_metric_tasks(plant_alarms, state)
         mock_gather.assert_awaited_once()
 
@@ -42,9 +39,6 @@ async def test_execute_metric_tasks_without_tasks():
     state.metric_tasks = []
     plant_alarms = {}
 
-    with patch(
-        "asyncio.gather",
-        new_callable=AsyncMock
-    ) as mock_gather:
+    with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
         await HyxiApiClient._execute_metric_tasks(plant_alarms, state)
         mock_gather.assert_not_awaited()
