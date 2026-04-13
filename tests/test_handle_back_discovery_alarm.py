@@ -1,16 +1,24 @@
 """Tests for the _handle_back_discovery_alarm method in the HYXi Cloud API client."""
+# pylint: disable=redefined-outer-name
 
 import sys
 from unittest.mock import ANY, MagicMock
 
-# Mock aiohttp before importing the API to bypass ModuleNotFoundError in restricted environments
-try:
-    import aiohttp  # pylint: disable=unused-import
-except ImportError:
-    mock_aiohttp = MagicMock()
-    sys.modules["aiohttp"] = mock_aiohttp
+if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientError"):
+    m = MagicMock()
 
-# ruff: noqa: E402
+    class MockExp(Exception):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args)
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+    m.ClientError = MockExp
+    m.ClientResponseError = type("ClientResponseError", (MockExp,), {})
+    m.ContentTypeError = type("ContentTypeError", (MockExp,), {})
+    sys.modules["aiohttp"] = m
+mock_aiohttp = sys.modules["aiohttp"]
+
 import pytest
 
 from src.hyxi_cloud_api.api import FetchState, HyxiApiClient

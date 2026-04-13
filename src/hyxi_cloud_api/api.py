@@ -545,7 +545,7 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         if val is None or val == "":
             return 0.0
         return round(float(val) * mult, 2)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return 0.0
 
 
@@ -952,9 +952,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 if sn not in self._discovery_cache["device_info"]:
                     # Ensure we preserve the name if it was set during discovery
                     self._discovery_cache["device_info"][sn] = {
-                        "model": entry["model"],
-                        "device_type_code": entry["device_type_code"],
-                        "device_name": entry["device_name"],
+                        "model": entry.get("model", "Unknown"),
+                        "device_type_code": entry.get("device_type_code", "Unknown"),
+                        "device_name": entry.get("device_name", "Unknown"),
                     }
                 self._discovery_cache["device_info"][sn].update(base_info)
             else:

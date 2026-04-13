@@ -8,11 +8,11 @@ from unittest.mock import MagicMock
 # Mock aiohttp before importing the client to avoid ModuleNotFoundError in environments without it
 sys.modules["aiohttp"] = MagicMock()
 
-from unittest.mock import patch  # noqa: E402
+from unittest.mock import patch
 
-import pytest  # noqa: E402
+import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient  # noqa: E402
+from src.hyxi_cloud_api.api import HyxiApiClient
 
 
 @pytest.fixture
