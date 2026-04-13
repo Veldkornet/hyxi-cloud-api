@@ -125,19 +125,22 @@ async def test_fetch_ems_basic_data_no_data(caplog):
 
 @pytest.mark.asyncio
 async def test_fetch_ems_basic_data_error(caplog):
-    """Test that _fetch_ems_basic_data propagates errors from query_ems_basic_details."""
+    """Test that _fetch_ems_basic_data handles errors from query_ems_basic_details."""
+    caplog.set_level(logging.DEBUG)
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    # Mock query_ems_basic_details to raise an Exception
-    api.query_ems_basic_details = AsyncMock(
-        side_effect=Exception("EMS data fetch failed")
-    )
+    # Mock _request to raise an Exception to ensure query_ems_basic_details returns {}
+    api._request = AsyncMock(side_effect=Exception("EMS data fetch failed"))
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
+    await api._fetch_ems_basic_data("10602251600016", entry)
 
-    with pytest.raises(Exception, match="EMS data fetch failed"):
-        await api._fetch_ems_basic_data("10602251600016", entry)
+    # Assert entry['metrics'] is unchanged
+    assert not entry["metrics"]
+
+    # Assert the correct debug log was emitted from _fetch_ems_basic_data due to empty return
+    assert "HYXI EMS telemetry probe returned no data for XXXXXXXXXX0016" in caplog.text
 
 
 @pytest.mark.asyncio

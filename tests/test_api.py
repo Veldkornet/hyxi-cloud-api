@@ -194,6 +194,33 @@ async def test_query_ems_basic_details_success():
 
 
 @pytest.mark.asyncio
+async def test_fetch_ems_basic_data_success(caplog):
+    """Test _fetch_ems_basic_data when basic details are returned."""
+    caplog.set_level(logging.DEBUG)
+
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api.query_ems_basic_details = AsyncMock(return_value={"new_metric": "new_value"})
+
+    ems_sn = "10602251600016"
+    entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
+
+    await api._fetch_ems_basic_data(ems_sn, entry)
+
+    # Assert query_ems_basic_details was called
+    api.query_ems_basic_details.assert_called_once_with(ems_sn)
+
+    # Assert entry['metrics'] is updated
+    assert entry["metrics"] == {"existing_metric": "value", "new_metric": "new_value"}
+
+    # Assert the correct debug log was emitted
+    assert (
+        "HYXI Raw METRICS for XXXXXXXXXX0016 (EMS) [EMS]: {'new_metric': 'new_value'}"
+        in caplog.text
+    )
+
+
+@pytest.mark.asyncio
 async def test_fetch_ems_basic_data_no_data(caplog):
     """Test _fetch_ems_basic_data when no basic details are returned."""
     caplog.set_level(logging.DEBUG)
