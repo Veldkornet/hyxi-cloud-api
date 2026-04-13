@@ -1,3 +1,9 @@
+import sys
+from unittest.mock import MagicMock
+
+mock_aiohttp = MagicMock()
+sys.modules["aiohttp"] = mock_aiohttp
+
 """Tests for exception handling in _fetch_devices_for_plant."""
 
 import logging

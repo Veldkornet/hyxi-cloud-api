@@ -1,3 +1,9 @@
+import sys
+from unittest.mock import MagicMock
+
+mock_aiohttp = MagicMock()
+sys.modules["aiohttp"] = mock_aiohttp
+
 """Tests for _filter_collector_metrics optimization."""
 
 from src.hyxi_cloud_api.api import _filter_collector_metrics

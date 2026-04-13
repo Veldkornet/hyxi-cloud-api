@@ -1,3 +1,9 @@
+import sys
+from unittest.mock import MagicMock
+
+mock_aiohttp = MagicMock()
+sys.modules["aiohttp"] = mock_aiohttp
+
 """Tests for the HYXI Cloud API client."""
 
 import logging

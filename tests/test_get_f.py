@@ -1,3 +1,9 @@
+import sys
+from unittest.mock import MagicMock
+
+mock_aiohttp = MagicMock()
+sys.modules["aiohttp"] = mock_aiohttp
+
 """Tests for the _get_f helper function in api.py."""
 
 from src.hyxi_cloud_api.api import _get_f

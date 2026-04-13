@@ -1,3 +1,9 @@
+import sys
+from unittest.mock import MagicMock
+
+mock_aiohttp = MagicMock()
+sys.modules["aiohttp"] = mock_aiohttp
+
 """Tests for the recursive device discovery and sensor extraction logic."""
 
 from unittest.mock import AsyncMock, MagicMock
