@@ -57,7 +57,7 @@ ignore = ["E501", "N818", "S105"]
 "/hyxi_cloud/__init__.py" = ["N812"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 show_error_codes = true
 incremental = true
 ignore_missing_imports = true
