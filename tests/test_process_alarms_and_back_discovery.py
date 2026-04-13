@@ -18,14 +18,17 @@ if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientEr
     m.ContentTypeError = type("ContentTypeError", (MockExp,), {})
     sys.modules["aiohttp"] = m
 
-import asyncio
+
 import pytest
+
 from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
+
 
 @pytest.fixture
 def mock_api():
     """Fixture for a mock HYXi API client."""
     return HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
 
 @pytest.fixture
 def mock_state():
@@ -33,6 +36,7 @@ def mock_state():
     state = FetchState(now="2024-01-01T00:00:00Z")
     state.plants = [{"plantId": "plant1"}, {"plantId": "plant2"}, {"plantId": "plant3"}]
     return state
+
 
 @pytest.mark.asyncio
 async def test_process_alarms_allow_back_discovery_false(mock_api, mock_state):
@@ -53,6 +57,7 @@ async def test_process_alarms_allow_back_discovery_false(mock_api, mock_state):
     assert result[1]["id"] == "a2"
     assert result[2]["id"] == "a3"
     mock_api._handle_back_discovery_alarm.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_process_alarms_allow_back_discovery_true(mock_api, mock_state):
@@ -80,13 +85,14 @@ async def test_process_alarms_allow_back_discovery_true(mock_api, mock_state):
     assert calls[2][0][0] == {"id": "a3", "deviceSn": "sn3"}
     assert calls[2][0][1] == "plant3"
 
+
 @pytest.mark.asyncio
 async def test_process_alarms_with_non_list_results(mock_api, mock_state):
     """Test that non-list alarm results are skipped."""
     mock_api._handle_back_discovery_alarm = MagicMock()
     alarm_results = [
         [{"id": "a1"}],
-        {"error": "something went wrong"}, # Not a list, should be skipped
+        {"error": "something went wrong"},  # Not a list, should be skipped
         [{"id": "a3"}],
     ]
 
@@ -99,14 +105,15 @@ async def test_process_alarms_with_non_list_results(mock_api, mock_state):
     assert result[1]["id"] == "a3"
     assert mock_api._handle_back_discovery_alarm.call_count == 2
 
+
 @pytest.mark.asyncio
 @patch("src.hyxi_cloud_api.api.asyncio.gather", new_callable=AsyncMock)
-async def test_process_alarms_gathers_sub_device_tasks(mock_gather, mock_api, mock_state):
+async def test_process_alarms_gathers_sub_device_tasks(
+    mock_gather, mock_api, mock_state
+):
     """Test that sub-device tasks created during back-discovery are awaited."""
 
-    # We will modify the sub_device_tasks list inside the mock to simulate adding a task
     def side_effect(a, plant_id, state, sub_device_tasks):
-        dummy_task = asyncio.sleep(0) # creating a real awaitable task object is somewhat complex due to loop binding
         sub_device_tasks.append("mock_task")
 
     mock_api._handle_back_discovery_alarm = MagicMock(side_effect=side_effect)
