@@ -214,7 +214,10 @@ async def test_fetch_ems_basic_data_success(caplog):
     assert entry["metrics"] == {"existing_metric": "value", "new_metric": "new_value"}
 
     # Assert the correct debug log was emitted
-    assert "HYXI Raw METRICS for XXXXXXXXXX0016 (EMS) [EMS]: {'new_metric': 'new_value'}" in caplog.text
+    assert (
+        "HYXI Raw METRICS for XXXXXXXXXX0016 (EMS) [EMS]: {'new_metric': 'new_value'}"
+        in caplog.text
+    )
 
 
 @pytest.mark.asyncio
