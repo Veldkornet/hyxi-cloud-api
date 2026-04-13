@@ -565,7 +565,7 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
     derived = {}
 
     # 1. Load Calculation
-    if any(k in m_raw for k in ("ph1Loadp", "ph2Loadp", "ph3Loadp")):
+    if "ph1Loadp" in m_raw or "ph2Loadp" in m_raw or "ph3Loadp" in m_raw:
         derived["home_load"] = (
             _get_f("ph1Loadp", m_raw)
             + _get_f("ph2Loadp", m_raw)
@@ -597,7 +597,7 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
     # 4. PV String Powers (Derived if missing)
     for i in range(1, 5):
         vk, ik, pk = f"pv{i}v", f"pv{i}i", f"pv{i}p"
-        if any(k in m_raw for k in (vk, ik, pk)):
+        if vk in m_raw or ik in m_raw or pk in m_raw:
             derived[pk] = _get_f(pk, m_raw) or round(
                 _get_f(vk, m_raw) * _get_f(ik, m_raw), 2
             )
