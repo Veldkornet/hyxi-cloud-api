@@ -44,7 +44,9 @@ class FetchState:
 
 _LOGGER = logging.getLogger(__name__)
 _battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15")
+_BATTERY_DEVICE_REGEX = re.compile("|".join(_battery_device_types))
 _parent_device_types = ("COLLECTOR", "DMU", "INVERTER")
+_PARENT_DEVICE_REGEX = re.compile("|".join(_parent_device_types))
 _COLLECTOR_FILTER_KEYWORDS = (
     "bat",
     "pv",
@@ -545,7 +547,7 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         if val is None or val == "":
             return 0.0
         return round(float(val) * mult, 2)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return 0.0
 
 
@@ -911,7 +913,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         }
 
         device_type_code = entry.get("device_type_code", "").upper()
-        if any(x in device_type_code for x in _battery_device_types):
+        if _BATTERY_DEVICE_REGEX.search(device_type_code):
             base_info.update(
                 {
                     "batCap": _get_f("batCap", i_raw),
@@ -1052,7 +1054,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
             # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-            if any(x in dev_type for x in _parent_device_types):
+            if _PARENT_DEVICE_REGEX.search(dev_type):
                 _LOGGER.debug(
                     "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
                     _mask_id(sn),
@@ -1342,7 +1344,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
         dev_type_upper = dev_type.upper()
-        if any(x in dev_type_upper for x in _parent_device_types):
+        if _PARENT_DEVICE_REGEX.search(dev_type_upper):
             sub_device_tasks.append(self._fetch_sub_devices(sn, state))
 
     async def _process_alarms_and_back_discovery(
