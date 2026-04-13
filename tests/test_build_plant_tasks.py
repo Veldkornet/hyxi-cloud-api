@@ -16,7 +16,6 @@ if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientEr
     sys.modules["aiohttp"] = m
 mock_aiohttp = sys.modules["aiohttp"]
 
-import pytest
 
 from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
 
@@ -30,6 +29,7 @@ def _setup_mock_api():
 
 
 def test_build_plant_tasks_with_devices():
+    """Test building tasks when including devices."""
     api = _setup_mock_api()
     state = FetchState(now="now")
     state.plants = [{"plantId": "p1"}, {"plantId": "p2"}]
@@ -45,19 +45,21 @@ def test_build_plant_tasks_with_devices():
 
 
 def test_build_plant_tasks_without_devices():
+    """Test building tasks without including devices."""
     api = _setup_mock_api()
     state = FetchState(now="now")
     state.plants = [{"plantId": "p1"}]
 
     device_tasks, alarm_tasks = api._build_plant_tasks(state, include_devices=False)
 
-    assert device_tasks == []
+    assert not device_tasks
     assert alarm_tasks == ["alarm_task_p1"]
     api._fetch_devices_for_plant.assert_not_called()
     api._fetch_alarms_for_plant.assert_called_once_with("p1")
 
 
 def test_build_plant_tasks_missing_plant_id():
+    """Test handling plants that are missing a plantId."""
     api = _setup_mock_api()
     state = FetchState(now="now")
     state.plants = [{"name": "Missing ID Plant"}, {"plantId": "p1"}]
@@ -71,13 +73,14 @@ def test_build_plant_tasks_missing_plant_id():
 
 
 def test_build_plant_tasks_empty_plants():
+    """Test handling an empty list of plants."""
     api = _setup_mock_api()
     state = FetchState(now="now")
     state.plants = []
 
     device_tasks, alarm_tasks = api._build_plant_tasks(state, include_devices=True)
 
-    assert device_tasks == []
-    assert alarm_tasks == []
+    assert not device_tasks
+    assert not alarm_tasks
     api._fetch_devices_for_plant.assert_not_called()
     api._fetch_alarms_for_plant.assert_not_called()
