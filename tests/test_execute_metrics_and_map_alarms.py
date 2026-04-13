@@ -17,8 +17,10 @@ if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientEr
 mock_aiohttp = sys.modules["aiohttp"]
 
 import asyncio
+
 import pytest
-from src.hyxi_cloud_api.api import HyxiApiClient, FetchState
+
+from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
 
 
 @pytest.mark.asyncio
