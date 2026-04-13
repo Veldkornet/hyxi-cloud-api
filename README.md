@@ -58,7 +58,7 @@ if __name__ == "__main__":
 ```
 
 ## 🛠️ Requirements
-* Python 3.11 or newer
+* Python 3.14 or newer
 * `aiohttp` >= 3.13.3
 
 ## 🔐 Privacy & Debug Logging
