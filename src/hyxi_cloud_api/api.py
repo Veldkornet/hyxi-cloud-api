@@ -751,6 +751,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         if "json" in kwargs:
             kwargs["data"] = json.dumps(kwargs.pop("json"))
 
+        if method.upper() not in ("GET", "POST"):
+            raise ValueError(f"Unsupported HTTP method: {method}")
+
         request_func = getattr(self.session, method.lower())
         async with request_func(url, headers=headers, **kwargs) as response:
             status = response.status
