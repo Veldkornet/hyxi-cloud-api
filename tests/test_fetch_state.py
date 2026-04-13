@@ -1,3 +1,21 @@
+import sys
+from unittest.mock import MagicMock
+
+if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientError"):
+    m = MagicMock()
+
+    class MockExp(Exception):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args)
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+    m.ClientError = MockExp
+    m.ClientResponseError = type("ClientResponseError", (MockExp,), {})
+    m.ContentTypeError = type("ContentTypeError", (MockExp,), {})
+    sys.modules["aiohttp"] = m
+mock_aiohttp = sys.modules["aiohttp"]
+
 """Tests for the FetchState dataclass."""
 
 from src.hyxi_cloud_api.api import FetchState

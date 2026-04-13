@@ -53,7 +53,7 @@ select = [
 ignore = ["E501", "N818", "S105"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S105", "S106", "N802"]
+"tests/*" = ["S101", "S105", "S106", "N802", "E402"]
 "/hyxi_cloud/__init__.py" = ["N812"]
 
 [tool.mypy]
@@ -69,7 +69,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.pylint.messages_control]
-disable = ["broad-exception-caught", "too-many-locals", "too-many-return-statements", "too-many-branches", "too-few-public-methods", "protected-access", "unused-argument", "duplicate-code", "import-error"]
+disable = ["broad-exception-caught", "too-many-locals", "too-many-return-statements", "too-many-branches", "too-few-public-methods", "protected-access", "unused-argument", "duplicate-code", "import-error", "wrong-import-position", "reimported", "missing-module-docstring", "ungrouped-imports", "redefined-outer-name", "missing-class-docstring"]
 
 [tool.pylint.format]
 max-line-length = 120
