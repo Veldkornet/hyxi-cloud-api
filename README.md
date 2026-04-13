@@ -8,7 +8,7 @@
 
 An asynchronous Python client for interacting with the HYXI Cloud API.
 
-This library was primarily built to power the [HYXI Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.11+ project to fetch telemetry data from HYXI solar inverters and battery systems.
+This library was primarily built to power the [HYXI Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.14+ project to fetch telemetry data from HYXI solar inverters and battery systems.
 
 ## 📦 Installation
 
@@ -58,7 +58,7 @@ if __name__ == "__main__":
 ```
 
 ## 🛠️ Requirements
-* Python 3.11 or newer
+* Python 3.14 or newer
 * `aiohttp` >= 3.13.3
 
 ## 🔐 Privacy & Debug Logging
