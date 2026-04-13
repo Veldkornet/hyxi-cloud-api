@@ -547,7 +547,7 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         if val is None or val == "":
             return 0.0
         return round(float(val) * mult, 2)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return 0.0
 
 
@@ -702,6 +702,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         }
         self._discovery_cache_time: float = 0.0
         self._discovery_cache_ttl = 3600  # 1 hour default
+
+    def _update_discovery_cache(self, sn: str, entry: dict):
+        """Update the discovery cache with basic entry structure."""
+        info_cache = self._discovery_cache.get("device_info")
+        if isinstance(info_cache, dict):
+            info_cache[sn] = {
+                "model": entry["model"],
+                "device_type_code": entry["device_type_code"],
+                "device_name": entry.get("device_name"),
+            }
 
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXI's official Java SDK implementation."""
@@ -1046,13 +1056,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             state.discovered_sns.add(sn)
             entry, dev_type = HyxiApiClient._build_device_entry(sn, d, state.now)
 
-            # Update cache with basic entry structure
-            info_cache = self._discovery_cache.get("device_info")
-            if isinstance(info_cache, dict):
-                info_cache[sn] = {
-                    "model": entry["model"],
-                    "device_type_code": entry["device_type_code"],
-                }
+            self._update_discovery_cache(sn, entry)
 
             state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
@@ -1111,13 +1115,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 state.discovered_sns.add(sn)
                 entry, raw_type = HyxiApiClient._build_device_entry(sn, c, state.now)
 
-                # Update cache
-                info_cache = self._discovery_cache.get("device_info")
-                if isinstance(info_cache, dict):
-                    info_cache[sn] = {
-                        "model": entry["model"],
-                        "device_type_code": entry["device_type_code"],
-                    }
+                self._update_discovery_cache(sn, entry)
 
                 # These are real devices, so fetch their metrics/info
                 state.metric_tasks.append(
