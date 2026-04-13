@@ -16,14 +16,15 @@ if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientEr
     sys.modules["aiohttp"] = m
 mock_aiohttp = sys.modules["aiohttp"]
 
-
 from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
 
 
 def _setup_mock_api():
     """Helper to set up a mock API client for testing _build_plant_tasks."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._fetch_devices_for_plant = MagicMock(side_effect=lambda pid, state: f"device_task_{pid}")
+    api._fetch_devices_for_plant = MagicMock(
+        side_effect=lambda pid, state: f"device_task_{pid}"
+    )
     api._fetch_alarms_for_plant = MagicMock(side_effect=lambda pid: f"alarm_task_{pid}")
     return api
 
