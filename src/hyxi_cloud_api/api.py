@@ -597,22 +597,12 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
         derived["bat_discharge_total"] = _get_f("batDisCharge", m_raw)
 
     # 4. PV String Powers (Derived if missing)
-    if "pv1v" in m_raw or "pv1i" in m_raw or "pv1p" in m_raw:
-        derived["pv1p"] = _get_f("pv1p", m_raw) or round(
-            _get_f("pv1v", m_raw) * _get_f("pv1i", m_raw), 2
-        )
-    if "pv2v" in m_raw or "pv2i" in m_raw or "pv2p" in m_raw:
-        derived["pv2p"] = _get_f("pv2p", m_raw) or round(
-            _get_f("pv2v", m_raw) * _get_f("pv2i", m_raw), 2
-        )
-    if "pv3v" in m_raw or "pv3i" in m_raw or "pv3p" in m_raw:
-        derived["pv3p"] = _get_f("pv3p", m_raw) or round(
-            _get_f("pv3v", m_raw) * _get_f("pv3i", m_raw), 2
-        )
-    if "pv4v" in m_raw or "pv4i" in m_raw or "pv4p" in m_raw:
-        derived["pv4p"] = _get_f("pv4p", m_raw) or round(
-            _get_f("pv4v", m_raw) * _get_f("pv4i", m_raw), 2
-        )
+    for i in range(1, 5):
+        v_k, i_k, p_k = f"pv{i}v", f"pv{i}i", f"pv{i}p"
+        if v_k in m_raw or i_k in m_raw or p_k in m_raw:
+            derived[p_k] = _get_f(p_k, m_raw) or round(
+                _get_f(v_k, m_raw) * _get_f(i_k, m_raw), 2
+            )
 
     return derived
 
