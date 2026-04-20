@@ -44,20 +44,20 @@ def test_sanitize_dict_recursive():
     sanitized = _sanitize_dict(raw)
 
     assert sanitized["plantAddress"] == "[REDACTED]"
-    assert sanitized["deviceSn"] == "XXXXXXX6789"
+    assert sanitized["deviceSn"] == "c90391cf"
     assert sanitized["normalKey"] == "normalValue"
 
     # Check nested list of dicts
-    assert sanitized["data"][0]["deviceSn"] == "XXXXXXX4321"
-    assert sanitized["data"][0]["nested"]["plantId"] == "****"
+    assert sanitized["data"][0]["deviceSn"] == "795d881c"
+    assert sanitized["data"][0]["nested"]["plantId"] == "bd83cb6a"
     assert sanitized["data"][0]["nested"]["normal"] == "value"
     assert sanitized["data"][1] == "not a dict"
 
     # Check nested dict
-    assert sanitized["nestedDict"]["batSn"] == "XXXX2345"
+    assert sanitized["nestedDict"]["batSn"] == "8015218b"
 
     # Check nested list
-    assert sanitized["nestedList"][0][0]["deviceSn"] == "****"
+    assert sanitized["nestedList"][0][0]["deviceSn"] == "083c86de"
 
 
 @pytest.mark.asyncio

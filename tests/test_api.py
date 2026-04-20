@@ -215,7 +215,7 @@ async def test_fetch_ems_basic_data_success(caplog):
 
     # Assert the correct debug log was emitted
     assert (
-        "HYXI Raw METRICS for XXXXXXXXXX0016 (EMS) [EMS]: {'new_metric': 'new_value'}"
+        "HYXI Raw METRICS for fefbfd75 (EMS) [EMS]: {'new_metric': 'new_value'}"
         in caplog.text
     )
 
@@ -394,11 +394,11 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
     assert "60701251900927" not in log_text
 
     # Assert logs contain the masked versions
-    assert "XXXXXXXXXX0016" in log_text
-    assert "XXXXXXXXXX0927" in log_text
+    assert "fefbfd75" in log_text
+    assert "5a9bda67" in log_text
 
     # Ensure plant ID itself is masked
-    assert "XXXX5678" in log_text
+    assert "ef797c81" in log_text
 
 
 @pytest.mark.asyncio

@@ -8,28 +8,20 @@ class TestMaskId:
 
     # --- Anonymisation ---
 
-    def test_normal_sn_is_masked_with_x_padding(self):
-        """A typical device SN should be masked using X characters, preserving length."""
-        result = _mask_id("HYXABC12345678")
-        assert result == "XXXXXXXXXX5678"  # 10 X's + 5678 = 14 chars
-        assert len(result) == len("HYXABC12345678")
+    def test_normal_sn_is_masked_with_hash(self):
+        """A typical device SN should be masked using a hash, yielding an 8-char string."""
+        import hashlib
+        sn = "HYXABC12345678"
+        expected = hashlib.sha256(sn.encode("utf-8")).hexdigest()[:8]
+        result = _mask_id(sn)
+        assert result == expected
+        assert len(result) == 8
 
     def test_normal_sn_does_not_expose_full_value(self):
         """The full serial number must not appear in the output."""
         sn = "HYXABC12345678"
         result = _mask_id(sn)
         assert result != sn
-
-    def test_short_id_is_fully_redacted(self):
-        """IDs shorter than 8 characters must be fully hidden to prevent exposure."""
-        assert _mask_id("12345") == "****"
-        assert _mask_id("1234567") == "****"
-
-    def test_exactly_8_chars_is_masked(self):
-        """An 8-character ID sits on the threshold and should be partially masked."""
-        result = _mask_id("ABCD1234")
-        assert result == "XXXX1234"  # 4 X's + 1234 = 8 chars
-        assert len(result) == 8
 
     def test_empty_string_returns_redacted(self):
         """An empty string input should return the redacted placeholder."""
@@ -38,11 +30,6 @@ class TestMaskId:
     def test_none_like_falsy_value(self):
         """'None' as a string (4 chars) — should be redacted."""
         assert _mask_id("None") == "****"
-
-    def test_length_is_always_preserved(self):
-        """Masked output must always be the same length as the original ID."""
-        for sn in ["HYXABC12345678", "10602251600016", "60701251900927"]:
-            assert len(_mask_id(sn)) == len(sn)
 
     # --- Debuggability / cross-device correlation ---
 
@@ -58,18 +45,6 @@ class TestMaskId:
         result_b = _mask_id("HYXABC00000099")
         assert result_a != result_b
 
-    def test_numeric_plant_id_long_enough_is_masked(self):
-        """A long numeric plant ID (e.g. 8+ digits) should be partially masked."""
-        result = _mask_id("123456789")
-        assert result == "XXXXX6789"
-        assert len(result) == 9
-
-    def test_output_uses_x_characters(self):
-        """Masked output must use 'X' as the padding character."""
-        result = _mask_id("HYXABC12345678")
-        masked_part = result[:-4]
-        assert all(c == "X" for c in masked_part)
-
 
 class TestSanitizeDict:
     """Tests for _sanitize_dict to verify PII is scrubbed from raw API payloads."""
@@ -79,7 +54,7 @@ class TestSanitizeDict:
         raw = {"deviceSn": "10602251600016", "ratedPower": "10000"}
         result = _sanitize_dict(raw)
         assert result["deviceSn"] != "10602251600016"
-        assert "X" in result["deviceSn"]
+        assert len(result["deviceSn"]) == 8
         assert result["ratedPower"] == "10000"  # Non-sensitive key unchanged
 
     def test_parent_sn_is_masked(self):
@@ -87,21 +62,21 @@ class TestSanitizeDict:
         raw = {"parentSn": "60701251900927", "model": "HYX-H10K-HT"}
         result = _sanitize_dict(raw)
         assert result["parentSn"] != "60701251900927"
-        assert "X" in result["parentSn"]
+        assert len(result["parentSn"]) == 8
 
     def test_bat_sn_is_masked(self):
         """Battery serial numbers must be masked."""
         raw = {"batSn": "15023250300001", "batSoc": "91"}
         result = _sanitize_dict(raw)
         assert result["batSn"] != "15023250300001"
-        assert "X" in result["batSn"]
+        assert len(result["batSn"]) == 8
 
     def test_plant_id_is_masked(self):
         """Plant IDs must be masked as they identify a user's cloud account."""
         raw = {"plantId": "Pl1970106681857806336", "plantName": "My Plant"}
         result = _sanitize_dict(raw)
         assert result["plantId"] != "Pl1970106681857806336"
-        assert "X" in result["plantId"]
+        assert len(result["plantId"]) == 8
 
     def test_plant_address_is_fully_redacted(self):
         """Home address must be completely hidden, not partially masked."""
