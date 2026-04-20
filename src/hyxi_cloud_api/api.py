@@ -670,7 +670,7 @@ def _sanitize_dict(raw: dict) -> dict[str, Any]:
 
 def _sanitize_list(raw_list: list) -> list[Any]:
     """Recursively sanitize items in a list, converting empty strings to None."""
-    result = []
+    result: list[Any] = []
     for item in raw_list:
         if isinstance(item, dict):
             result.append(_sanitize_dict(item))
