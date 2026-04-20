@@ -518,9 +518,9 @@ _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
 def _parse_data_list(data_list: list) -> dict:
     """Extract dataKey and dataValue into a cleaner dictionary."""
     return {
-        item.get("dataKey"): item.get("dataValue")
+        k: item.get("dataValue")
         for item in data_list
-        if isinstance(item, dict) and item.get("dataKey")
+        if isinstance(item, dict) and (k := item.get("dataKey"))
     }
 
 
