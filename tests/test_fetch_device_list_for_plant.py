@@ -1,7 +1,12 @@
+"""Tests for fetching the device list for a plant."""
+
 import logging
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
+
 from src.hyxi_cloud_api.api import HyxiApiClient
+
 
 @pytest.mark.asyncio
 async def test_fetch_device_list_for_plant_success_list():
@@ -17,6 +22,7 @@ async def test_fetch_device_list_for_plant_success_list():
     result = await api._fetch_device_list_for_plant("plant123")
     assert result == [{"deviceSn": "SN12345678"}]
 
+
 @pytest.mark.asyncio
 async def test_fetch_device_list_for_plant_success_dict():
     """Verify that the method correctly handles a successful response where data is a dict."""
@@ -30,6 +36,7 @@ async def test_fetch_device_list_for_plant_success_dict():
 
     result = await api._fetch_device_list_for_plant("plant123")
     assert result == [{"deviceSn": "SN12345678"}]
+
 
 @pytest.mark.asyncio
 async def test_fetch_device_list_for_plant_failure(caplog):
@@ -47,6 +54,7 @@ async def test_fetch_device_list_for_plant_failure(caplog):
     assert result is None
     assert "HYXI API Device Fetch Rejected for Plant" in caplog.text
 
+
 @pytest.mark.asyncio
 async def test_fetch_device_list_for_plant_empty_data():
     """Verify that the method returns an empty list when data is None."""
@@ -60,6 +68,7 @@ async def test_fetch_device_list_for_plant_empty_data():
 
     result = await api._fetch_device_list_for_plant("plant123")
     assert result == []
+
 
 @pytest.mark.asyncio
 async def test_fetch_device_list_for_plant_debug_logging(caplog):
