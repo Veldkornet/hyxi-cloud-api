@@ -8,8 +8,10 @@ import pytest
 # Handle missing aiohttp gracefully as seen in other files
 if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientError"):
     m = MagicMock()
+
     class MockExp(Exception):
         pass
+
     m.ClientError = MockExp
     sys.modules["aiohttp"] = m
 
@@ -101,7 +103,7 @@ async def test_process_devices_for_plant_mixed_devices(mock_api, mock_state):
     """Test with a mix of normal devices, parent devices, and invalid devices."""
     devices = [
         {"deviceSn": "SN_COLLECTOR", "deviceType": "COLLECTOR"},
-        {"deviceType": "UNKNOWN"}, # Missing SN
+        {"deviceType": "UNKNOWN"},  # Missing SN
         {"deviceSn": "SN_NORMAL", "deviceType": "METER"},
     ]
     with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
