@@ -7,6 +7,7 @@ from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
 
 @pytest.fixture
 def api_client():
+    """Fixture to provide a configured API client."""
     return HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
 
