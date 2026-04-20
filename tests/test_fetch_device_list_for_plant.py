@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.hyxi_cloud_api.api import HyxiApiClient
 
