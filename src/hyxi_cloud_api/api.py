@@ -547,7 +547,9 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         if val is None or val == "":
             return 0.0
         return round(float(val) * mult, 2)
-    except (ValueError, TypeError):
+    except ValueError:
+        return 0.0
+    except TypeError:
         return 0.0
 
 
