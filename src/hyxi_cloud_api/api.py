@@ -669,16 +669,17 @@ def _sanitize_dict(raw: dict) -> dict[str, Any]:
 
 def _sanitize_list(raw_list: list) -> list[Any]:
     """Recursively sanitize items in a list, converting empty strings to None."""
-    return [
-        _sanitize_dict(item)
-        if isinstance(item, dict)
-        else _sanitize_list(item)
-        if isinstance(item, list)
-        else None
-        if item == ""
-        else item
-        for item in raw_list
-    ]
+    result: list[Any] = []
+    for item in raw_list:
+        if isinstance(item, dict):
+            result.append(_sanitize_dict(item))
+        elif isinstance(item, list):
+            result.append(_sanitize_list(item))
+        elif item == "":
+            result.append(None)
+        else:
+            result.append(item)
+    return result
 
 
 class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
