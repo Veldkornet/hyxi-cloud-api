@@ -41,9 +41,7 @@ async def test_fetch_device_info_network_error(caplog):
     # Use a longer SN so it's not fully masked to ****
     await api._fetch_device_info("10602251600016", entry)
 
-    assert (
-        "Error fetching device info for fefbfd75: Connection reset" in caplog.text
-    )
+    assert "Error fetching device info for fefbfd75: Connection reset" in caplog.text
     # Ensure it didn't crash and entry was not updated with metrics
     assert "sw_version" not in entry
 

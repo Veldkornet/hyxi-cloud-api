@@ -99,9 +99,7 @@ async def test_fetch_device_metrics_api_error(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_metrics("10602251600016", entry)
 
-    assert (
-        "HYXI API metrics rejected for fefbfd75: Device not found" in caplog.text
-    )
+    assert "HYXI API metrics rejected for fefbfd75: Device not found" in caplog.text
     assert not entry["metrics"]
 
 
