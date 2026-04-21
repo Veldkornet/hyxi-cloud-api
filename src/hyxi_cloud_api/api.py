@@ -11,7 +11,6 @@ import asyncio
 import base64
 import hashlib
 import hmac
-import json
 import logging
 import os
 import re
@@ -761,9 +760,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         )
 
         kwargs.setdefault("timeout", 15)
-
-        if "json" in kwargs:
-            kwargs["data"] = json.dumps(kwargs.pop("json"))
 
         if method.upper() not in ("GET", "POST"):
             raise ValueError(f"Unsupported HTTP method: {method}")
