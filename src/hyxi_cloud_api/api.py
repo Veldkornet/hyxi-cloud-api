@@ -611,19 +611,16 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
 
-    Masks all but the last 4 characters with 'X' to preserve the true length
-    while hiding the sensitive portion. IDs shorter than 8 characters are
-    fully redacted as '****' to prevent short numeric IDs from being revealed.
+    Masks identifiers securely using a one-way SHA-256 hash. The first 8
+    characters of the hex digest are returned to allow deterministic
+    cross-device log correlation without exposing the original value or its length.
 
-    Example: '10602251600016' -> 'XXXXXXXXXX0016'
+    Example: '10602251600016' -> 'e3b0c442'
     """
-    if not value:
+    if not value or value == "None":
         return "****"
     id_str = str(value)
-    if len(id_str) < 8:
-        return "****"
-    mask_len = len(id_str) - 4
-    return f"{'X' * mask_len}{id_str[-4:]}"
+    return hashlib.sha256(id_str.encode("utf-8")).hexdigest()[:8]
 
 
 # Keys in raw API response dicts that contain identifying or personal information.

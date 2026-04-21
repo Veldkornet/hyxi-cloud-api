@@ -67,10 +67,10 @@ When debug logging is enabled, this library automatically masks sensitive identi
 
 | Field | Behaviour |
 | :--- | :--- |
-| Serial numbers (`deviceSn`, `parentSn`, `batSn`) | Middle characters replaced with `X` — length preserved for cross-device tracing, e.g. `106XXXXXXXX016` |
-| Plant IDs (`plantId`) | Same X-padding format |
+| Serial numbers (`deviceSn`, `parentSn`, `batSn`) | Hashed securely using SHA-256 (first 8 chars shown) to enable deterministic cross-device tracing without exposing the original identifier, e.g. `e3b0c442` |
+| Plant IDs (`plantId`) | Same SHA-256 hashing format |
 | Home/site address (`plantAddress`) | Fully redacted → `[REDACTED]` |
-| IMEI (`gprsImei`) | X-padded |
+| IMEI (`gprsImei`) | Same SHA-256 hashing format |
 
 Masking is deterministic, so parent/child device relationships remain traceable across log lines.
 
