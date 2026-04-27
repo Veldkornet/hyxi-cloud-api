@@ -75,7 +75,7 @@ async def test_get_all_device_data_success():
 
 
 @pytest.mark.asyncio
-async def test_get_all_device_data_retry_exhaustion(monkeypatch):
+async def test_get_all_device_data_retry_exhaustion(monkeypatch, caplog):
     """Test that get_all_device_data exhausts retries and returns None."""
     fake_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
@@ -98,6 +98,46 @@ async def test_get_all_device_data_retry_exhaustion(monkeypatch):
 
     # Verify asyncio.sleep was called MAX_RETRIES - 1 times (2)
     assert mock_sleep.call_count == 2
+
+    assert "HYXI Cloud connection failed after 3 attempts" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_get_all_device_data_auth_failed():
+    """Test that get_all_device_data immediately fails on auth failure."""
+    fake_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    api._execute_fetch_all = AsyncMock(return_value="auth_failed")
+
+    result = await api.get_all_device_data()
+
+    assert result is None
+    assert api._execute_fetch_all.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_get_all_device_data_soft_failure(monkeypatch, caplog):
+    """Test that get_all_device_data manually raises and retries when fetch returns None."""
+    import logging
+    caplog.set_level(logging.DEBUG)
+
+    fake_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    # Returning None simulates a soft failure
+    api._execute_fetch_all = AsyncMock(return_value=None)
+
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    result = await api.get_all_device_data()
+
+    assert result is None
+    assert api._execute_fetch_all.call_count == 3
+    assert mock_sleep.call_count == 2
+    assert "Fetch returned None, triggering retry." in caplog.text
+    assert "HYXI Cloud connection failed after 3 attempts" in caplog.text
 
 
 # --- TEST 3: Header Generation and Hashes ---
