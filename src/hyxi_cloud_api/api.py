@@ -1071,22 +1071,28 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict]:
         """Fetch the list of sub-devices from the API."""
         sd_path = "/api/device/v1/getSubDevicePage"
-        _, res_sd = await self._request(
-            "POST",
-            sd_path,
-            json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
-        )
+        try:
+            _, res_sd = await self._request(
+                "POST",
+                sd_path,
+                json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
+            )
 
-        if not res_sd.get("success"):
+            if not res_sd.get("success"):
+                _LOGGER.error(
+                    "HYXI API Sub-Device Fetch Rejected for %s: %s",
+                    _mask_id(parent_sn),
+                    _sanitize_dict(res_sd),
+                )
+                return []
+
+            data_val = res_sd.get("data", {})
+            return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+        except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error(
-                "HYXI API Sub-Device Fetch Rejected for %s: %s",
-                _mask_id(parent_sn),
-                _sanitize_dict(res_sd),
+                "Error fetching sub-devices list for %s: %s", _mask_id(parent_sn), e
             )
             return []
-
-        data_val = res_sd.get("data", {})
-        return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
 
     async def _fetch_sub_devices(self, parent_sn, state: FetchState):
         """Fetch sub-devices under a communication unit (Collector/DMU)."""

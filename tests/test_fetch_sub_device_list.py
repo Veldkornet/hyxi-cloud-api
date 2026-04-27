@@ -91,3 +91,19 @@ async def test_fetch_sub_device_list_missing_child_device():
 
     result = await api._fetch_sub_device_list("parent123")
     assert result == []
+
+@pytest.mark.asyncio
+async def test_fetch_sub_device_list_exception(caplog):
+    """Verify that the method returns an empty list and logs an error when an exception is raised."""
+    caplog.set_level(logging.ERROR)
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(side_effect=Exception("Network Timeout"))
+
+    result = await api._fetch_sub_device_list("parent123")
+    assert result == []
+    api._request.assert_awaited_once_with(
+        "POST",
+        "/api/device/v1/getSubDevicePage",
+        json={"parentSn": "parent123", "pageSize": 50, "currentPage": 1},
+    )
+    assert "Error fetching sub-devices list for" in caplog.text
