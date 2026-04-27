@@ -2,12 +2,11 @@
 
 import logging
 from unittest.mock import AsyncMock, MagicMock
+
 import aiohttp
-
 import pytest
+
 from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
-
-
 
 
 @pytest.mark.asyncio
@@ -88,6 +87,7 @@ async def test_fetch_device_list_for_plant_debug_logging(caplog):
     assert "HYXI Discovered Devices for Plant" in caplog.text
     # SN12345678 -> 10 chars. _mask_id should show last 4. 10-4 = 6 X's.
     assert "5d82af15" in caplog.text
+
 
 @pytest.mark.asyncio
 async def test_fetch_device_list_for_plant_client_error(caplog):
