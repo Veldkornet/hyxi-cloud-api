@@ -511,6 +511,7 @@ async def test_execute_fetch_all_null_data():
     assert isinstance(results, dict)
     assert len(results) == 0
 
+
 @pytest.mark.asyncio
 async def test_fetch_alarms_for_plant_error(caplog):
     """Test that _fetch_alarms_for_plant handles ClientError correctly."""
