@@ -92,6 +92,7 @@ async def test_fetch_sub_device_list_missing_child_device():
     result = await api._fetch_sub_device_list("parent123")
     assert result == []
 
+
 @pytest.mark.asyncio
 async def test_fetch_sub_device_list_exception(caplog):
     """Verify that the method returns an empty list and logs an error when an exception is raised."""
