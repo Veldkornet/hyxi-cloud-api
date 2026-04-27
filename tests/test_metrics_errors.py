@@ -28,6 +28,25 @@ from hyxi_cloud_api.api import HyxiApiClient
 
 
 @pytest.mark.asyncio
+async def test_fetch_device_metrics_request_error(caplog):
+    """Test that _fetch_device_metrics handles errors from _request gracefully."""
+    caplog.set_level(logging.ERROR)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Mock _request to raise an Exception directly
+    api._request = AsyncMock(side_effect=Exception("Mock client error"))
+
+    entry = {"metrics": {}, "device_type_code": "INVERTER"}
+    # Use a longer SN so it's not fully masked to ****
+    await api._fetch_device_metrics("10602251600016", entry)
+
+    assert "Error fetching metrics for fefbfd75: Mock client error" in caplog.text
+    # Ensure it didn't crash and entry was not updated with metrics
+    assert not entry["metrics"]
+
+
+@pytest.mark.asyncio
 async def test_fetch_device_metrics_network_error(caplog):
     """Test that _fetch_device_metrics handles network errors gracefully."""
     caplog.set_level(logging.ERROR)
