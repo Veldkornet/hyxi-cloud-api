@@ -100,6 +100,7 @@ async def test_fetch_device_info_api_error(caplog):
     assert "HYXI INFO API Rejected for fefbfd75: Device not found" in caplog.text
     assert "sw_version" not in entry
 
+
 @pytest.mark.asyncio
 async def test_fetch_device_info_client_error_handling(caplog):
     """Test that _fetch_device_info handles generic exceptions from _request gracefully."""
@@ -115,6 +116,9 @@ async def test_fetch_device_info_client_error_handling(caplog):
     await api._fetch_device_info("10602251600016", entry)
 
     # Verify that the exception is caught and logged
-    assert "Error fetching device info for fefbfd75: Simulated fallback error" in caplog.text
+    assert (
+        "Error fetching device info for fefbfd75: Simulated fallback error"
+        in caplog.text
+    )
     # Ensure it didn't crash and entry was not updated with metrics
     assert "sw_version" not in entry
