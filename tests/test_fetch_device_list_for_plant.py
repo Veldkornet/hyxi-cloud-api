@@ -2,11 +2,11 @@
 
 import logging
 from unittest.mock import AsyncMock, MagicMock
-
 import aiohttp
-from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
 
 import pytest
+from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
+
 
 
 
