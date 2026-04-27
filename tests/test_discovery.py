@@ -51,7 +51,7 @@ def _setup_mock_api():
                         "deviceType": "1",
                         "deviceName": "My Inverter",
                     }
-                ]
+                ],
             },
         }
     )
