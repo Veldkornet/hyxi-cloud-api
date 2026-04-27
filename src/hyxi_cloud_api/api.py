@@ -841,13 +841,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if res_q.get("success"):
                 data_list = res_q.get("data", [])
                 m_raw = _parse_data_list(data_list)
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug(
-                        "HYXI Raw METRICS for %s (%s): %s",
-                        _mask_id(sn),
-                        entry.get("device_type_code"),
-                        _sanitize_dict(m_raw),
-                    )
 
                 # 🚀 Sanitization: If this is a Collector, ignore battery/power metrics that shouldn't be here.
                 # This prevents "Collector" entities in Home Assistant from showing ghost battery stats.
@@ -872,13 +865,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         _LOGGER.debug("HYXI Probing EMS telemetry for %s...", _mask_id(ems_sn))
         m_raw = await self.query_ems_basic_details(ems_sn)
         if m_raw:
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                _LOGGER.debug(
-                    "HYXI Raw METRICS for %s (%s) [EMS]: %s",
-                    _mask_id(ems_sn),
-                    entry.get("device_type_code", "EMS"),
-                    _sanitize_dict(m_raw),
-                )
             entry["metrics"].update(m_raw)
         else:
             _LOGGER.debug(
@@ -951,12 +937,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     i_raw = _parse_data_list(data_raw)
                 else:
                     i_raw = {}
-
-                # 👇 This will dump the EXACT info the cloud sends back
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug(
-                        "HYXI Raw INFO for %s: %s", _mask_id(sn), _sanitize_dict(i_raw)
-                    )
 
                 base_info = HyxiApiClient._extract_device_info_metadata(entry, i_raw)
                 # Store in cache
@@ -1149,16 +1129,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 code = str(a.get("alarmCode", ""))
                 if alarm_name := ALARM_CODE_MAP.get(code):
                     a["alarmName"] = alarm_name
-
-            # 👇 Dump the EXACT active alarms the cloud sends back
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                _LOGGER.debug(
-                    "HYXI Raw ALARMS for Plant %s: %s",
-                    _mask_id(plant_id),
-                    [_sanitize_dict(a) for a in alarms]
-                    if isinstance(alarms, list)
-                    else alarms,
-                )
 
             return alarms
         except (aiohttp.ClientError, TimeoutError, Exception) as e:
