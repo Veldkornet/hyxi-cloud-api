@@ -38,7 +38,7 @@ async def test_refresh_token_exception_handling(caplog):
     api_mod._LOGGER = logging.getLogger("hyxi_cloud_api.api")
 
     # Mock _request to raise an Exception
-    error = Exception("Connection reset")
+    error = ValueError("Connection reset")
     api._request = AsyncMock(side_effect=error)
 
     result = await api._refresh_token()

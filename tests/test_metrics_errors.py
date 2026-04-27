@@ -129,7 +129,7 @@ async def test_fetch_ems_basic_data_error(caplog):
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
     # Mock _request to raise an Exception to ensure query_ems_basic_details returns {}
-    api._request = AsyncMock(side_effect=Exception("EMS data fetch failed"))
+    api._request = AsyncMock(side_effect=ValueError("EMS data fetch failed"))
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
     await api._fetch_ems_basic_data("10602251600016", entry)
@@ -149,7 +149,7 @@ async def test_query_ems_basic_details_error(caplog):
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
     # Mock _request to raise an Exception to cover the error path in query_ems_basic_details
-    api._request = AsyncMock(side_effect=Exception("EMS query failed"))
+    api._request = AsyncMock(side_effect=ValueError("EMS query failed"))
 
     result = await api.query_ems_basic_details("10602251600016")
 

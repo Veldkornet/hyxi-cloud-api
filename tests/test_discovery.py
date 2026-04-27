@@ -278,7 +278,7 @@ async def test_fetch_sub_devices_exception():
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
     # Force an exception during the request
-    api.session.post = MagicMock(side_effect=Exception("Network Timeout"))
+    api.session.post = MagicMock(side_effect=ValueError("Network Timeout"))
 
     state = FetchState(now="Plant123")
 
