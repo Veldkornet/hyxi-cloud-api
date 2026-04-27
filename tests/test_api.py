@@ -384,7 +384,6 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
     # This function previously tested sanitization of the return values
     # from raw alarm logs. We no longer log "HYXI Raw ALARMS" so we don't
     # have any debug output to assert on here anymore.
-    pass
 
 
 @pytest.mark.asyncio
