@@ -3,9 +3,11 @@
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
+from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
+
 import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient
 
 
 @pytest.mark.asyncio
@@ -91,9 +93,6 @@ async def test_fetch_device_list_for_plant_debug_logging(caplog):
 async def test_fetch_device_list_for_plant_client_error(caplog):
     """Verify that a client error from _request is caught, logged, and None is returned."""
     caplog.set_level(logging.ERROR)
-    import aiohttp
-    from src.hyxi_cloud_api.api import FetchState
-
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._request = AsyncMock(side_effect=aiohttp.ClientError("Mocked Client Error"))
 
