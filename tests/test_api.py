@@ -119,7 +119,6 @@ async def test_get_all_device_data_auth_failed():
 @pytest.mark.asyncio
 async def test_get_all_device_data_soft_failure(monkeypatch, caplog):
     """Test that get_all_device_data manually raises and retries when fetch returns None."""
-    import logging
     caplog.set_level(logging.DEBUG)
 
     fake_session = MagicMock()
