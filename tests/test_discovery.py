@@ -35,8 +35,7 @@ def _setup_mock_api():
     mock_response.__aenter__.return_value.raise_for_status = MagicMock()
     mock_response.__aenter__.return_value.status = 200
     mock_response.__aenter__.return_value.json = AsyncMock(
-        side_effect=[
-            {
+        return_value={
                 "success": True,
                 "data": {
                     "deviceList": [
@@ -58,9 +57,8 @@ def _setup_mock_api():
                             "deviceName": "My Inverter",
                         }
                     ]
-                },
-            },
-        ]
+                }
+        }
     )
 
     api.session.post = MagicMock(return_value=mock_response)
