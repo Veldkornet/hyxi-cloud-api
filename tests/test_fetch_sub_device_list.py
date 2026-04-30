@@ -3,6 +3,7 @@
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 
 from src.hyxi_cloud_api.api import HyxiApiClient
@@ -91,3 +92,17 @@ async def test_fetch_sub_device_list_missing_child_device():
 
     result = await api._fetch_sub_device_list("parent123")
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_sub_device_list_client_error(caplog):
+    """Verify that ClientError is caught, logged, and returns an empty list."""
+    caplog.set_level(logging.ERROR)
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(side_effect=aiohttp.ClientError("Connection refused"))
+
+    result = await api._fetch_sub_device_list("parent123")
+
+    assert result == []
+    assert "Error fetching sub-device list for" in caplog.text
+    assert "Connection refused" in caplog.text

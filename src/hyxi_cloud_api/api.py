@@ -833,7 +833,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 return False
 
             return self._apply_token_response(res.get("data", {}))
-        except (aiohttp.ClientError, TimeoutError, Exception) as e:
+        except Exception as e:
             _LOGGER.error("HYXI Token Request Failed: %s", e)
         return False
 
@@ -862,7 +862,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     _mask_id(sn),
                     res_q.get("message"),
                 )
-        except (aiohttp.ClientError, TimeoutError, Exception) as e:
+        except Exception as e:
             _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
 
     async def _fetch_ems_basic_data(self, ems_sn, entry):
@@ -885,7 +885,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if res.get("code") == "0":
                 data = res.get("data", [])
                 return _parse_ems_kv(data)
-        except (aiohttp.ClientError, TimeoutError, Exception) as e:
+        except Exception as e:
             _LOGGER.error(
                 "HYXI EMS Basic Data Request Failed for %s: %s", _mask_id(ems_sn), e
             )
@@ -963,7 +963,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     res_i.get("message"),
                 )
 
-        except (aiohttp.ClientError, TimeoutError, Exception) as e:
+        except Exception as e:
             _LOGGER.error("Error fetching device info for %s: %s", _mask_id(sn), e)
 
     async def _fetch_all_for_device(self, sn, entry, dev_type):
@@ -1024,7 +1024,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             await self._process_devices_for_plant(devices, state)
 
-        except (aiohttp.ClientError, TimeoutError, Exception) as e:
+        except Exception as e:
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
@@ -1059,22 +1059,28 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict]:
         """Fetch the list of sub-devices from the API."""
         sd_path = "/api/device/v1/getSubDevicePage"
-        _, res_sd = await self._request(
-            "POST",
-            sd_path,
-            json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
-        )
+        try:
+            _, res_sd = await self._request(
+                "POST",
+                sd_path,
+                json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
+            )
 
-        if not res_sd.get("success"):
+            if not res_sd.get("success"):
+                _LOGGER.error(
+                    "HYXI API Sub-Device Fetch Rejected for %s: %s",
+                    _mask_id(parent_sn),
+                    _sanitize_dict(res_sd),
+                )
+                return []
+
+            data_val = res_sd.get("data", {})
+            return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+        except Exception as e:
             _LOGGER.error(
-                "HYXI API Sub-Device Fetch Rejected for %s: %s",
-                _mask_id(parent_sn),
-                _sanitize_dict(res_sd),
+                "Error fetching sub-device list for %s: %s", _mask_id(parent_sn), e
             )
             return []
-
-        data_val = res_sd.get("data", {})
-        return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
 
     async def _fetch_sub_devices(self, parent_sn, state: FetchState):
         """Fetch sub-devices under a communication unit (Collector/DMU)."""
@@ -1106,7 +1112,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     self._fetch_all_for_device(sn, entry, raw_type)
                 )
 
-        except (aiohttp.ClientError, TimeoutError, Exception) as e:
+        except Exception as e:
             _LOGGER.error(
                 "Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e
             )
@@ -1139,7 +1145,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     a["alarmName"] = alarm_name
 
             return alarms
-        except (aiohttp.ClientError, TimeoutError, Exception) as e:
+        except Exception as e:
             _LOGGER.error(
                 "Error fetching alarms for plant %s: %s", _mask_id(plant_id), e
             )
