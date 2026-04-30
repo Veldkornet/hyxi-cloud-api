@@ -901,6 +901,18 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         return {}
 
     @staticmethod
+    def _extract_battery_info(i_raw):
+        """Helper to extract battery-specific device info."""
+        return {
+            "batCap": _get_f("batCap", i_raw),
+            "packNum": int(i_raw.get("packNum") or 1),
+            "maxChargePower": _get_f("maxChargePower", i_raw)
+            or _get_f("maxChargingDischargingPower", i_raw),
+            "maxDischargePower": _get_f("maxDischargePower", i_raw)
+            or _get_f("maxChargingDischargingPower", i_raw),
+        }
+
+    @staticmethod
     def _extract_device_info_metadata(entry, i_raw):
         """Helper to extract metadata from device info."""
         sw_ver = i_raw.get("swVerSys") or i_raw.get("swVerMaster") or i_raw.get("swVer")
@@ -923,16 +935,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
         device_type_code = entry.get("device_type_code", "").upper()
         if _BATTERY_DEVICE_REGEX.search(device_type_code):
-            base_info.update(
-                {
-                    "batCap": _get_f("batCap", i_raw),
-                    "packNum": int(i_raw.get("packNum") or 1),
-                    "maxChargePower": _get_f("maxChargePower", i_raw)
-                    or _get_f("maxChargingDischargingPower", i_raw),
-                    "maxDischargePower": _get_f("maxDischargePower", i_raw)
-                    or _get_f("maxChargingDischargingPower", i_raw),
-                }
-            )
+            base_info.update(HyxiApiClient._extract_battery_info(i_raw))
 
         entry["metrics"].update(base_info)
         return base_info
