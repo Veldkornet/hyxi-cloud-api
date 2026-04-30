@@ -99,3 +99,26 @@ async def test_fetch_device_info_api_error(caplog):
 
     assert "HYXI INFO API Rejected for fefbfd75: Device not found" in caplog.text
     assert "sw_version" not in entry
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_info_client_error_handling(caplog):
+    """Test that _fetch_device_info handles generic exceptions from _request gracefully."""
+    caplog.set_level(logging.ERROR)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Mock _request to directly raise an exception, simulating a client error or timeout
+    api._request = AsyncMock(side_effect=Exception("Simulated fallback error"))
+
+    entry = {"metrics": {}, "device_type_code": "INVERTER"}
+    # Use a longer SN so it's not fully masked to ****
+    await api._fetch_device_info("10602251600016", entry)
+
+    # Verify that the exception is caught and logged
+    assert (
+        "Error fetching device info for fefbfd75: Simulated fallback error"
+        in caplog.text
+    )
+    # Ensure it didn't crash and entry was not updated with metrics
+    assert "sw_version" not in entry
