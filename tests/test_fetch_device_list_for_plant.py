@@ -3,9 +3,10 @@
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient
+from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
 
 
 @pytest.mark.asyncio
@@ -86,3 +87,17 @@ async def test_fetch_device_list_for_plant_debug_logging(caplog):
     assert "HYXI Discovered Devices for Plant" in caplog.text
     # SN12345678 -> 10 chars. _mask_id should show last 4. 10-4 = 6 X's.
     assert "5d82af15" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_list_for_plant_client_error(caplog):
+    """Verify that a client error from _request is caught, logged, and None is returned."""
+    caplog.set_level(logging.ERROR)
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(side_effect=aiohttp.ClientError("Mocked Client Error"))
+
+    state = FetchState(now="2024-01-01T00:00:00Z")
+    result = await api._fetch_devices_for_plant("plant123", state)
+
+    assert result is None
+    assert "Error fetching devices for plant" in caplog.text
