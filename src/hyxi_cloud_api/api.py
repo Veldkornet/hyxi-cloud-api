@@ -1303,24 +1303,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             _mask_id(plant_id),
         )
         state.discovered_sns.add(sn)
-        dev_type = str(a.get("deviceType") or "UNKNOWN")
-        friendly_name = (
-            DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
-        )
 
-        device_name = a.get("deviceName")
-        if not device_name:
-            device_name = f"{friendly_name} {sn}"
-
-        entry = {
-            "sn": sn,
-            "device_name": device_name,
-            "model": friendly_name,
-            "device_type_code": dev_type,
-            "sw_version": None,
-            "hw_version": None,
-            "metrics": {"last_seen": state.now},
-        }
+        entry, dev_type = HyxiApiClient._build_device_entry(sn, a, state.now)
         state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
