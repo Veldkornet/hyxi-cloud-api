@@ -885,6 +885,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if res.get("code") == "0":
                 data = res.get("data", [])
                 return _parse_ems_kv(data)
+
+            _LOGGER.debug(
+                "HYXI EMS query returned non-zero code for %s: %s",
+                _mask_id(ems_sn),
+                res.get("code"),
+            )
         except Exception as e:
             _LOGGER.error(
                 "HYXI EMS Basic Data Request Failed for %s: %s", _mask_id(ems_sn), e
