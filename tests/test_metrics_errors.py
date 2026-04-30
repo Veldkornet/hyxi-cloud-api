@@ -129,8 +129,8 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    # Mock query_ems_basic_details to return None (no data)
-    api.query_ems_basic_details = AsyncMock(return_value=None)
+    # Mock query_ems_basic_details to return {} (no data — the actual return contract)
+    api.query_ems_basic_details = AsyncMock(return_value={})
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
     await api._fetch_ems_basic_data("10602251600016", entry)
@@ -198,3 +198,24 @@ async def test_query_ems_basic_details_network_error(caplog):
         "HYXI EMS Basic Data Request Failed for fefbfd75: Connection reset"
         in caplog.text
     )
+
+
+@pytest.mark.asyncio
+async def test_query_ems_basic_details_non_zero_code(caplog):
+    """Test that query_ems_basic_details logs and returns {} when the API returns a non-zero code.
+
+    This covers devices not enrolled in EMS or where the API signals an
+    application-level rejection (HTTP 200 but code != '0').
+    """
+    caplog.set_level(logging.DEBUG)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    api._request = AsyncMock(
+        return_value=(200, {"code": "1001", "msg": "Device not enrolled"})
+    )
+
+    result = await api.query_ems_basic_details("10602251600016")
+
+    assert result == {}
+    assert "HYXI EMS query returned non-zero code for fefbfd75: 1001" in caplog.text
