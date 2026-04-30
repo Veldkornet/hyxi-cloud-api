@@ -781,7 +781,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             return False
 
         self.token = str(f"Bearer {token_val}")
+        self.token_expires_at = self._calculate_token_expiration(data)
 
+        return True
+
+    def _calculate_token_expiration(self, data: dict) -> float:
+        """Calculate token expiration timestamp from API response."""
         # 1. Grab the raw expiration value exactly as the API sent it
         raw_expires_in = data.get("expiresIn") or data.get("expires_in")
         _LOGGER.debug(
@@ -792,10 +797,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         # 3. Apply the 5-minute (300s) safety buffer
         buffer_secs = 300
         expires_at_val = raw_expires_in or 6600
-        self.token_expires_at = time.time() + float(expires_at_val) - buffer_secs
+        token_expires_at = time.time() + float(expires_at_val) - buffer_secs
 
         # 4. Log the actual scheduled refresh time
-        refresh_time_str = datetime.fromtimestamp(self.token_expires_at).strftime(
+        refresh_time_str = datetime.fromtimestamp(token_expires_at).strftime(
             "%Y-%m-%d %H:%M:%S"
         )
         _LOGGER.debug(
@@ -803,7 +808,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             int(float(expires_at_val)) - buffer_secs,
             refresh_time_str,
         )
-        return True
+        return token_expires_at
 
     async def _refresh_token(self):
         """Async version of token refresh."""
