@@ -56,7 +56,9 @@ _COLLECTOR_FILTER_KEYWORDS = (
     "ph3",
 )
 
-_COLLECTOR_FILTER_REGEX = re.compile("|".join(_COLLECTOR_FILTER_KEYWORDS), re.IGNORECASE)
+_COLLECTOR_FILTER_REGEX = re.compile(
+    "|".join(_COLLECTOR_FILTER_KEYWORDS), re.IGNORECASE
+)
 
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
