@@ -175,3 +175,18 @@ def test_sanitize_list_edge_cases():
         [[{"password": "MASKED", "empty": ""}, None]],
     ]
     assert result == expected
+
+
+def test_sanitize_dict_new_keys():
+    """Verify that _sanitize_dict masks newly added sensitive keys."""
+    raw = {
+        "emsSn": "EMS12345",
+        "alias": "MyCustomAlias",
+        "normal": "value",
+    }
+
+    sanitized = _sanitize_dict(raw)
+
+    assert sanitized["emsSn"] != "EMS12345"
+    assert sanitized["alias"] != "MyCustomAlias"
+    assert sanitized["normal"] == "value"

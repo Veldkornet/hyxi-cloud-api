@@ -629,6 +629,8 @@ _SENSITIVE_KEYS = frozenset(
         "deviceSn",
         "parentSn",
         "batSn",
+        "emsSn",
+        "alias",
         "plantId",
         "gprsImei",
         "plantAddress",  # Full home/site address — hard-redact
@@ -862,7 +864,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 _LOGGER.warning(
                     "HYXI API metrics rejected for %s: %s",
                     _mask_id(sn),
-                    res_q.get("message"),
+                    _sanitize_dict(res_q),
                 )
         except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
@@ -894,6 +896,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if res.get("code") == "0":
                 data = res.get("data", [])
                 return _parse_ems_kv(data)
+            else:
+                _LOGGER.warning(
+                    "HYXI EMS Basic Data Request Rejected for %s: %s",
+                    _mask_id(ems_sn),
+                    _sanitize_dict(res),
+                )
         except (aiohttp.ClientError, TimeoutError, Exception) as e:
             _LOGGER.error(
                 "HYXI EMS Basic Data Request Failed for %s: %s", _mask_id(ems_sn), e
@@ -972,7 +980,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 _LOGGER.warning(
                     "HYXI INFO API Rejected for %s: %s",
                     _mask_id(sn),
-                    res_i.get("message"),
+                    _sanitize_dict(res_i),
                 )
 
         except (aiohttp.ClientError, TimeoutError, Exception) as e:
@@ -1155,9 +1163,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 _LOGGER.debug(
                     "HYXI Raw ALARMS for Plant %s: %s",
                     _mask_id(plant_id),
-                    [_sanitize_dict(a) for a in alarms]
+                    _sanitize_list(alarms)
                     if isinstance(alarms, list)
-                    else alarms,
+                    else _sanitize_dict(alarms),
                 )
 
             return alarms
