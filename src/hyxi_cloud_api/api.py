@@ -1388,37 +1388,48 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         )
 
         if use_cache:
-            _LOGGER.debug("HYXI using cached discovery data (Fast Polling)")
-            state.plants = self._discovery_cache.get("plants") or []
-            # Reconstruct entries from hierarchy or known SNS
-            info_cache = self._discovery_cache.get("device_info")
-            if isinstance(info_cache, dict):
-                for sn, info in info_cache.items():
-                    entry = {
-                        "sn": sn,
-                        "device_name": info.get("device_name", f"{info['model']} {sn}"),
-                        "model": info["model"],
-                        "device_type_code": info["device_type_code"],
-                        "sw_version": info.get("_sw_ver_sys"),
-                        "hw_version": info.get("hw_version"),
-                        "metrics": {"last_seen": now},
-                    }
-                    state.metric_tasks.append(
-                        self._fetch_all_for_device(sn, entry, info["device_type_code"])
-                    )
-                state.discovered_sns = set(info_cache.keys())
+            return await self._execute_fetch_cached(state, allow_back_discovery)
 
-            # Fetch alarms (to allow back-discovery if enabled) and metrics
-            _, alarm_fetch_tasks = self._build_plant_tasks(state, include_devices=False)
-            plant_alarms = await self._fetch_and_process_alarms(
-                alarm_fetch_tasks,
-                state,
-                allow_back_discovery=allow_back_discovery,
-            )
-            await self._execute_metric_tasks(plant_alarms, state)
-            return state.results
+        return await self._execute_fetch_full_discovery(state, allow_back_discovery)
 
-        # Full Discovery Path
+    async def _execute_fetch_cached(
+        self, state: FetchState, allow_back_discovery: bool
+    ):
+        """Execute the fetching logic using cached discovery data (Fast Polling)."""
+        _LOGGER.debug("HYXI using cached discovery data (Fast Polling)")
+        state.plants = self._discovery_cache.get("plants") or []
+        # Reconstruct entries from hierarchy or known SNS
+        info_cache = self._discovery_cache.get("device_info")
+        if isinstance(info_cache, dict):
+            for sn, info in info_cache.items():
+                entry = {
+                    "sn": sn,
+                    "device_name": info.get("device_name", f"{info['model']} {sn}"),
+                    "model": info["model"],
+                    "device_type_code": info["device_type_code"],
+                    "sw_version": info.get("_sw_ver_sys"),
+                    "hw_version": info.get("hw_version"),
+                    "metrics": {"last_seen": state.now},
+                }
+                state.metric_tasks.append(
+                    self._fetch_all_for_device(sn, entry, info["device_type_code"])
+                )
+            state.discovered_sns = set(info_cache.keys())
+
+        # Fetch alarms (to allow back-discovery if enabled) and metrics
+        _, alarm_fetch_tasks = self._build_plant_tasks(state, include_devices=False)
+        plant_alarms = await self._fetch_and_process_alarms(
+            alarm_fetch_tasks,
+            state,
+            allow_back_discovery=allow_back_discovery,
+        )
+        await self._execute_metric_tasks(plant_alarms, state)
+        return state.results
+
+    async def _execute_fetch_full_discovery(
+        self, state: FetchState, allow_back_discovery: bool
+    ):
+        """Execute the fetching logic using full discovery path."""
         plants = await self._fetch_plants()
         if plants is None:
             return None
