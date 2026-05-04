@@ -220,6 +220,7 @@ async def test_query_ems_basic_details_non_zero_code(caplog):
     assert result == {}
     assert "HYXI EMS query returned non-zero code for fefbfd75: 1001" in caplog.text
 
+
 @pytest.mark.asyncio
 async def test_query_ems_basic_details_malformed_response(caplog):
     """Test that query_ems_basic_details handles malformed responses (AttributeError)."""
