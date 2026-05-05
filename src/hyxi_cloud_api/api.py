@@ -56,6 +56,8 @@ _COLLECTOR_FILTER_KEYWORDS = (
 
 _COLLECTOR_FILTER_REGEX = re.compile("|".join(_COLLECTOR_FILTER_KEYWORDS))
 
+_PV_KEYS = tuple((f"pv{i}v", f"pv{i}i", f"pv{i}p") for i in range(1, 5))
+
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
     "704": "The ambient temperature is too high",
@@ -596,8 +598,7 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
         derived["bat_discharge_total"] = _get_f("batDisCharge", m_raw)
 
     # 4. PV String Powers (Derived if missing)
-    for i in range(1, 5):
-        v_k, i_k, p_k = f"pv{i}v", f"pv{i}i", f"pv{i}p"
+    for v_k, i_k, p_k in _PV_KEYS:
         if v_k in m_raw or i_k in m_raw or p_k in m_raw:
             derived[p_k] = _get_f(p_k, m_raw) or round(
                 _get_f(v_k, m_raw) * _get_f(i_k, m_raw), 2
