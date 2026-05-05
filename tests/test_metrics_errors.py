@@ -118,7 +118,8 @@ async def test_fetch_device_metrics_api_error(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_metrics("10602251600016", entry)
 
-    assert "HYXI API metrics rejected for fefbfd75: Device not found" in caplog.text
+    assert "HYXI API metrics rejected for fefbfd75" in caplog.text
+    assert "success" in caplog.text  # _sanitize_dict logs full response dict
     assert not entry["metrics"]
 
 
@@ -207,7 +208,7 @@ async def test_query_ems_basic_details_non_zero_code(caplog):
     This covers devices not enrolled in EMS or where the API signals an
     application-level rejection (HTTP 200 but code != '0').
     """
-    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.WARNING)
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
@@ -218,7 +219,7 @@ async def test_query_ems_basic_details_non_zero_code(caplog):
     result = await api.query_ems_basic_details("10602251600016")
 
     assert result == {}
-    assert "HYXI EMS query returned non-zero code for fefbfd75: 1001" in caplog.text
+    assert "HYXI EMS Basic Data Request Rejected for fefbfd75" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -97,7 +97,8 @@ async def test_fetch_device_info_api_error(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_info("10602251600016", entry)
 
-    assert "HYXI INFO API Rejected for fefbfd75: Device not found" in caplog.text
+    assert "HYXI INFO API Rejected for fefbfd75" in caplog.text
+    assert "success" in caplog.text  # _sanitize_dict logs full response dict
     assert "sw_version" not in entry
 
 
