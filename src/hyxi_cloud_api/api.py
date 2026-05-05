@@ -54,7 +54,9 @@ _COLLECTOR_FILTER_KEYWORDS = (
     "ph3",
 )
 
-_COLLECTOR_FILTER_REGEX = re.compile("|".join(_COLLECTOR_FILTER_KEYWORDS))
+_COLLECTOR_FILTER_REGEX = re.compile(
+    "|".join(_COLLECTOR_FILTER_KEYWORDS), re.IGNORECASE
+)
 
 _PV_KEYS = tuple((f"pv{i}v", f"pv{i}i", f"pv{i}p") for i in range(1, 5))
 
@@ -554,9 +556,7 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
 
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
-    return {
-        k: v for k, v in m_raw.items() if not _COLLECTOR_FILTER_REGEX.search(k.lower())
-    }
+    return {k: v for k, v in m_raw.items() if not _COLLECTOR_FILTER_REGEX.search(k)}
 
 
 def _compute_derived_metrics(m_raw: dict) -> dict:
