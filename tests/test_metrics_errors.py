@@ -219,3 +219,20 @@ async def test_query_ems_basic_details_non_zero_code(caplog):
 
     assert result == {}
     assert "HYXI EMS query returned non-zero code for fefbfd75: 1001" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_query_ems_basic_details_malformed_response(caplog):
+    """Test that query_ems_basic_details handles malformed responses (AttributeError)."""
+    caplog.set_level(logging.ERROR)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Mock _request to return (200, None) to trigger AttributeError in query_ems_basic_details
+    api._request = AsyncMock(return_value=(200, None))
+
+    result = await api.query_ems_basic_details("10602251600016")
+
+    assert result == {}
+    assert "HYXI EMS Basic Data Request Failed for fefbfd75" in caplog.text
+    assert "object has no attribute 'get'" in caplog.text
