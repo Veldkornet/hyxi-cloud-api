@@ -628,6 +628,8 @@ _SENSITIVE_KEYS = frozenset(
         "deviceSn",
         "parentSn",
         "batSn",
+        "emsSn",
+        "alias",
         "plantId",
         "gprsImei",
         "plantAddress",  # Full home/site address — hard-redact
@@ -859,7 +861,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 _LOGGER.warning(
                     "HYXI API metrics rejected for %s: %s",
                     _mask_id(sn),
-                    res_q.get("message"),
+                    _sanitize_dict(res_q),
                 )
         except Exception as e:
             _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
@@ -885,10 +887,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 data = res.get("data", [])
                 return _parse_ems_kv(data)
 
-            _LOGGER.debug(
-                "HYXI EMS query returned non-zero code for %s: %s",
+            _LOGGER.warning(
+                "HYXI EMS Basic Data Request Rejected for %s: %s",
                 _mask_id(ems_sn),
-                res.get("code"),
+                _sanitize_dict(res),
             )
         except Exception as e:
             _LOGGER.error(
@@ -965,7 +967,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 _LOGGER.warning(
                     "HYXI INFO API Rejected for %s: %s",
                     _mask_id(sn),
-                    res_i.get("message"),
+                    _sanitize_dict(res_i),
                 )
 
         except Exception as e:
