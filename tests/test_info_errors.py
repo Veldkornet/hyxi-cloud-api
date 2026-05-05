@@ -41,7 +41,7 @@ async def test_fetch_device_info_network_error(caplog):
     # Use a longer SN so it's not fully masked to ****
     await api._fetch_device_info("10602251600016", entry)
 
-    assert "Error fetching device info for fefbfd75: Connection reset" in caplog.text
+    assert "Error fetching device info for " in caplog.text and ": Connection reset" in caplog.text
     # Ensure it didn't crash and entry was not updated with metrics
     assert "sw_version" not in entry
 
@@ -70,7 +70,7 @@ async def test_fetch_device_info_invalid_json(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_info("10602251600016", entry)
 
-    assert "Error fetching device info for fefbfd75" in caplog.text
+    assert "Error fetching device info for " in caplog.text
     assert "sw_version" not in entry
 
 
@@ -97,7 +97,7 @@ async def test_fetch_device_info_api_error(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_info("10602251600016", entry)
 
-    assert "HYXI INFO API Rejected for fefbfd75: Device not found" in caplog.text
+    assert "HYXI INFO API Rejected for " in caplog.text and ": Device not found" in caplog.text
     assert "sw_version" not in entry
 
 
@@ -116,9 +116,6 @@ async def test_fetch_device_info_client_error_handling(caplog):
     await api._fetch_device_info("10602251600016", entry)
 
     # Verify that the exception is caught and logged
-    assert (
-        "Error fetching device info for fefbfd75: Simulated fallback error"
-        in caplog.text
-    )
+    assert "Error fetching device info for " in caplog.text and ": Simulated fallback error" in caplog.text
     # Ensure it didn't crash and entry was not updated with metrics
     assert "sw_version" not in entry

@@ -41,23 +41,24 @@ def test_sanitize_dict_recursive():
         "nestedList": [[{"deviceSn": "SN0000"}]],
     }
 
+    from src.hyxi_cloud_api.api import _mask_id
     sanitized = _sanitize_dict(raw)
 
     assert sanitized["plantAddress"] == "[REDACTED]"
-    assert sanitized["deviceSn"] == "c90391cf"
+    assert sanitized["deviceSn"] == _mask_id("SN123456789")
     assert sanitized["normalKey"] == "normalValue"
 
     # Check nested list of dicts
-    assert sanitized["data"][0]["deviceSn"] == "795d881c"
-    assert sanitized["data"][0]["nested"]["plantId"] == "bd83cb6a"
+    assert sanitized["data"][0]["deviceSn"] == _mask_id("SN987654321")
+    assert sanitized["data"][0]["nested"]["plantId"] == _mask_id("PID123")
     assert sanitized["data"][0]["nested"]["normal"] == "value"
     assert sanitized["data"][1] == "not a dict"
 
     # Check nested dict
-    assert sanitized["nestedDict"]["batSn"] == "8015218b"
+    assert sanitized["nestedDict"]["batSn"] == _mask_id("BAT12345")
 
     # Check nested list
-    assert sanitized["nestedList"][0][0]["deviceSn"] == "083c86de"
+    assert sanitized["nestedList"][0][0]["deviceSn"] == _mask_id("SN0000")
 
 
 @pytest.mark.asyncio

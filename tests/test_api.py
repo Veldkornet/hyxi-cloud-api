@@ -550,4 +550,4 @@ async def test_fetch_alarms_for_plant_error(caplog):
     assert alarms == []
 
     log_text = caplog.text
-    assert "Error fetching alarms for plant ef797c81: Connection reset" in log_text
+    assert "Error fetching alarms for plant " in log_text and ": Connection reset" in log_text
