@@ -154,3 +154,58 @@ def test_apply_token_response_empty_string_expiration(mock_time, api_client):
     assert api_client._apply_token_response(data) is True
     # now + 6600 - 300 = 1006300
     assert api_client.token_expires_at == 1006300.0
+
+
+@patch("time.time")
+def test_calculate_token_expiration_expiresIn(mock_time, api_client):
+    """Verify 'expiresIn' is used correctly."""
+    now = 1000000.0
+    mock_time.return_value = now
+    data = {"expiresIn": 3600}
+
+    expires_at = api_client._calculate_token_expiration(data)
+    assert expires_at == 1003300.0
+
+
+@patch("time.time")
+def test_calculate_token_expiration_expires_in(mock_time, api_client):
+    """Verify 'expires_in' is used correctly."""
+    now = 1000000.0
+    mock_time.return_value = now
+    data = {"expires_in": 3600}
+
+    expires_at = api_client._calculate_token_expiration(data)
+    assert expires_at == 1003300.0
+
+
+@patch("time.time")
+def test_calculate_token_expiration_default(mock_time, api_client):
+    """Verify default 6600 is used when expiration is missing."""
+    now = 1000000.0
+    mock_time.return_value = now
+    data = {}
+
+    expires_at = api_client._calculate_token_expiration(data)
+    assert expires_at == 1006300.0
+
+
+@patch("time.time")
+def test_calculate_token_expiration_string(mock_time, api_client):
+    """Verify string values are parsed to float."""
+    now = 1000000.0
+    mock_time.return_value = now
+    data = {"expiresIn": "7200"}
+
+    expires_at = api_client._calculate_token_expiration(data)
+    assert expires_at == 1006900.0
+
+
+@patch("time.time")
+def test_calculate_token_expiration_prioritizes_expiresIn(mock_time, api_client):
+    """Verify 'expiresIn' takes precedence over 'expires_in'."""
+    now = 1000000.0
+    mock_time.return_value = now
+    data = {"expiresIn": 3600, "expires_in": 7200}
+
+    expires_at = api_client._calculate_token_expiration(data)
+    assert expires_at == 1003300.0
