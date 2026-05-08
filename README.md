@@ -57,6 +57,34 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+## 🔧 Device Control
+
+You can control inverter operating modes directly through the API. This requires a device serial number, which you can obtain from the device data response above.
+
+```python
+async def control_example(client, device_sn):
+    # Set operating mode
+    await client.set_mode_self_consume(device_sn)
+    await client.set_mode_charge(device_sn, watts=3000)
+    await client.set_mode_discharge(device_sn, watts=2500)
+    await client.set_mode_idle(device_sn)
+
+    # Peak shaving (close, charge, discharge, stop, hold)
+    await client.set_peak_shaving(device_sn, action="charge")
+
+    # Frequency control
+    await client.set_frequency_control(device_sn, enabled=True)
+```
+
+Control failures raise `HyxiApiClient.ControlError`:
+
+```python
+try:
+    await client.set_mode_charge(device_sn, watts=3000)
+except client.ControlError as e:
+    print(f"Control command failed: {e}")
+```
+
 ## 🛠️ Requirements
 * Python 3.14 or newer
 * `aiohttp` >= 3.13.3

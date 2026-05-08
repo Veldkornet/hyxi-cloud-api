@@ -5,10 +5,13 @@ INTERNAL_ERROR_MAP, and DEVICE_TYPE_MAP reference tables to avoid external
 dependencies. Suppress the module-size warning accordingly.
 """  # pylint: disable=too-many-lines
 
+from __future__ import annotations
+
 import asyncio
 import base64
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
@@ -42,7 +45,7 @@ class FetchState:
 _LOGGER = logging.getLogger(__name__)
 _battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15")
 _BATTERY_DEVICE_REGEX = re.compile("|".join(_battery_device_types))
-_parent_device_types = ("COLLECTOR", "DMU", "INVERTER")
+_parent_device_types = ("COLLECTOR", "DMU", "INVERTER", "ALL_IN_ONE")
 _PARENT_DEVICE_REGEX = re.compile("|".join(_parent_device_types))
 _COLLECTOR_FILTER_KEYWORDS = (
     "bat",
@@ -559,7 +562,7 @@ def _filter_collector_metrics(m_raw: dict) -> dict:
     return {k: v for k, v in m_raw.items() if not _COLLECTOR_FILTER_REGEX.search(k)}
 
 
-def _compute_derived_metrics(m_raw: dict) -> dict:
+def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
     """Calculate derived metrics from raw metrics map.
 
     Only keys that have relevant base data in m_raw will be included in the
@@ -582,12 +585,17 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
         derived["grid_export"] = grid if grid > 0 else 0.0
 
     # 3. Battery Metrics
-    # Prefer batP (DC terminals) over pbat (AC equivalent)
     bat_p_dc = _get_f("batP", m_raw)
     pbat = _get_f("pbat", m_raw)
 
     if "batP" in m_raw or "pbat" in m_raw:
-        power_source = bat_p_dc if bat_p_dc != 0.0 else pbat
+        # ALL_IN_ONE: prefer pbat — batP can have an inverted sign convention,
+        # while pbat is consistently negative-for-charging / positive-for-discharging.
+        # Other devices: prefer batP (DC terminals), fall back to pbat.
+        if device_type.upper() == "ALL_IN_ONE":
+            power_source = pbat if pbat != 0.0 else bat_p_dc
+        else:
+            power_source = bat_p_dc if bat_p_dc != 0.0 else pbat
         derived["bat_charging"] = abs(power_source) if power_source < 0 else 0.0
         derived["bat_discharging"] = power_source if power_source > 0 else 0.0
         derived["bat_power_dc"] = bat_p_dc
@@ -603,6 +611,15 @@ def _compute_derived_metrics(m_raw: dict) -> dict:
             derived[p_k] = _get_f(p_k, m_raw) or round(
                 _get_f(v_k, m_raw) * _get_f(i_k, m_raw), 2
             )
+
+    # Derive pv1p from ppv - pv2p when pv1 data is not reported directly
+    # (e.g. ALL_IN_ONE devices only report ppv and pv2p).
+    # TODO: Investigate whether the API will report pv1p natively for
+    # ALL_IN_ONE in a future firmware/cloud update — remove this fallback
+    # once pv1p is reported properly.
+    if "pv1p" not in derived and "ppv" in m_raw and "pv2p" in derived:
+        ppv_total = _get_f("ppv", m_raw)
+        derived["pv1p"] = round(max(ppv_total - derived["pv2p"], 0), 2)
 
     return derived
 
@@ -680,8 +697,20 @@ def _sanitize_list(raw_list: list) -> list[Any]:
     return result
 
 
+_PEAK_SHAVING_VALUES = {
+    "close": "0",
+    "charge": "1",
+    "discharge": "2",
+    "stop": "3",
+    "hold": "4",
+}
+
+
 class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     """Client for interacting with the HYXI Cloud API."""
+
+    class ControlError(Exception):
+        """Raised when a device control command fails."""
 
     def __init__(
         self, access_key, secret_key, base_url, session: aiohttp.ClientSession
@@ -856,7 +885,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     entry["metrics"].update(m_raw)
 
                 if "gridP" in m_raw or "pbat" in m_raw or "batP" in m_raw:
-                    entry["metrics"].update(_compute_derived_metrics(m_raw))
+                    entry["metrics"].update(
+                        _compute_derived_metrics(m_raw, entry.get("device_type_code", ""))
+                    )
             else:
                 _LOGGER.warning(
                     "HYXI API metrics rejected for %s: %s",
@@ -1471,3 +1502,87 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         }
 
         return entry, dev_type
+
+    # ── Device Control API ──────────────────────────────────────────────
+
+    async def set_device_control(
+        self, device_sn: str, control_map: dict[int | str, str]
+    ) -> dict:
+        """Send a controlMap write to a device.
+
+        Endpoint: POST /api/device/v2/control
+        Body: {"deviceControlMap": {"<sn>": {"<controlId>": <value>, ...}}}
+
+        control_map keys are HYXI controlIds (1020/1021/1062/1063/1064/1065/...).
+        Values are strings per the developer docs ('' for idle/self-consumption,
+        a wattage like '100' for 1063/1064, '0'/'1' for switches).
+        """
+        token_status = await self._refresh_token()
+        if token_status == "auth_failed":
+            raise self.ControlError("Authentication failed")
+        if not token_status:
+            raise self.ControlError("Could not obtain API token")
+
+        path = "/api/device/v2/control"
+        body = {
+            "deviceControlMap": {
+                device_sn: {str(k): v for k, v in control_map.items()}
+            }
+        }
+        _LOGGER.debug(
+            "HYXI CONTROL request for %s: %s",
+            _mask_id(device_sn),
+            body["deviceControlMap"][device_sn],
+        )
+        _, res = await self._request("POST", path, json=body)
+        if res is None or not res.get("success"):
+            code = res.get("code", "unknown") if res else "no_response"
+            msg = res.get("msg", "") if res else ""
+            raise self.ControlError(
+                f"controlMap write failed (code={code}): {msg}"
+            )
+        _LOGGER.debug(
+            "HYXI CONTROL response for %s: success=%s",
+            _mask_id(device_sn),
+            res.get("success"),
+        )
+        return res
+
+    async def set_mode_idle(self, device_sn: str) -> dict:
+        """Set inverter to Idle mode (controlId 1062)."""
+        return await self.set_device_control(device_sn, {1062: ""})
+
+    async def set_mode_charge(self, device_sn: str, watts: int) -> dict:
+        """Set inverter to Charge mode (controlId 1063) with wattage."""
+        return await self.set_device_control(device_sn, {1063: str(int(watts))})
+
+    async def set_mode_discharge(self, device_sn: str, watts: int) -> dict:
+        """Set inverter to Discharge mode (controlId 1064) with wattage."""
+        return await self.set_device_control(device_sn, {1064: str(int(watts))})
+
+    async def set_mode_self_consume(self, device_sn: str) -> dict:
+        """Set inverter to Self-consumption mode (controlId 1065)."""
+        return await self.set_device_control(device_sn, {1065: ""})
+
+    async def set_peak_shaving(
+        self, device_sn: str, action: str
+    ) -> dict:
+        """Set Peak Shaving control (controlId 1021).
+
+        action: one of 'close', 'charge', 'discharge', 'stop', 'hold'
+        """
+        value = _PEAK_SHAVING_VALUES.get(action)
+        if value is None:
+            raise ValueError(
+                f"Invalid peak shaving action '{action}'. "
+                f"Must be one of: {', '.join(_PEAK_SHAVING_VALUES)}"
+            )
+        return await self.set_device_control(device_sn, {1021: value})
+
+    async def set_frequency_control(
+        self, device_sn: str, enabled: bool
+    ) -> dict:
+        """Enable or disable Frequency Control (controlId 1020)."""
+        return await self.set_device_control(
+            device_sn, {1020: "1" if enabled else "0"}
+        )
