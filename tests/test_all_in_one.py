@@ -12,7 +12,10 @@ class TestAllInOneBatteryPreference:
 
     def test_pbat_preferred_when_batp_sign_inverted(self):
         """ALL_IN_ONE: batP has inverted sign, pbat is correct."""
-        data = {"batP": 500.0, "pbat": -450.0}  # batP says discharging, pbat says charging
+        data = {
+            "batP": 500.0,
+            "pbat": -450.0,
+        }  # batP says discharging, pbat says charging
         result = _compute_derived_metrics(data, device_type="ALL_IN_ONE")
         assert result["bat_charging"] == 450.0
         assert result["bat_discharging"] == 0.0

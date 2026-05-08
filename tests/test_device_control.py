@@ -1,22 +1,5 @@
 """Tests for the Device Control API methods."""
 
-import sys
-from unittest.mock import MagicMock
-
-if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientError"):
-    m = MagicMock()
-
-    class MockExp(Exception):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args)
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-
-    m.ClientError = MockExp
-    m.ClientResponseError = type("ClientResponseError", (MockExp,), {})
-    m.ContentTypeError = type("ContentTypeError", (MockExp,), {})
-    sys.modules["aiohttp"] = m
-
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -156,8 +139,106 @@ async def test_control_error_on_api_failure():
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
     api._request = AsyncMock(
-        return_value=(200, {"success": False, "code": "C000001", "msg": "Parameter error"})
+        return_value=(
+            200,
+            {"success": False, "code": "C000001", "msg": "Parameter error"},
+        )
     )
 
     with pytest.raises(api.ControlError, match="controlMap write failed"):
         await api.set_mode_charge("SN123", watts=3000)
+
+
+@pytest.mark.asyncio
+async def test_set_mode_charge_invalid_watts():
+    """Test set_mode_charge raises ValueError for zero/negative watts."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+
+    with pytest.raises(ValueError, match="watts must be a positive integer"):
+        await api.set_mode_charge("SN123", watts=0)
+
+    with pytest.raises(ValueError, match="watts must be a positive integer"):
+        await api.set_mode_charge("SN123", watts=-100)
+
+
+@pytest.mark.asyncio
+async def test_set_mode_discharge_invalid_watts():
+    """Test set_mode_discharge raises ValueError for zero/negative watts."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+
+    with pytest.raises(ValueError, match="watts must be a positive integer"):
+        await api.set_mode_discharge("SN123", watts=0)
+
+    with pytest.raises(ValueError, match="watts must be a positive integer"):
+        await api.set_mode_discharge("SN123", watts=-100)
+
+
+@pytest.mark.asyncio
+async def test_set_micro_power_on():
+    """Test set_micro_power_on sends controlId 3011 with value '1'."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, {"success": True}))
+
+    await api.set_micro_power_on("SN123")
+
+    call_kwargs = api._request.call_args
+    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    assert body["deviceControlMap"]["SN123"]["3011"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_set_micro_power_off():
+    """Test set_micro_power_off sends controlId 3011 with value '0'."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, {"success": True}))
+
+    await api.set_micro_power_off("SN123")
+
+    call_kwargs = api._request.call_args
+    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    assert body["deviceControlMap"]["SN123"]["3011"] == "0"
+
+
+@pytest.mark.asyncio
+async def test_set_micro_power_limit():
+    """Test set_micro_power_limit sends controlId 3012 with percentage string."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, {"success": True}))
+
+    await api.set_micro_power_limit("SN123", percentage=80)
+
+    call_kwargs = api._request.call_args
+    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    assert body["deviceControlMap"]["SN123"]["3012"] == "80"
+
+
+@pytest.mark.asyncio
+async def test_set_micro_power_limit_invalid_percentage():
+    """Test set_micro_power_limit raises ValueError for out-of-range percentage."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+
+    with pytest.raises(ValueError, match="percentage must be between 0 and 100"):
+        await api.set_micro_power_limit("SN123", percentage=101)
+
+    with pytest.raises(ValueError, match="percentage must be between 0 and 100"):
+        await api.set_micro_power_limit("SN123", percentage=-1)
+
+
+@pytest.mark.asyncio
+async def test_restart_device():
+    """Test restart_device sends controlId 3013 with value '1'."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, {"success": True}))
+
+    await api.restart_device("SN123")
+
+    call_kwargs = api._request.call_args
+    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    assert body["deviceControlMap"]["SN123"]["3013"] == "1"

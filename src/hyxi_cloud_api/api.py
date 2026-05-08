@@ -11,7 +11,6 @@ import asyncio
 import base64
 import hashlib
 import hmac
-import json
 import logging
 import os
 import re
@@ -614,6 +613,7 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
 
     # Derive pv1p from ppv - pv2p when pv1 data is not reported directly
     # (e.g. ALL_IN_ONE devices only report ppv and pv2p).
+    # pylint: disable-next=fixme
     # TODO: Investigate whether the API will report pv1p natively for
     # ALL_IN_ONE in a future firmware/cloud update — remove this fallback
     # once pv1p is reported properly.
@@ -886,7 +886,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
                 if "gridP" in m_raw or "pbat" in m_raw or "batP" in m_raw:
                     entry["metrics"].update(
-                        _compute_derived_metrics(m_raw, entry.get("device_type_code", ""))
+                        _compute_derived_metrics(
+                            m_raw, entry.get("device_type_code", "")
+                        )
                     )
             else:
                 _LOGGER.warning(
@@ -1525,9 +1527,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
         path = "/api/device/v2/control"
         body = {
-            "deviceControlMap": {
-                device_sn: {str(k): v for k, v in control_map.items()}
-            }
+            "deviceControlMap": {device_sn: {str(k): v for k, v in control_map.items()}}
         }
         _LOGGER.debug(
             "HYXI CONTROL request for %s: %s",
@@ -1538,9 +1538,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         if res is None or not res.get("success"):
             code = res.get("code", "unknown") if res else "no_response"
             msg = res.get("msg", "") if res else ""
-            raise self.ControlError(
-                f"controlMap write failed (code={code}): {msg}"
-            )
+            raise self.ControlError(f"controlMap write failed (code={code}): {msg}")
         _LOGGER.debug(
             "HYXI CONTROL response for %s: success=%s",
             _mask_id(device_sn),
@@ -1549,25 +1547,54 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         return res
 
     async def set_mode_idle(self, device_sn: str) -> dict:
-        """Set inverter to Idle mode (controlId 1062)."""
+        """Set inverter to Idle mode (controlId 1062).
+
+        For **Three-Phase** devices (e.g. HYBRID_INVERTER).
+        Battery neither charges nor discharges.
+        """
         return await self.set_device_control(device_sn, {1062: ""})
 
     async def set_mode_charge(self, device_sn: str, watts: int) -> dict:
-        """Set inverter to Charge mode (controlId 1063) with wattage."""
+        """Set inverter to Charge mode (controlId 1063) with wattage.
+
+        For **Three-Phase** devices (e.g. HYBRID_INVERTER).
+        Battery charges using PV first; any shortfall is drawn from the grid.
+
+        Args:
+            device_sn: Device serial number.
+            watts: Charge power in Watts. Must be a positive integer.
+        """
+        if watts <= 0:
+            raise ValueError(f"watts must be a positive integer, got {watts}")
         return await self.set_device_control(device_sn, {1063: str(int(watts))})
 
     async def set_mode_discharge(self, device_sn: str, watts: int) -> dict:
-        """Set inverter to Discharge mode (controlId 1064) with wattage."""
+        """Set inverter to Discharge mode (controlId 1064) with wattage.
+
+        For **Three-Phase** devices (e.g. HYBRID_INVERTER).
+        Battery discharges to cover household consumption first; excess is injected into the grid.
+
+        Args:
+            device_sn: Device serial number.
+            watts: Discharge power in Watts. Must be a positive integer.
+        """
+        if watts <= 0:
+            raise ValueError(f"watts must be a positive integer, got {watts}")
         return await self.set_device_control(device_sn, {1064: str(int(watts))})
 
     async def set_mode_self_consume(self, device_sn: str) -> dict:
-        """Set inverter to Self-consumption mode (controlId 1065)."""
+        """Set inverter to Self-consumption mode (controlId 1065).
+
+        For **Three-Phase** devices (e.g. HYBRID_INVERTER).
+        Battery discharges only to match household demand. Excess PV is injected into the grid.
+        """
         return await self.set_device_control(device_sn, {1065: ""})
 
-    async def set_peak_shaving(
-        self, device_sn: str, action: str
-    ) -> dict:
+    async def set_peak_shaving(self, device_sn: str, action: str) -> dict:
         """Set Peak Shaving control (controlId 1021).
+
+        For **Single Phase** devices (e.g. ALL_IN_ONE). Used for VPP operations.
+        All charge/discharge operations run at the inverter's full power.
 
         action: one of 'close', 'charge', 'discharge', 'stop', 'hold'
         """
@@ -1579,10 +1606,47 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             )
         return await self.set_device_control(device_sn, {1021: value})
 
-    async def set_frequency_control(
-        self, device_sn: str, enabled: bool
-    ) -> dict:
-        """Enable or disable Frequency Control (controlId 1020)."""
-        return await self.set_device_control(
-            device_sn, {1020: "1" if enabled else "0"}
-        )
+    async def set_frequency_control(self, device_sn: str, enabled: bool) -> dict:
+        """Enable or disable Frequency Control (controlId 1020).
+
+        For **Single Phase** devices (e.g. ALL_IN_ONE).
+        Used for VPP business and FCAS response functionality.
+        """
+        return await self.set_device_control(device_sn, {1020: "1" if enabled else "0"})
+
+    # ── Microinverter Controls ───────────────────────────────────────────
+
+    async def set_micro_power_on(self, device_sn: str) -> dict:
+        """Turn on a Microinverter (controlId 3011).
+
+        For **MICRO_INVERTER** devices.
+        """
+        return await self.set_device_control(device_sn, {3011: "1"})
+
+    async def set_micro_power_off(self, device_sn: str) -> dict:
+        """Turn off a Microinverter (controlId 3011).
+
+        For **MICRO_INVERTER** devices.
+        """
+        return await self.set_device_control(device_sn, {3011: "0"})
+
+    async def set_micro_power_limit(self, device_sn: str, percentage: int) -> dict:
+        """Set Maximum Power Limitation for a Microinverter (controlId 3012).
+
+        For **MICRO_INVERTER** devices.
+        Actual power limit = percentage * rated power.
+
+        Args:
+            device_sn: Device serial number.
+            percentage: Power limit as a percentage of rated power (0-100).
+        """
+        if not 0 <= percentage <= 100:
+            raise ValueError(f"percentage must be between 0 and 100, got {percentage}")
+        return await self.set_device_control(device_sn, {3012: str(int(percentage))})
+
+    async def restart_device(self, device_sn: str) -> dict:
+        """Restart a Microinverter (controlId 3013).
+
+        For **MICRO_INVERTER** devices.
+        """
+        return await self.set_device_control(device_sn, {3013: "1"})
