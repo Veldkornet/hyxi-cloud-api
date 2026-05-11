@@ -1197,6 +1197,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         """Fetches data with built-in retry logic and returns attempt count."""
 
         for attempt in range(1, MAX_RETRIES + 1):
+            err = None
             try:
                 data = await self._execute_fetch_all(
                     allow_back_discovery=allow_back_discovery,
@@ -1209,9 +1210,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     return {"data": data, "attempts": attempt}
 
                 # If we get here, data was None (soft failure). Trigger a retry manually.
-                raise aiohttp.ClientError("Fetch returned None, triggering retry.")
+                err = aiohttp.ClientError("Fetch returned None, triggering retry.")
 
-            except (aiohttp.ClientError, TimeoutError) as err:
+            except (aiohttp.ClientError, TimeoutError) as e:
+                err = e
+
+            if err is not None:
                 if attempt < MAX_RETRIES:
                     wait_time = attempt * RETRY_DELAY
                     _LOGGER.debug(
