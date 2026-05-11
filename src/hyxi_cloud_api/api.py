@@ -1197,7 +1197,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         """Fetches data with built-in retry logic and returns attempt count."""
 
         for attempt in range(1, MAX_RETRIES + 1):
-            err = None
+            err: aiohttp.ClientError | TimeoutError | None = None
             try:
                 data = await self._execute_fetch_all(
                     allow_back_discovery=allow_back_discovery,
