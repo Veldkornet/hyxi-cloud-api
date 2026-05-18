@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import hashlib
 import hmac
 import logging
@@ -624,6 +625,7 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
     return derived
 
 
+@functools.lru_cache(maxsize=1024)
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
 
