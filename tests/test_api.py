@@ -277,6 +277,56 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     assert "HYXI EMS telemetry probe returned no data for " in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_fetch_ems_basic_data_none_data(caplog):
+    """Test _fetch_ems_basic_data when basic details are returned as None."""
+    caplog.set_level(logging.DEBUG)
+
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api.query_ems_basic_details = AsyncMock(return_value=None)
+
+    ems_sn = "EMS123"
+    entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
+
+    await api._fetch_ems_basic_data(ems_sn, entry)
+
+    # Assert query_ems_basic_details was called
+    api.query_ems_basic_details.assert_called_once_with("EMS123")
+
+    # Assert entry['metrics'] is unchanged
+    assert entry["metrics"] == {"existing_metric": "value"}
+
+    # Assert the correct debug log was emitted
+    assert "HYXI EMS telemetry probe returned no data for " in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fetch_ems_basic_data_missing_metrics_key(caplog):
+    """Test _fetch_ems_basic_data when entry is missing the 'metrics' key."""
+    caplog.set_level(logging.DEBUG)
+
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api.query_ems_basic_details = AsyncMock(return_value={})
+
+    ems_sn = "EMS123"
+    # Entry missing 'metrics' key entirely
+    entry = {"device_type_code": "EMS"}
+
+    # This should not raise a KeyError because m_raw is {} (falsy) and else block runs
+    await api._fetch_ems_basic_data(ems_sn, entry)
+
+    # Assert query_ems_basic_details was called
+    api.query_ems_basic_details.assert_called_once_with("EMS123")
+
+    # Ensure 'metrics' key was not accidentally added
+    assert "metrics" not in entry
+
+    # Assert the correct debug log was emitted
+    assert "HYXI EMS telemetry probe returned no data for " in caplog.text
+
+
 # --- TEST 5: Concurrent Execution of Fetch All ---
 @pytest.mark.asyncio
 async def test_execute_fetch_all_concurrent():
