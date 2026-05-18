@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from hyxi_cloud_api import HyxiApiClient
+from hyxi_cloud_api.api import FetchState
 
 
 @pytest.mark.asyncio
@@ -91,3 +92,34 @@ async def test_discovery_caching_logic():
         ]
         await client.get_all_device_data(force_discovery=True)
         assert mock_req.call_count == 7
+
+
+@pytest.mark.asyncio
+async def test_execute_fetch_cached_no_device_info():
+    """Verify _execute_fetch_cached handles missing device_info without errors."""
+    session = AsyncMock()
+    client = HyxiApiClient("key", "secret", "http://api.com", session)
+
+    # Empty cache
+    client._discovery_cache = {
+        "plants": [{"plantId": "P1"}],
+        "device_info": None,
+    }
+
+    state = FetchState(now="2023-01-01T00:00:00Z")
+
+    with patch.object(
+        client, "_build_plant_tasks", return_value=([], [])
+    ) as mock_build, patch.object(
+        client, "_fetch_and_process_alarms", return_value={}
+    ) as mock_alarms, patch.object(
+        client, "_execute_metric_tasks", new_callable=AsyncMock
+    ) as mock_exec:
+        results = await client._execute_fetch_cached(state, allow_back_discovery=True)
+
+        # Verify it runs without error and executes the next steps
+        assert results == {}
+        assert len(state.metric_tasks) == 0
+        mock_build.assert_called_once()
+        mock_alarms.assert_called_once()
+        mock_exec.assert_called_once()
