@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import hashlib
 import hmac
 import logging
@@ -624,6 +625,7 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
     return derived
 
 
+@functools.lru_cache(maxsize=1024)
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
 
@@ -899,17 +901,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         except Exception as e:
             _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
 
-    async def _fetch_ems_basic_data(self, ems_sn, entry):
-        """Helper to fetch and merge EMS-specific basic details."""
-        _LOGGER.debug("HYXI Probing EMS telemetry for %s...", _mask_id(ems_sn))
-        m_raw = await self.query_ems_basic_details(ems_sn)
-        if m_raw:
-            entry["metrics"].update(m_raw)
-        else:
-            _LOGGER.debug(
-                "HYXI EMS telemetry probe returned no data for %s", _mask_id(ems_sn)
-            )
-
     async def query_ems_basic_details(self, ems_sn):
         """Acquire basic data for Energy Storage Systems (ESS)."""
         path = "/api/ems/v1/queryBasicDetails"
@@ -1011,13 +1002,24 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
         is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")
 
+        ems_task = None
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
-            tasks.append(asyncio.create_task(self._fetch_ems_basic_data(sn, entry)))
+            ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
+            tasks.append(ems_task)
 
         # Wait for them to finish
         if tasks:
             await asyncio.gather(*tasks)
+
+        if ems_task:
+            m_raw = ems_task.result()
+            if m_raw:
+                entry["metrics"].update(m_raw)
+            else:
+                _LOGGER.debug(
+                    "HYXI EMS telemetry probe returned no data for %s", _mask_id(sn)
+                )
 
         return sn, entry
 
@@ -1049,9 +1051,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
-                "HYXI Discovered Devices for Plant %s: %s",
+                "HYXI Discovered Devices for Plant %s: [%s]",
                 _mask_id(plant_id),
-                [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
+                ", ".join(_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices),
             )
         return devices
 
@@ -1131,10 +1133,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
-                    "HYXI Found %s sub-devices under %s: %s",
+                    "HYXI Found %s sub-devices under %s: [%s]",
                     len(children),
                     _mask_id(parent_sn),
-                    [_mask_id(c.get("deviceSn", "UNKNOWN")) for c in children],
+                    ", ".join(_mask_id(c.get("deviceSn", "UNKNOWN")) for c in children),
                 )
 
             for c in children:
@@ -1262,8 +1264,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         # 👇 Log the discovered plants
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
-                "HYXI Discovered Plants: %s",
-                [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
+                "HYXI Discovered Plants: [%s]",
+                ", ".join(_mask_id(p.get("plantId", "UNKNOWN")) for p in plants),
             )
 
         return plants

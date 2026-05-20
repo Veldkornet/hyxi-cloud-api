@@ -1,5 +1,6 @@
 import sys
-from unittest.mock import MagicMock
+import time
+from unittest.mock import AsyncMock, MagicMock
 
 if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientError"):
     m = MagicMock()
@@ -19,7 +20,7 @@ mock_aiohttp = sys.modules["aiohttp"]
 """Tests for the HYXI Cloud API client."""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import aiohttp
 import pytest
@@ -234,17 +235,19 @@ async def test_query_ems_basic_details_success():
 
 @pytest.mark.asyncio
 async def test_fetch_ems_basic_data_success(caplog):
-    """Test _fetch_ems_basic_data when basic details are returned."""
+    """Test _fetch_all_for_device when basic details are returned."""
     caplog.set_level(logging.DEBUG)
 
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
     api.query_ems_basic_details = AsyncMock(return_value={"new_metric": "new_value"})
+    api._fetch_device_info = AsyncMock()
+    api._fetch_device_metrics = AsyncMock()
 
     ems_sn = "10602251600016"
     entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
 
-    await api._fetch_ems_basic_data(ems_sn, entry)
+    await api._fetch_all_for_device(ems_sn, entry, "INVERTER")
 
     # Assert query_ems_basic_details was called
     api.query_ems_basic_details.assert_called_once_with(ems_sn)
@@ -255,17 +258,19 @@ async def test_fetch_ems_basic_data_success(caplog):
 
 @pytest.mark.asyncio
 async def test_fetch_ems_basic_data_no_data(caplog):
-    """Test _fetch_ems_basic_data when no basic details are returned."""
+    """Test _fetch_all_for_device when no basic details are returned."""
     caplog.set_level(logging.DEBUG)
 
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
     api.query_ems_basic_details = AsyncMock(return_value={})
+    api._fetch_device_info = AsyncMock()
+    api._fetch_device_metrics = AsyncMock()
 
     ems_sn = "EMS123"
     entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
 
-    await api._fetch_ems_basic_data(ems_sn, entry)
+    await api._fetch_all_for_device(ems_sn, entry, "INVERTER")
 
     # Assert query_ems_basic_details was called
     api.query_ems_basic_details.assert_called_once_with("EMS123")
@@ -427,18 +432,15 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
 
 @pytest.mark.asyncio
 async def test_fetch_all_for_device_collector():
-    """Test _fetch_all_for_device when dev_type is COLLECTOR."""
+    """Test _fetch_all_for_device when dev_type is COLLECTOR.
+
+    Collector/DMU units skip metrics and EMS probing — only device info is fetched.
+    """
     api = HyxiApiClient("key", "secret", "url", session=MagicMock())
 
-    async def dummy_info(*args, **kwargs):
-        pass
-
-    async def dummy_metrics(*args, **kwargs):
-        pass
-
-    api._fetch_device_info = MagicMock(side_effect=dummy_info)
-    api._fetch_device_metrics = MagicMock(side_effect=dummy_metrics)
-    api._fetch_ems_basic_data = AsyncMock()
+    api._fetch_device_info = AsyncMock()
+    api._fetch_device_metrics = AsyncMock()
+    api.query_ems_basic_details = AsyncMock()
 
     sn = "SN_123"
     entry = {"initial": "state"}
@@ -451,25 +453,27 @@ async def test_fetch_all_for_device_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_not_called()
+    api.query_ems_basic_details.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_fetch_all_for_device_non_collector():
-    """Test _fetch_all_for_device when dev_type is not COLLECTOR."""
+    """Test _fetch_all_for_device when dev_type is not COLLECTOR.
+
+    Non-collector devices (e.g. INVERTER) trigger device info, metrics, and EMS
+    telemetry probing concurrently. query_ems_basic_details must be mocked to
+    prevent unawaited coroutine RuntimeWarnings from the real HTTP path.
+    """
     api = HyxiApiClient("key", "secret", "url", session=MagicMock())
 
-    async def dummy_info(*args, **kwargs):
-        pass
-
-    async def dummy_metrics(*args, **kwargs):
-        pass
-
-    api._fetch_device_info = MagicMock(side_effect=dummy_info)
-    api._fetch_device_metrics = MagicMock(side_effect=dummy_metrics)
-    api._fetch_ems_basic_data = AsyncMock()
+    api._fetch_device_info = AsyncMock()
+    api._fetch_device_metrics = AsyncMock()
+    # Must mock query_ems_basic_details: _fetch_all_for_device fires it as an
+    # asyncio.create_task. Without this mock the real coroutine leaks unawaited.
+    api.query_ems_basic_details = AsyncMock(return_value={})
 
     sn = "SN_456"
-    entry = {"initial": "state2"}
+    entry = {"metrics": {}, "initial": "state2"}
     dev_type = "INVERTER"
 
     result_sn, result_entry = await api._fetch_all_for_device(sn, entry, dev_type)
@@ -479,6 +483,7 @@ async def test_fetch_all_for_device_non_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_called_once_with(sn, entry)
+    api.query_ems_basic_details.assert_called_once_with(sn)
 
 
 # --- TEST 6: Empty Data Response (The "Halo ESS" Scenario) ---
@@ -551,3 +556,39 @@ async def test_fetch_alarms_for_plant_error(caplog):
 
     log_text = caplog.text
     assert "Error fetching alarms for plant ef797c81: Connection reset" in log_text
+
+
+@pytest.mark.asyncio
+async def test_execute_fetch_all_force_discovery():
+    """Verify that _execute_fetch_all respects the force_discovery flag to bypass cache."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    # Bypass token validation
+    api._refresh_token = AsyncMock(return_value=True)
+
+    # Mock cache state to be valid
+    api._discovery_cache["plants"] = [{"plantId": "plant_1"}]
+    api._discovery_cache_time = time.time()
+    api._discovery_cache_ttl = 3600
+
+    # Mock internal methods
+    api._execute_fetch_cached = AsyncMock(return_value="cached_result")
+    api._execute_fetch_full_discovery = AsyncMock(return_value="full_discovery_result")
+
+    # Test 1: force_discovery=True should bypass cache and call full discovery
+    result = await api._execute_fetch_all(force_discovery=True)
+
+    assert result == "full_discovery_result"
+    api._execute_fetch_full_discovery.assert_called_once()
+    api._execute_fetch_cached.assert_not_called()
+
+    # Reset mocks
+    api._execute_fetch_full_discovery.reset_mock()
+    api._execute_fetch_cached.reset_mock()
+
+    # Test 2: force_discovery=False should use cache
+    result = await api._execute_fetch_all(force_discovery=False)
+
+    assert result == "cached_result"
+    api._execute_fetch_cached.assert_called_once()
+    api._execute_fetch_full_discovery.assert_not_called()
