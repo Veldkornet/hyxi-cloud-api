@@ -151,7 +151,7 @@ async def test_execute_fetch_cached_empty_cache():
 
         # Verify it runs without error and executes the next steps
         assert results == {}
-        assert state.plants == []
+        assert not state.plants
         assert len(state.metric_tasks) == 0
         mock_build.assert_called_once()
         mock_alarms.assert_called_once()
