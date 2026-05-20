@@ -432,18 +432,15 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
 
 @pytest.mark.asyncio
 async def test_fetch_all_for_device_collector():
-    """Test _fetch_all_for_device when dev_type is COLLECTOR."""
+    """Test _fetch_all_for_device when dev_type is COLLECTOR.
+
+    Collector/DMU units skip metrics and EMS probing — only device info is fetched.
+    """
     api = HyxiApiClient("key", "secret", "url", session=MagicMock())
 
-    async def dummy_info(*args, **kwargs):
-        pass
-
-    async def dummy_metrics(*args, **kwargs):
-        pass
-
-    api._fetch_device_info = MagicMock(side_effect=dummy_info)
-    api._fetch_device_metrics = MagicMock(side_effect=dummy_metrics)
-    api._fetch_ems_basic_data = AsyncMock()
+    api._fetch_device_info = AsyncMock()
+    api._fetch_device_metrics = AsyncMock()
+    api.query_ems_basic_details = AsyncMock()
 
     sn = "SN_123"
     entry = {"initial": "state"}
@@ -456,25 +453,27 @@ async def test_fetch_all_for_device_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_not_called()
+    api.query_ems_basic_details.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_fetch_all_for_device_non_collector():
-    """Test _fetch_all_for_device when dev_type is not COLLECTOR."""
+    """Test _fetch_all_for_device when dev_type is not COLLECTOR.
+
+    Non-collector devices (e.g. INVERTER) trigger device info, metrics, and EMS
+    telemetry probing concurrently. query_ems_basic_details must be mocked to
+    prevent unawaited coroutine RuntimeWarnings from the real HTTP path.
+    """
     api = HyxiApiClient("key", "secret", "url", session=MagicMock())
 
-    async def dummy_info(*args, **kwargs):
-        pass
-
-    async def dummy_metrics(*args, **kwargs):
-        pass
-
-    api._fetch_device_info = MagicMock(side_effect=dummy_info)
-    api._fetch_device_metrics = MagicMock(side_effect=dummy_metrics)
-    api._fetch_ems_basic_data = AsyncMock()
+    api._fetch_device_info = AsyncMock()
+    api._fetch_device_metrics = AsyncMock()
+    # Must mock query_ems_basic_details: _fetch_all_for_device fires it as an
+    # asyncio.create_task. Without this mock the real coroutine leaks unawaited.
+    api.query_ems_basic_details = AsyncMock(return_value={})
 
     sn = "SN_456"
-    entry = {"initial": "state2"}
+    entry = {"metrics": {}, "initial": "state2"}
     dev_type = "INVERTER"
 
     result_sn, result_entry = await api._fetch_all_for_device(sn, entry, dev_type)
@@ -484,6 +483,7 @@ async def test_fetch_all_for_device_non_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_called_once_with(sn, entry)
+    api.query_ems_basic_details.assert_called_once_with(sn)
 
 
 # --- TEST 6: Empty Data Response (The "Halo ESS" Scenario) ---
