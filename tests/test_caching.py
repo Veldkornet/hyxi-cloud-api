@@ -125,3 +125,34 @@ async def test_execute_fetch_cached_no_device_info():
         mock_build.assert_called_once()
         mock_alarms.assert_called_once()
         mock_exec.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_fetch_cached_empty_cache():
+    """Verify _execute_fetch_cached handles fully empty cache without errors."""
+    session = AsyncMock()
+    client = HyxiApiClient("key", "secret", "http://api.com", session)
+
+    # Fully empty cache
+    client._discovery_cache = {}
+
+    state = FetchState(now="2023-01-01T00:00:00Z")
+
+    with (
+        patch.object(client, "_build_plant_tasks", return_value=([], [])) as mock_build,
+        patch.object(
+            client, "_fetch_and_process_alarms", return_value={}
+        ) as mock_alarms,
+        patch.object(
+            client, "_execute_metric_tasks", new_callable=AsyncMock
+        ) as mock_exec,
+    ):
+        results = await client._execute_fetch_cached(state, allow_back_discovery=True)
+
+        # Verify it runs without error and executes the next steps
+        assert results == {}
+        assert not state.plants
+        assert len(state.metric_tasks) == 0
+        mock_build.assert_called_once()
+        mock_alarms.assert_called_once()
+        mock_exec.assert_called_once()
