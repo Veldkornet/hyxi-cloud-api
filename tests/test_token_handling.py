@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 # Mock aiohttp before importing the client to avoid ModuleNotFoundError in environments without it
 sys.modules["aiohttp"] = MagicMock()
 
+import time
 from unittest.mock import patch
 
 import pytest
@@ -165,6 +166,17 @@ def test_calculate_token_expiration_expiresIn(mock_time, api_client):
 
     expires_at = api_client._calculate_token_expiration(data)
     assert expires_at == 1003300.0
+
+
+def test_calculate_token_expiration_missing_expires_in(api_client):
+    """Verify missing expires_in calculates default buffer relative to current time."""
+    # Rationale: Calling `_calculate_token_expiration({})` and ensuring the result is close
+    # to `time.time() + 6600 - 300` would verify this boundary.
+    expected = time.time() + 6600 - 300
+    expires_at = api_client._calculate_token_expiration({})
+
+    # Check if the result is within 1 second of expected to account for execution time
+    assert expires_at == pytest.approx(expected, abs=1.0)
 
 
 @patch("time.time")
