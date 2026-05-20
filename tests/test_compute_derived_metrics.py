@@ -128,3 +128,10 @@ class TestComputeDerivedMetrics:
         result = _compute_derived_metrics({"ph1Loadp": 100.0})
         assert "home_load" in result
         assert result["home_load"] == 100.0
+
+    def test_missing_pv_power_derived_with_zero(self):
+        """Test PV power is derived when p_k is present but falsy (e.g., 0.0)."""
+        data = {"pv1v": 100.0, "pv1i": 5.0, "pv1p": 0.0}
+        result = _compute_derived_metrics(data)
+        assert "pv1p" in result
+        assert result["pv1p"] == 500.0
