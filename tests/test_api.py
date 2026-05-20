@@ -50,6 +50,20 @@ def test_api_initialization():
     assert api.token is None
 
 
+@pytest.mark.asyncio
+async def test_request_unsupported_method():
+    """Test that _request raises ValueError for unsupported HTTP methods."""
+    fake_session = MagicMock()
+    api = HyxiApiClient(
+        access_key="fake_access_key",
+        secret_key="fake_secret_key",
+        base_url="https://fake-hyxi-url.com",
+        session=fake_session,
+    )
+    with pytest.raises(ValueError, match="Unsupported HTTP method: PUT"):
+        await api._request("PUT", "/some/path")
+
+
 # --- TEST 2: The Retry Logic Wrapper ---
 @pytest.mark.asyncio
 async def test_get_all_device_data_success():
