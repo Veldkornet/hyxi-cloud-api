@@ -89,6 +89,27 @@ class TestComputeDerivedMetrics:
         result = _compute_derived_metrics({})
         assert not result
 
+    def test_missing_pv_power_derived(self):
+        """Test PV power is derived when missing but voltage and current are present."""
+        data = {"pv1v": 100.0, "pv1i": 5.0}
+        result = _compute_derived_metrics(data)
+        assert "pv1p" in result
+        assert result["pv1p"] == 500.0
+
+    def test_provided_pv_power_takes_precedence(self):
+        """Test provided PV power takes precedence over derived power."""
+        data = {"pv1v": 100.0, "pv1i": 5.0, "pv1p": 600.0}
+        result = _compute_derived_metrics(data)
+        assert "pv1p" in result
+        assert result["pv1p"] == 600.0
+
+    def test_partial_pv_data(self):
+        """Test PV power derivation with partial data (e.g. only voltage)."""
+        data = {"pv1v": 100.0}
+        result = _compute_derived_metrics(data)
+        assert "pv1p" in result
+        assert result["pv1p"] == 0.0
+
     def test_selective_pv_strings(self):
         """Test that only PV strings present in input are present in output."""
         data = {"pv1v": 100, "pv1i": 5}  # PV1 only
