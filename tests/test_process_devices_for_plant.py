@@ -35,6 +35,21 @@ def mock_state():
 
 
 @pytest.mark.asyncio
+async def test_process_devices_for_plant_missing_sn_edge_cases(mock_api, mock_state):
+    """Test with devices having missing, None, or empty string serial numbers."""
+    devices = [
+        {"deviceType": "INVERTER"},
+        {"deviceSn": None, "deviceType": "INVERTER"},
+        {"deviceSn": "", "deviceType": "INVERTER"},
+    ]
+    with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
+        await mock_api._process_devices_for_plant(devices, mock_state)
+        mock_gather.assert_not_called()
+        assert len(mock_state.discovered_sns) == 0
+        assert len(mock_state.metric_tasks) == 0
+
+
+@pytest.mark.asyncio
 async def test_process_devices_for_plant_empty(mock_api, mock_state):
     """Test with an empty list of devices."""
     with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
