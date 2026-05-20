@@ -592,3 +592,62 @@ async def test_execute_fetch_all_force_discovery():
     assert result == "cached_result"
     api._execute_fetch_cached.assert_called_once()
     api._execute_fetch_full_discovery.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_fetch_all_force_discovery_integration():
+    """Verify that force_discovery=True bypasses cache and integrates with full discovery."""
+    from unittest.mock import patch  # pylint: disable=import-outside-toplevel
+
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    # Bypass token validation
+    api._refresh_token = AsyncMock(return_value=True)
+
+    # Mock cache state to be valid to test bypass
+    api._discovery_cache["plants"] = [{"plantId": "plant_1"}]
+    api._discovery_cache_time = time.time()
+    api._discovery_cache_ttl = 3600
+
+    # Mock the HTTP layer to return valid JSON responses for a full discovery flow
+    plant_resp = {"success": True, "data": {"list": [{"plantId": "plant_1"}]}}
+    device_resp = {
+        "success": True,
+        "data": {"deviceList": [{"deviceSn": "device_1", "deviceType": "INVERTER"}]},
+    }
+    sub_dev_resp = {"success": True, "data": {"childDevice": []}}
+    alarms_resp = {"success": True, "data": {"pageData": []}}
+    info_resp = {"success": True, "data": {"swVerSys": "v1.0", "hwVer": "v1.0"}}
+    metrics_resp = {"success": True, "data": [{"dataKey": "gridP", "dataValue": "100"}]}
+
+    with patch.object(api, "_request") as mock_req:
+        mock_req.side_effect = [
+            (200, plant_resp),
+            (200, device_resp),
+            (200, sub_dev_resp),
+            (200, alarms_resp),
+            (200, info_resp),
+            (200, metrics_resp),
+            (200, {}),  # EMS Probe
+        ]
+
+        # Use wraps to spy on internal methods while preserving their original logic
+        with (
+            patch.object(
+                api,
+                "_execute_fetch_full_discovery",
+                wraps=api._execute_fetch_full_discovery,
+            ) as mock_full,
+            patch.object(
+                api, "_execute_fetch_cached", wraps=api._execute_fetch_cached
+            ) as mock_cached,
+        ):
+            result = await api._execute_fetch_all(force_discovery=True)
+
+            # Assert that the full discovery method was called and cached was not
+            mock_full.assert_called_once()
+            mock_cached.assert_not_called()
+
+            # Ensure we successfully parsed the data, meaning full discovery worked
+            assert "device_1" in result
+            assert result["device_1"]["sw_version"] == "v1.0"
