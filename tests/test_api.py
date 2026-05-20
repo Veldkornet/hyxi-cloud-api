@@ -1,5 +1,6 @@
 import sys
-from unittest.mock import MagicMock
+import time
+from unittest.mock import AsyncMock, MagicMock
 
 if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientError"):
     m = MagicMock()
@@ -19,7 +20,7 @@ mock_aiohttp = sys.modules["aiohttp"]
 """Tests for the HYXI Cloud API client."""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import aiohttp
 import pytest
@@ -551,3 +552,39 @@ async def test_fetch_alarms_for_plant_error(caplog):
 
     log_text = caplog.text
     assert "Error fetching alarms for plant ef797c81: Connection reset" in log_text
+
+
+@pytest.mark.asyncio
+async def test_execute_fetch_all_force_discovery():
+    """Verify that _execute_fetch_all respects the force_discovery flag to bypass cache."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    # Bypass token validation
+    api._refresh_token = AsyncMock(return_value=True)
+
+    # Mock cache state to be valid
+    api._discovery_cache["plants"] = [{"plantId": "plant_1"}]
+    api._discovery_cache_time = time.time()
+    api._discovery_cache_ttl = 3600
+
+    # Mock internal methods
+    api._execute_fetch_cached = AsyncMock(return_value="cached_result")
+    api._execute_fetch_full_discovery = AsyncMock(return_value="full_discovery_result")
+
+    # Test 1: force_discovery=True should bypass cache and call full discovery
+    result = await api._execute_fetch_all(force_discovery=True)
+
+    assert result == "full_discovery_result"
+    api._execute_fetch_full_discovery.assert_called_once()
+    api._execute_fetch_cached.assert_not_called()
+
+    # Reset mocks
+    api._execute_fetch_full_discovery.reset_mock()
+    api._execute_fetch_cached.reset_mock()
+
+    # Test 2: force_discovery=False should use cache
+    result = await api._execute_fetch_all(force_discovery=False)
+
+    assert result == "cached_result"
+    api._execute_fetch_cached.assert_called_once()
+    api._execute_fetch_full_discovery.assert_not_called()
