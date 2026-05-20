@@ -592,3 +592,44 @@ async def test_execute_fetch_all_force_discovery():
     assert result == "cached_result"
     api._execute_fetch_cached.assert_called_once()
     api._execute_fetch_full_discovery.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_fetch_all_force_discovery_integration():
+    """Verify that _execute_fetch_all with force_discovery=True clears cache and executes full discovery."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+
+    # Populate cache to ensure it gets cleared
+    api._discovery_cache["plants"] = [{"plantId": "old_plant"}]
+    api._discovery_cache["device_info"] = {"old_sn": {}}
+    api._discovery_cache["hierarchy"] = {"old_hierarchy": {}}
+    api._discovery_cache_time = time.time() - 1000
+
+    # We need to mock _fetch_plants and _process_plants_data since we are testing integration
+    # inside _execute_fetch_full_discovery
+    fake_plants = [{"plantId": "new_plant_1"}]
+    api._fetch_plants = AsyncMock(return_value=fake_plants)
+
+    # We don't want to actually process devices, so we mock _process_plants_data
+    # But wait, the method _execute_fetch_full_discovery sets the cache to the new plants BEFORE processing
+    # so we can just assert cache state
+
+    async def mock_process(state, allow_back_discovery):
+        state.results["SN_new"] = {"data": "test"}
+
+    api._process_plants_data = MagicMock(side_effect=mock_process)
+
+    results = await api._execute_fetch_all(force_discovery=True)
+
+    # Verify results
+    assert results == {"SN_new": {"data": "test"}}
+
+    # Verify cache was updated
+    assert api._discovery_cache["plants"] == fake_plants
+    assert len(api._discovery_cache["device_info"]) == 0
+    assert len(api._discovery_cache["hierarchy"]) == 0
+    assert api._discovery_cache_time > time.time() - 5
+
+    api._fetch_plants.assert_called_once()
+    api._process_plants_data.assert_called_once()
