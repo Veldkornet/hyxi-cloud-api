@@ -110,6 +110,34 @@ class TestComputeDerivedMetrics:
         assert "pv1p" in result
         assert result["pv1p"] == 0.0
 
+    def test_pv_power_recalculated_when_zero(self):
+        """Test that PV power is recalculated if provided value is falsy (e.g. 0.0) but voltage and current are present."""
+        data = {"pv1v": 100.0, "pv1i": 5.0, "pv1p": 0.0}
+        result = _compute_derived_metrics(data)
+        assert "pv1p" in result
+        assert result["pv1p"] == 500.0
+
+    def test_pv_power_calculation_rounding(self):
+        """Test the rounding logic when calculating PV power from voltage and current."""
+        data = {"pv1v": 100.33, "pv1i": 5.12}
+        result = _compute_derived_metrics(data)
+        assert "pv1p" in result
+        assert result["pv1p"] == 513.69  # 100.33 * 5.12 = 513.6896, rounded to 513.69
+
+    def test_pv1p_derived_from_ppv_and_pv2p(self):
+        """Test the ALL_IN_ONE fallback logic where pv1p is derived from ppv - pv2p."""
+        data = {"ppv": 1500.0, "pv2v": 100.0, "pv2i": 5.0}  # pv2p will be 500.0
+        result = _compute_derived_metrics(data)
+        assert "pv1p" in result
+        assert result["pv1p"] == 1000.0
+
+    def test_pv1p_derived_from_ppv_and_pv2p_zero_floor(self):
+        """Test that the derived pv1p does not go below zero."""
+        data = {"ppv": 400.0, "pv2v": 100.0, "pv2i": 5.0}  # pv2p will be 500.0
+        result = _compute_derived_metrics(data)
+        assert "pv1p" in result
+        assert result["pv1p"] == 0.0
+
     def test_selective_pv_strings(self):
         """Test that only PV strings present in input are present in output."""
         data = {"pv1v": 100, "pv1i": 5}  # PV1 only
