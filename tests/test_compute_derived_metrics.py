@@ -111,7 +111,7 @@ class TestComputeDerivedMetrics:
         assert result["pv1p"] == 0.0
 
     def test_pv_power_recalculated_when_zero(self):
-        """Test that PV power is recalculated if provided value is falsy (e.g. 0.0) but voltage and current are present."""
+        """Test PV power recalculation if provided value is falsy (e.g. 0.0) but voltage/current exist."""
         data = {"pv1v": 100.0, "pv1i": 5.0, "pv1p": 0.0}
         result = _compute_derived_metrics(data)
         assert "pv1p" in result
