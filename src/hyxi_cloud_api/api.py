@@ -1051,9 +1051,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
-                "HYXI Discovered Devices for Plant %s: %s",
+                "HYXI Discovered Devices for Plant %s: [%s]",
                 _mask_id(plant_id),
-                [_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices],
+                ", ".join(_mask_id(d.get("deviceSn", "UNKNOWN")) for d in devices),
             )
         return devices
 
@@ -1133,10 +1133,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
-                    "HYXI Found %s sub-devices under %s: %s",
+                    "HYXI Found %s sub-devices under %s: [%s]",
                     len(children),
                     _mask_id(parent_sn),
-                    [_mask_id(c.get("deviceSn", "UNKNOWN")) for c in children],
+                    ", ".join(_mask_id(c.get("deviceSn", "UNKNOWN")) for c in children),
                 )
 
             for c in children:
@@ -1264,8 +1264,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         # 👇 Log the discovered plants
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
-                "HYXI Discovered Plants: %s",
-                [_mask_id(p.get("plantId", "UNKNOWN")) for p in plants],
+                "HYXI Discovered Plants: [%s]",
+                ", ".join(_mask_id(p.get("plantId", "UNKNOWN")) for p in plants),
             )
 
         return plants
