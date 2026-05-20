@@ -901,17 +901,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         except Exception as e:
             _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
 
-    async def _fetch_ems_basic_data(self, ems_sn, entry):
-        """Helper to fetch and merge EMS-specific basic details."""
-        _LOGGER.debug("HYXI Probing EMS telemetry for %s...", _mask_id(ems_sn))
-        m_raw = await self.query_ems_basic_details(ems_sn)
-        if m_raw:
-            entry["metrics"].update(m_raw)
-        else:
-            _LOGGER.debug(
-                "HYXI EMS telemetry probe returned no data for %s", _mask_id(ems_sn)
-            )
-
     async def query_ems_basic_details(self, ems_sn):
         """Acquire basic data for Energy Storage Systems (ESS)."""
         path = "/api/ems/v1/queryBasicDetails"
@@ -1013,13 +1002,24 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
         is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")
 
+        ems_task = None
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
-            tasks.append(asyncio.create_task(self._fetch_ems_basic_data(sn, entry)))
+            ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
+            tasks.append(ems_task)
 
         # Wait for them to finish
         if tasks:
             await asyncio.gather(*tasks)
+
+        if ems_task:
+            m_raw = ems_task.result()
+            if m_raw:
+                entry["metrics"].update(m_raw)
+            else:
+                _LOGGER.debug(
+                    "HYXI EMS telemetry probe returned no data for %s", _mask_id(sn)
+                )
 
         return sn, entry
 
