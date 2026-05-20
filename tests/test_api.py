@@ -596,8 +596,8 @@ async def test_execute_fetch_all_force_discovery():
 
 @pytest.mark.asyncio
 async def test_execute_fetch_all_force_discovery_integration():
-    """Verify that _execute_fetch_all with force_discovery=True bypasses cache and properly integrates with full discovery."""
-    from unittest.mock import patch
+    """Verify that force_discovery=True bypasses cache and integrates with full discovery."""
+    from unittest.mock import patch  # pylint: disable=import-outside-toplevel
 
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
