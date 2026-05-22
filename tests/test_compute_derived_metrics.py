@@ -1,5 +1,7 @@
 """Tests for the _compute_derived_metrics helper function in api.py."""
 
+# pylint: disable=too-many-public-methods
+
 from src.hyxi_cloud_api.api import _compute_derived_metrics
 
 
@@ -156,3 +158,15 @@ class TestComputeDerivedMetrics:
         result = _compute_derived_metrics({"ph1Loadp": 100.0})
         assert "home_load" in result
         assert result["home_load"] == 100.0
+
+    def test_micro_ess_pv_power_fallback(self):
+        """Test that ppv is derived from pvPower when ppv is missing (Micro ESS fallback)."""
+        data = {"pvPower": 1200.5}
+        result = _compute_derived_metrics(data)
+        assert result["ppv"] == 1200.5
+
+    def test_micro_ess_grid_frequency_fallback(self):
+        """Test that f is derived from gridF when f is missing (Micro ESS fallback)."""
+        data = {"gridF": 49.98}
+        result = _compute_derived_metrics(data)
+        assert result["f"] == 49.98

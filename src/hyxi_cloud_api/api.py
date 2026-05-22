@@ -43,7 +43,7 @@ class FetchState:
 
 
 _LOGGER = logging.getLogger(__name__)
-_battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15")
+_battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15", "16")
 _BATTERY_DEVICE_REGEX = re.compile("|".join(_battery_device_types))
 _parent_device_types = ("COLLECTOR", "DMU", "INVERTER", "ALL_IN_ONE")
 _PARENT_DEVICE_REGEX = re.compile("|".join(_parent_device_types))
@@ -622,6 +622,15 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
         ppv_total = _get_f("ppv", m_raw)
         derived["pv1p"] = round(max(ppv_total - derived["pv2p"], 0), 2)
 
+    # 5. Fallback mappings for Micro ESS
+    # Derive standard Solar Power (ppv) from Micro ESS pvPower if ppv is missing
+    if "pvPower" in m_raw and "ppv" not in m_raw:
+        derived["ppv"] = _get_f("pvPower", m_raw)
+
+    # Derive standard Grid Frequency (f) from Micro ESS gridF if f is missing
+    if "gridF" in m_raw and "f" not in m_raw:
+        derived["f"] = _get_f("gridF", m_raw)
+
     return derived
 
 
@@ -886,7 +895,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 else:
                     entry["metrics"].update(m_raw)
 
-                if "gridP" in m_raw or "pbat" in m_raw or "batP" in m_raw:
+                if (
+                    "gridP" in m_raw
+                    or "pbat" in m_raw
+                    or "batP" in m_raw
+                    or "pvPower" in m_raw
+                    or "gridF" in m_raw
+                ):
                     entry["metrics"].update(
                         _compute_derived_metrics(
                             m_raw, entry.get("device_type_code", "")
@@ -949,10 +964,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             "_sw_ver_sys": sw_ver,
             "signalIntensity": i_raw.get("signalIntensity"),
             "signalVal": i_raw.get("signalVal"),
-            "wifiVer": i_raw.get("wifiVer"),
+            "wifiVer": i_raw.get("wifiVer") or i_raw.get("swVerWifi"),
             "comMode": i_raw.get("comMode"),
             "swVerMaster": i_raw.get("swVerMaster"),
             "swVerSlave": i_raw.get("swVerSlave"),
+            "ratedFrequency": i_raw.get("ratedFrequency"),
         }
 
         device_type_code = entry.get("device_type_code", "").upper()
