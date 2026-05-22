@@ -1672,3 +1672,38 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         For **MICRO_INVERTER** devices.
         """
         return await self.set_device_control(device_sn, {3013: "1"})
+
+    # ── Alarm Controls ───────────────────────────────────────────────────
+
+    async def alter_alarm(self, alarm_ids: list[int]) -> dict:
+        """Process/Acknowledge alarm information.
+
+        Endpoint: POST /api/alarm/v1/alterAlarm
+        Body: {"ids": [id1, id2, ...], "state": 1}
+        """
+        token_status = await self._refresh_token()
+        if token_status == "auth_failed":
+            raise self.ControlError("Authentication failed")
+        if not token_status:
+            raise self.ControlError("Could not obtain API token")
+
+        path = "/api/alarm/v1/alterAlarm"
+        body = {
+            "ids": alarm_ids,
+            "state": 1,
+        }
+        _LOGGER.debug(
+            "HYXI ALTER_ALARM request for ids %s: %s",
+            alarm_ids,
+            body,
+        )
+        _, res = await self._request("POST", path, json=body)
+        if res is None or not res.get("success"):
+            code = res.get("code", "unknown") if res else "no_response"
+            msg = res.get("msg", "") if res else ""
+            raise self.ControlError(f"alarm alteration failed (code={code}): {msg}")
+        _LOGGER.debug(
+            "HYXI ALTER_ALARM response: success=%s",
+            res.get("success"),
+        )
+        return res
