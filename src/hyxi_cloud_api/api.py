@@ -43,7 +43,15 @@ class FetchState:
 
 
 _LOGGER = logging.getLogger(__name__)
-_battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15", "16")
+_battery_device_types = (
+    "INVERTER",
+    "ESS",
+    "HALO",
+    "1",
+    "15",
+    "16",
+    "MICRO_STORAGE_ALL_IN_ONE",
+)
 _BATTERY_DEVICE_REGEX = re.compile("|".join(_battery_device_types))
 _parent_device_types = ("COLLECTOR", "DMU", "INVERTER", "ALL_IN_ONE")
 _PARENT_DEVICE_REGEX = re.compile("|".join(_parent_device_types))
@@ -502,6 +510,7 @@ DEVICE_TYPE_MAP = {
     "ENERGY_STORAGE_BATTERY": "Battery",
     "ALL_IN_ONE": "all-in-one machine",
     "AC_BATTERY": "AC Battery",
+    "MICRO_STORAGE_ALL_IN_ONE": "Micro ESS",
     # Official Numeric IDs (as seen in getSubDevicePage)
     "1": "Hybrid Inverter",
     "2": "Grid-Connected Inverter",
