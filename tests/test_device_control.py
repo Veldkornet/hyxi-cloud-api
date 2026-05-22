@@ -235,10 +235,58 @@ async def test_restart_device():
     """Test restart_device sends controlId 3013 with value '1'."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
-    api._request = AsyncMock(return_value=(200, {"success": True}))
+    api._request = MagicMock()
+    # Handle async response for _request
+    async_mock = AsyncMock(return_value=(200, {"success": True}))
+    api._request.side_effect = async_mock
 
     await api.restart_device("SN123")
 
+    api._request.assert_called_once()
     call_kwargs = api._request.call_args
     body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
     assert body["deviceControlMap"]["SN123"]["3013"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_alter_alarm():
+    """Test alter_alarm sends correct POST request payload."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, {"success": True}))
+
+    result = await api.alter_alarm([10086, 10087])
+
+    assert result["success"] is True
+    api._request.assert_called_once()
+    call_args, call_kwargs = api._request.call_args
+    assert call_args[0] == "POST"
+    assert call_args[1] == "/api/alarm/v1/alterAlarm"
+    body = call_kwargs.get("json")
+    assert body == {"ids": [10086, 10087], "state": 1}
+
+
+@pytest.mark.asyncio
+async def test_alter_alarm_auth_failed():
+    """Test alter_alarm raises ControlError when authentication fails."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value="auth_failed")
+
+    with pytest.raises(api.ControlError, match="Authentication failed"):
+        await api.alter_alarm([10086])
+
+
+@pytest.mark.asyncio
+async def test_alter_alarm_api_failure():
+    """Test alter_alarm raises ControlError when API returns success=False."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {"success": False, "code": "C000002", "msg": "Internal error"},
+        )
+    )
+
+    with pytest.raises(api.ControlError, match="alarm alteration failed"):
+        await api.alter_alarm([10086])
