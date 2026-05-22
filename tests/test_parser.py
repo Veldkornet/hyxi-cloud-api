@@ -284,3 +284,41 @@ def test_compute_derived_metrics_zero_edges():
     assert res_neg["grid_export"] == 0.0
     assert res_neg["bat_charging"] == 0.01
     assert res_neg["bat_discharging"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_api_parsing_micro_ess_fallbacks():
+    """Verify that Micro ESS specific keys (pvPower, gridF) are parsed and correctly trigger derived fallbacks."""
+    fake_json = {
+        "success": True,
+        "data": [
+            {"dataKey": "pvPower", "dataValue": "850.5"},
+            {"dataKey": "gridF", "dataValue": "50.02"},
+        ],
+    }
+
+    mock_response = MagicMock()
+    mock_response.json = AsyncMock(return_value=fake_json)
+    mock_response.raise_for_status = MagicMock()
+
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+
+    api = HyxiApiClient(
+        access_key="test_ak",
+        secret_key="test_sk",
+        base_url="https://test.com",
+        session=mock_session,
+    )
+
+    entry = {"metrics": {}, "device_type_code": "15"}  # Micro ESS
+
+    await api._fetch_device_metrics("SN123", entry)
+
+    # Raw metrics must be present
+    assert entry["metrics"]["pvPower"] == "850.5"
+    assert entry["metrics"]["gridF"] == "50.02"
+
+    # Derived fallback metrics must be computed and present
+    assert entry["metrics"]["ppv"] == 850.5
+    assert entry["metrics"]["f"] == 50.02

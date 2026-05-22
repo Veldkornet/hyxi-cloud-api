@@ -622,6 +622,15 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
         ppv_total = _get_f("ppv", m_raw)
         derived["pv1p"] = round(max(ppv_total - derived["pv2p"], 0), 2)
 
+    # 5. Fallback mappings for Micro ESS
+    # Derive standard Solar Power (ppv) from Micro ESS pvPower if ppv is missing
+    if "pvPower" in m_raw and "ppv" not in m_raw:
+        derived["ppv"] = _get_f("pvPower", m_raw)
+
+    # Derive standard Grid Frequency (f) from Micro ESS gridF if f is missing
+    if "gridF" in m_raw and "f" not in m_raw:
+        derived["f"] = _get_f("gridF", m_raw)
+
     return derived
 
 
@@ -886,7 +895,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 else:
                     entry["metrics"].update(m_raw)
 
-                if "gridP" in m_raw or "pbat" in m_raw or "batP" in m_raw:
+                if (
+                    "gridP" in m_raw
+                    or "pbat" in m_raw
+                    or "batP" in m_raw
+                    or "pvPower" in m_raw
+                    or "gridF" in m_raw
+                ):
                     entry["metrics"].update(
                         _compute_derived_metrics(
                             m_raw, entry.get("device_type_code", "")
