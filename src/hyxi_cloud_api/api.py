@@ -43,7 +43,7 @@ class FetchState:
 
 
 _LOGGER = logging.getLogger(__name__)
-_battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15")
+_battery_device_types = ("INVERTER", "ESS", "HALO", "1", "15", "16")
 _BATTERY_DEVICE_REGEX = re.compile("|".join(_battery_device_types))
 _parent_device_types = ("COLLECTOR", "DMU", "INVERTER", "ALL_IN_ONE")
 _PARENT_DEVICE_REGEX = re.compile("|".join(_parent_device_types))
@@ -964,10 +964,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             "_sw_ver_sys": sw_ver,
             "signalIntensity": i_raw.get("signalIntensity"),
             "signalVal": i_raw.get("signalVal"),
-            "wifiVer": i_raw.get("wifiVer"),
+            "wifiVer": i_raw.get("wifiVer") or i_raw.get("swVerWifi"),
             "comMode": i_raw.get("comMode"),
             "swVerMaster": i_raw.get("swVerMaster"),
             "swVerSlave": i_raw.get("swVerSlave"),
+            "ratedFrequency": i_raw.get("ratedFrequency"),
         }
 
         device_type_code = entry.get("device_type_code", "").upper()

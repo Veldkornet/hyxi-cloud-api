@@ -87,3 +87,26 @@ def test_extract_device_info_metadata_battery_fallbacks():
     assert base_info["packNum"] == 1
     assert base_info["maxChargePower"] == 30.0
     assert base_info["maxDischargePower"] == 30.0
+
+
+def test_extract_device_info_metadata_micro_ess():
+    """Test extraction of battery-specific metrics and fallbacks for Micro ESS (type 16) devices."""
+    entry = {"metrics": {}, "device_type_code": "16"}
+    i_raw = {
+        "batCap": "15.0",
+        "packNum": "1",
+        "maxChargePower": "700",
+        "maxDischargePower": "700",
+        "swVerWifi": "V01.00.00.01",
+        "ratedFrequency": "50",
+    }
+
+    base_info = HyxiApiClient._extract_device_info_metadata(entry, i_raw)
+
+    assert base_info["batCap"] == 15.0
+    assert base_info["packNum"] == 1
+    assert base_info["maxChargePower"] == 700.0
+    assert base_info["maxDischargePower"] == 700.0
+    assert base_info["wifiVer"] == "V01.00.00.01"
+    assert base_info["ratedFrequency"] == "50"
+    assert "batCap" in entry["metrics"]
