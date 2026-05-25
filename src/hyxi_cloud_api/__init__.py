@@ -2,5 +2,5 @@
 
 from .api import HyxiApiClient
 
-__version__ = "1.2.2"
+__version__ = "1.2.4"
 __all__ = ["HyxiApiClient"]

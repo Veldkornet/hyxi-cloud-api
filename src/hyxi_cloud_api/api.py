@@ -1309,8 +1309,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         data_p = res_p.get("data", {})
         plants = data_p.get("list", []) if isinstance(data_p, dict) else []
 
-        # 👇 Log the discovered plants
-        if _LOGGER.isEnabledFor(logging.DEBUG):
+        if not plants:
+            _LOGGER.warning(
+                "HYXI API: No plants found associated with this account. "
+                "If your developer email differs from your app email, you must share "
+                "your Plant from the app to the developer email first."
+            )
+        elif _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
                 "HYXI Discovered Plants: [%s]",
                 ", ".join(_mask_id(p.get("plantId", "UNKNOWN")) for p in plants),
