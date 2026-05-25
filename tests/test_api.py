@@ -118,6 +118,26 @@ async def test_get_all_device_data_retry_exhaustion(monkeypatch, caplog):
 
 
 @pytest.mark.asyncio
+async def test_get_all_device_data_timeout_error(monkeypatch, caplog):
+    """Test that get_all_device_data exhausts retries on TimeoutError."""
+    fake_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    # Mock _execute_fetch_all to raise TimeoutError
+    api._execute_fetch_all = AsyncMock(side_effect=TimeoutError("Connection timed out"))
+
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    result = await api.get_all_device_data()
+
+    assert result is None
+    assert api._execute_fetch_all.call_count == 3
+    assert mock_sleep.call_count == 2
+    assert "HYXI Cloud connection failed after 3 attempts" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_get_all_device_data_auth_failed():
     """Test that get_all_device_data immediately fails on auth failure."""
     fake_session = MagicMock()
