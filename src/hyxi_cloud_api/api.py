@@ -566,20 +566,19 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         return 0.0
 
 
+@functools.lru_cache(maxsize=1024)
+def _is_collector_key_allowed(key: str) -> bool:
+    """Check if metric key is allowed for Collectors and cache the result."""
+    return not _COLLECTOR_FILTER_REGEX.search(key)
+
+
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
-    return {k: v for k, v in m_raw.items() if not _COLLECTOR_FILTER_REGEX.search(k)}
+    return {k: v for k, v in m_raw.items() if _is_collector_key_allowed(k)}
 
 
-def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
-    """Calculate derived metrics from raw metrics map.
-
-    Only keys that have relevant base data in m_raw will be included in the
-    resulting dictionary to avoid 'ghost' sensors for unsupported features.
-    """
-    derived = {}
-
-    # 1. Load Calculation
+def _compute_load_metrics(m_raw: dict, derived: dict[str, float]) -> None:
+    """Calculate home load metrics."""
     if "ph1Loadp" in m_raw or "ph2Loadp" in m_raw or "ph3Loadp" in m_raw:
         derived["home_load"] = (
             _get_f("ph1Loadp", m_raw)
@@ -587,21 +586,28 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
             + _get_f("ph3Loadp", m_raw)
         )
 
-    # 2. Grid Metrics
+
+def _compute_grid_metrics(m_raw: dict, derived: dict[str, float]) -> None:
+    """Calculate grid import/export metrics."""
     if "gridP" in m_raw:
         grid = _get_f("gridP", m_raw, 1000.0)
         derived["grid_import"] = abs(grid) if grid < 0 else 0.0
         derived["grid_export"] = grid if grid > 0 else 0.0
 
-    # 3. Battery Metrics
+
+def _compute_battery_metrics(
+    m_raw: dict, derived: dict[str, float], device_type: str
+) -> None:
+    """Calculate battery charge/discharge metrics."""
     bat_p_dc = _get_f("batP", m_raw)
     pbat = _get_f("pbat", m_raw)
+    device_type_str = str(device_type or "").upper()
 
-    if "batP" in m_raw or "pbat" in m_raw:
+    if "batP" in m_raw or "pbat" in m_raw or device_type_str in ("EMS", "15", "16"):
         # ALL_IN_ONE: prefer pbat — batP can have an inverted sign convention,
         # while pbat is consistently negative-for-charging / positive-for-discharging.
         # Other devices: prefer batP (DC terminals), fall back to pbat.
-        if device_type.upper() == "ALL_IN_ONE":
+        if device_type_str == "ALL_IN_ONE":
             power_source = pbat if pbat != 0.0 else bat_p_dc
         else:
             power_source = bat_p_dc if bat_p_dc != 0.0 else pbat
@@ -614,7 +620,9 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
     if "batDisCharge" in m_raw:
         derived["bat_discharge_total"] = _get_f("batDisCharge", m_raw)
 
-    # 4. PV String Powers (Derived if missing)
+
+def _compute_pv_metrics(m_raw: dict, derived: dict[str, float]) -> None:
+    """Calculate PV string powers."""
     for v_k, i_k, p_k in _PV_KEYS:
         if v_k in m_raw or i_k in m_raw or p_k in m_raw:
             derived[p_k] = _get_f(p_k, m_raw) or round(
@@ -631,14 +639,29 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
         ppv_total = _get_f("ppv", m_raw)
         derived["pv1p"] = round(max(ppv_total - derived["pv2p"], 0), 2)
 
-    # 5. Fallback mappings for Micro ESS
-    # Derive standard Solar Power (ppv) from Micro ESS pvPower if ppv is missing
+
+def _compute_micro_ess_fallback_metrics(m_raw: dict, derived: dict[str, float]) -> None:
+    """Derive standard metrics from Micro ESS specific metrics."""
     if "pvPower" in m_raw and "ppv" not in m_raw:
         derived["ppv"] = _get_f("pvPower", m_raw)
 
-    # Derive standard Grid Frequency (f) from Micro ESS gridF if f is missing
     if "gridF" in m_raw and "f" not in m_raw:
         derived["f"] = _get_f("gridF", m_raw)
+
+
+def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
+    """Calculate derived metrics from raw metrics map.
+
+    Only keys that have relevant base data in m_raw will be included in the
+    resulting dictionary to avoid 'ghost' sensors for unsupported features.
+    """
+    derived: dict[str, float] = {}
+
+    _compute_load_metrics(m_raw, derived)
+    _compute_grid_metrics(m_raw, derived)
+    _compute_battery_metrics(m_raw, derived, device_type)
+    _compute_pv_metrics(m_raw, derived)
+    _compute_micro_ess_fallback_metrics(m_raw, derived)
 
     return derived
 
@@ -1647,19 +1670,18 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
     # ── Microinverter Controls ───────────────────────────────────────────
 
-    async def set_micro_power_on(self, device_sn: str) -> dict:
-        """Turn on a Microinverter (controlId 3011).
+    async def set_micro_power(self, device_sn: str, power_on: bool) -> dict:
+        """Turn on or off a Microinverter (controlId 3011).
 
         For **MICRO_INVERTER** devices.
-        """
-        return await self.set_device_control(device_sn, {3011: "1"})
 
-    async def set_micro_power_off(self, device_sn: str) -> dict:
-        """Turn off a Microinverter (controlId 3011).
-
-        For **MICRO_INVERTER** devices.
+        Args:
+            device_sn: Device serial number.
+            power_on: True to turn on ("1"), False to turn off ("0").
         """
-        return await self.set_device_control(device_sn, {3011: "0"})
+        return await self.set_device_control(
+            device_sn, {3011: "1" if power_on else "0"}
+        )
 
     async def set_micro_power_limit(self, device_sn: str, percentage: int) -> dict:
         """Set Maximum Power Limitation for a Microinverter (controlId 3012).
