@@ -5,8 +5,6 @@ INTERNAL_ERROR_MAP, and DEVICE_TYPE_MAP reference tables to avoid external
 dependencies. Suppress the module-size warning accordingly.
 """  # pylint: disable=too-many-lines
 
-from __future__ import annotations
-
 import asyncio
 import base64
 import functools
