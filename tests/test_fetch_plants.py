@@ -18,7 +18,7 @@ mock_aiohttp = sys.modules["aiohttp"]
 
 """Tests for fetching plants from the API."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
@@ -87,3 +87,27 @@ async def test_fetch_plants_generic_failure():
     assert plants is None
     assert api.token == "Bearer good_token"
     assert api.token_expires_at == 9999999999.0
+
+
+@pytest.mark.asyncio
+async def test_fetch_plants_empty_list_warning():
+    """Verify that _fetch_plants logs a warning when the plant list is empty."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {
+                "success": True,
+                "data": {"list": []},
+            },
+        )
+    )
+
+    with patch("src.hyxi_cloud_api.api._LOGGER") as mock_logger:
+        plants = await api._fetch_plants()
+        assert plants == []
+        mock_logger.warning.assert_called_once_with(
+            "HYXI API: No plants found associated with this account. "
+            "If your developer email differs from your app email, you must share "
+            "your Plant from the app to the developer email first."
+        )
