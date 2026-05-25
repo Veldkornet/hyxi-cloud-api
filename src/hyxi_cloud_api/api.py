@@ -566,9 +566,15 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         return 0.0
 
 
+@functools.lru_cache(maxsize=1024)
+def _is_collector_key_allowed(key: str) -> bool:
+    """Check if metric key is allowed for Collectors and cache the result."""
+    return not _COLLECTOR_FILTER_REGEX.search(key)
+
+
 def _filter_collector_metrics(m_raw: dict) -> dict:
     """Remove battery/power metrics that shouldn't be present on Collectors."""
-    return {k: v for k, v in m_raw.items() if not _COLLECTOR_FILTER_REGEX.search(k)}
+    return {k: v for k, v in m_raw.items() if _is_collector_key_allowed(k)}
 
 
 def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
