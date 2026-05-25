@@ -980,7 +980,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             "ratedFrequency": i_raw.get("ratedFrequency"),
         }
 
-        device_type_code = entry.get("device_type_code", "").upper()
+        device_type_code = entry.get("device_type_code", "")
         if _BATTERY_DEVICE_REGEX.search(device_type_code):
             base_info.update(HyxiApiClient._extract_battery_info(i_raw))
 
@@ -1528,7 +1528,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             "sn": sn,
             "device_name": device_name,
             "model": friendly_name,
-            "device_type_code": dev_type,
+            "device_type_code": dev_type.upper(),
             "sw_version": device_data.get("swVer"),
             "hw_version": device_data.get("hwVer"),
             "metrics": {"last_seen": now},
