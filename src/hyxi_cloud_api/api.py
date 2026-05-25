@@ -571,7 +571,7 @@ def _filter_collector_metrics(m_raw: dict) -> dict:
     return {k: v for k, v in m_raw.items() if not _COLLECTOR_FILTER_REGEX.search(k)}
 
 
-def _compute_load_metrics(m_raw: dict, derived: dict) -> None:
+def _compute_load_metrics(m_raw: dict, derived: dict[str, float]) -> None:
     """Calculate home load metrics."""
     if "ph1Loadp" in m_raw or "ph2Loadp" in m_raw or "ph3Loadp" in m_raw:
         derived["home_load"] = (
@@ -581,7 +581,7 @@ def _compute_load_metrics(m_raw: dict, derived: dict) -> None:
         )
 
 
-def _compute_grid_metrics(m_raw: dict, derived: dict) -> None:
+def _compute_grid_metrics(m_raw: dict, derived: dict[str, float]) -> None:
     """Calculate grid import/export metrics."""
     if "gridP" in m_raw:
         grid = _get_f("gridP", m_raw, 1000.0)
@@ -589,7 +589,9 @@ def _compute_grid_metrics(m_raw: dict, derived: dict) -> None:
         derived["grid_export"] = grid if grid > 0 else 0.0
 
 
-def _compute_battery_metrics(m_raw: dict, derived: dict, device_type: str) -> None:
+def _compute_battery_metrics(
+    m_raw: dict, derived: dict[str, float], device_type: str
+) -> None:
     """Calculate battery charge/discharge metrics."""
     bat_p_dc = _get_f("batP", m_raw)
     pbat = _get_f("pbat", m_raw)
@@ -612,7 +614,7 @@ def _compute_battery_metrics(m_raw: dict, derived: dict, device_type: str) -> No
         derived["bat_discharge_total"] = _get_f("batDisCharge", m_raw)
 
 
-def _compute_pv_metrics(m_raw: dict, derived: dict) -> None:
+def _compute_pv_metrics(m_raw: dict, derived: dict[str, float]) -> None:
     """Calculate PV string powers."""
     for v_k, i_k, p_k in _PV_KEYS:
         if v_k in m_raw or i_k in m_raw or p_k in m_raw:
@@ -631,7 +633,7 @@ def _compute_pv_metrics(m_raw: dict, derived: dict) -> None:
         derived["pv1p"] = round(max(ppv_total - derived["pv2p"], 0), 2)
 
 
-def _compute_micro_ess_fallback_metrics(m_raw: dict, derived: dict) -> None:
+def _compute_micro_ess_fallback_metrics(m_raw: dict, derived: dict[str, float]) -> None:
     """Derive standard metrics from Micro ESS specific metrics."""
     if "pvPower" in m_raw and "ppv" not in m_raw:
         derived["ppv"] = _get_f("pvPower", m_raw)
@@ -646,7 +648,7 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
     Only keys that have relevant base data in m_raw will be included in the
     resulting dictionary to avoid 'ghost' sensors for unsupported features.
     """
-    derived = {}
+    derived: dict[str, float] = {}
 
     _compute_load_metrics(m_raw, derived)
     _compute_grid_metrics(m_raw, derived)
