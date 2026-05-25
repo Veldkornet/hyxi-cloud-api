@@ -1348,12 +1348,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         """Helper to concurrently process plants to gather metrics and alarms."""
         device_fetch_tasks, alarm_fetch_tasks = self._build_plant_tasks(state)
 
-        await HyxiApiClient._execute_device_tasks(device_fetch_tasks)
-
-        plant_alarms = await self._fetch_and_process_alarms(
-            alarm_fetch_tasks,
-            state,
-            allow_back_discovery=allow_back_discovery,
+        _, plant_alarms = await asyncio.gather(
+            HyxiApiClient._execute_device_tasks(device_fetch_tasks),
+            self._fetch_and_process_alarms(
+                alarm_fetch_tasks,
+                state,
+                allow_back_discovery=allow_back_discovery,
+            ),
         )
 
         # 3. Concurrent Metrics
