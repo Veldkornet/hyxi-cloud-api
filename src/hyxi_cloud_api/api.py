@@ -1656,7 +1656,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             device_sn: Device serial number.
             power_on: True to turn on ("1"), False to turn off ("0").
         """
-        return await self.set_device_control(device_sn, {3011: "1" if power_on else "0"})
+        return await self.set_device_control(
+            device_sn, {3011: "1" if power_on else "0"}
+        )
 
     async def set_micro_power_limit(self, device_sn: str, percentage: int) -> dict:
         """Set Maximum Power Limitation for a Microinverter (controlId 3012).
