@@ -177,12 +177,12 @@ async def test_set_mode_discharge_invalid_watts():
 
 @pytest.mark.asyncio
 async def test_set_micro_power_on():
-    """Test set_micro_power_on sends controlId 3011 with value '1'."""
+    """Test set_micro_power sends controlId 3011 with value '1' when power_on=True."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
     api._request = AsyncMock(return_value=(200, {"success": True}))
 
-    await api.set_micro_power_on("SN123")
+    await api.set_micro_power("SN123", power_on=True)
 
     call_kwargs = api._request.call_args
     body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
@@ -191,12 +191,12 @@ async def test_set_micro_power_on():
 
 @pytest.mark.asyncio
 async def test_set_micro_power_off():
-    """Test set_micro_power_off sends controlId 3011 with value '0'."""
+    """Test set_micro_power sends controlId 3011 with value '0' when power_on=False."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._refresh_token = AsyncMock(return_value=True)
     api._request = AsyncMock(return_value=(200, {"success": True}))
 
-    await api.set_micro_power_off("SN123")
+    await api.set_micro_power("SN123", power_on=False)
 
     call_kwargs = api._request.call_args
     body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
