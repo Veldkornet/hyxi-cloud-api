@@ -110,3 +110,17 @@ def test_extract_device_info_metadata_micro_ess():
     assert base_info["wifiVer"] == "V01.00.00.01"
     assert base_info["ratedFrequency"] == "50"
     assert "batCap" in entry["metrics"]
+
+
+def test_extract_device_info_metadata_model():
+    """Test that the model field is extracted and updates the entry when changed."""
+    entry = {"metrics": {}, "device_type_code": "UNKNOWN", "model": "generic inverter"}
+    i_raw = {"model": "H10K-HT"}
+    HyxiApiClient._extract_device_info_metadata(entry, i_raw)
+    assert entry["model"] == "H10K-HT"
+
+    # Verify model is NOT overwritten if not present in response
+    entry2 = {"metrics": {}, "device_type_code": "UNKNOWN", "model": "H10K-HT"}
+    i_raw2 = {}
+    HyxiApiClient._extract_device_info_metadata(entry2, i_raw2)
+    assert entry2["model"] == "H10K-HT"

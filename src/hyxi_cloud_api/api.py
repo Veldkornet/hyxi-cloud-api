@@ -991,6 +991,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         if hw_ver:
             entry["hw_version"] = hw_ver
 
+        detailed_model = i_raw.get("model")
+        if detailed_model and detailed_model != entry.get("model"):
+            entry["model"] = detailed_model
+
         base_info = {
             "hw_version": hw_ver,
             "_sw_ver_sys": sw_ver,
