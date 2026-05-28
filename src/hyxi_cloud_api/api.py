@@ -757,6 +757,28 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     SWITCH_URL = "https://switch.hyxicloud.com/switchApi/fe/clientActive"
     DEFAULT_BASE_URL = "https://open.hyxicloud.com"
 
+    # ── VPP Awareness ────────────────────────────────────────────────────
+    # Modes that indicate an active VPP is controlling this device.
+    # Manual controls should be locked out when any of these are active.
+    # Source: HYXI 6.0.8 APK string table (com.hyx.power).
+    VPP_ACTIVE_MODES: frozenset[str] = frozenset(
+        {
+            "vppModeCharge",
+            "vppModeDischarge",
+            "vppModeSelfConsumption",
+            "vppModeOffGrid",
+            "vppModeConnForcedCharge",
+            "vppModeResponse",
+            # Alternate snake_case representations observed in some firmware versions
+            "charge",
+            "discharge",
+            "self_consumption",
+            "off_grid",
+            "conn_forced_charge",
+            "response",
+        }
+    )
+
     @staticmethod
     async def resolve_base_url(
         country_code: str,
@@ -1219,6 +1241,88 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             )
             return {}
 
+    # ── VPP Methods ──────────────────────────────────────────────────────
+
+    async def get_vpp_mode_setting(self, device_sn: str) -> dict:
+        """Fetch the current VPP mode for a device (polled every cycle).
+
+        Calls GET /hyx-plant/deviceInstruct/v1/getVppModeSetting.
+        Returns a dict containing at minimum {vppMode, vppCode, vppName}
+        or {} on any failure. The caller must tolerate missing keys.
+
+        The 'vppMode' value should be checked against VPP_ACTIVE_MODES to
+        determine if manual control is currently locked out.
+        """
+        path = "/hyx-plant/deviceInstruct/v1/getVppModeSetting"
+        try:
+            _, res = await self._request("GET", path, params={"deviceSn": device_sn})
+            if not res.get("success"):
+                _LOGGER.debug(
+                    "HYXI getVppModeSetting rejected for %s: code=%s",
+                    _mask_id(device_sn),
+                    res.get("code"),
+                )
+                return {}
+            data = res.get("data") or {}
+            if not isinstance(data, dict):
+                return {}
+            return {
+                "vppMode": data.get("vppMode") or "",
+                "vppCode": data.get("vppCode") or "",
+                "vppName": data.get("vppName") or "",
+            }
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                _LOGGER.debug(
+                    "HYXI getVppModeSetting not supported for %s (404)",
+                    _mask_id(device_sn),
+                )
+            else:
+                _LOGGER.warning(
+                    "HYXI getVppModeSetting HTTP error for %s: %s",
+                    _mask_id(device_sn),
+                    e,
+                )
+            return {}
+        except Exception as e:  # pylint: disable=broad-except
+            _LOGGER.debug(
+                "HYXI getVppModeSetting failed for %s: %s", _mask_id(device_sn), e
+            )
+            return {}
+
+    async def get_vpp_supplier(self, device_sn: str) -> dict:
+        """Fetch the registered VPP supplier for a device (startup-only).
+
+        Calls GET /hyx-plant/vpp/v1/vppSupplier. This is called once
+        during full discovery and cached alongside static device info.
+        The registered VPP supplier name rarely changes and does not need
+        to be re-fetched on every poll cycle.
+
+        Returns {vppManufacturer, vppSupplierName} or {} on any failure.
+        """
+        path = "/hyx-plant/vpp/v1/vppSupplier"
+        try:
+            _, res = await self._request("GET", path, params={"deviceSn": device_sn})
+            if not res.get("success"):
+                _LOGGER.debug(
+                    "HYXI vppSupplier rejected for %s: code=%s",
+                    _mask_id(device_sn),
+                    res.get("code"),
+                )
+                return {}
+            data = res.get("data") or {}
+            if not isinstance(data, dict):
+                return {}
+            return {
+                "vppManufacturer": data.get("vppManufacturer") or "",
+                "vppSupplierName": data.get("vppSupplierName")
+                or data.get("name")
+                or "",
+            }
+        except Exception as e:  # pylint: disable=broad-except
+            _LOGGER.debug("HYXI vppSupplier failed for %s: %s", _mask_id(device_sn), e)
+            return {}
+
     @staticmethod
     def _extract_battery_info(i_raw):
         """Helper to extract battery-specific device info."""
@@ -1299,6 +1403,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         except Exception as e:
             _LOGGER.error("Error fetching device info for %s: %s", _mask_id(sn), e)
 
+    # VPP-capable device types — poll getVppModeSetting every cycle.
+    _VPP_CAPABLE_TYPES: frozenset[str] = frozenset(
+        {"INVERTER", "HYBRID_INVERTER", "ALL_IN_ONE", "ESS"}
+    )
+
     async def _fetch_all_for_device(self, sn, entry, dev_type):
         """Fires off concurrent tasks for Data and Info, merging the results."""
         tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
@@ -1311,9 +1420,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             "MICRO_ESS",
             "MICRO_INVERTER",
         )
+        is_vpp_capable = dev_type in self._VPP_CAPABLE_TYPES
 
         ems_task = None
         mode_v2_task = None
+        vpp_task = None
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
             ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
@@ -1322,6 +1433,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if is_inverter_type:
                 mode_v2_task = asyncio.create_task(self.get_mode_setting_v2(sn))
                 tasks.append(mode_v2_task)
+
+            if is_vpp_capable:
+                vpp_task = asyncio.create_task(self.get_vpp_mode_setting(sn))
+                tasks.append(vpp_task)
 
         # Wait for them to finish
         if tasks:
@@ -1345,6 +1460,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     "HYXI getModeSettingV2 probe returned %d keys for %s",
                     len(v2_raw),
                     _mask_id(sn),
+                )
+
+        if vpp_task:
+            vpp_raw = vpp_task.result()
+            if vpp_raw:
+                entry["metrics"].update(vpp_raw)
+                _LOGGER.debug(
+                    "HYXI VPP mode for %s: %s",
+                    _mask_id(sn),
+                    vpp_raw.get("vppMode") or "idle",
                 )
 
         return sn, entry
@@ -1815,6 +1940,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         await self._process_plants_data(
             state, allow_back_discovery=allow_back_discovery
         )
+
+        # Fetch VPP supplier once per full discovery (startup/re-discovery only).
+        # The registered VPP supplier rarely changes — no need to poll every cycle.
+        for sn, entry in state.results.items():
+            dev_type = entry.get("device_type_code", "")
+            if dev_type in self._VPP_CAPABLE_TYPES:
+                supplier = await self.get_vpp_supplier(sn)
+                if supplier:
+                    entry["metrics"].update(supplier)
 
         return state.results
 
