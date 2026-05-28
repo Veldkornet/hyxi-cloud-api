@@ -1165,6 +1165,60 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             )
         return {}
 
+    async def get_mode_setting_v2(self, device_sn: str) -> dict:
+        """Fetch extended mode settings from the v2 endpoint.
+
+        Probes /hyx-plant/selfDevice/v1/getModeSettingV2 which returns richer
+        operating mode context (e.g. scheduled modes, current active mode
+        reason) compared to the v1 endpoint. Results are merged into
+        entry['metrics'] with a 'mode_v2_' prefix by the caller.
+
+        Returns an empty dict on any failure — 404 means the device
+        does not support v2 (common on older hardware), other errors
+        are logged. The caller must never depend on this data being present.
+        """
+        path = "/hyx-plant/selfDevice/v1/getModeSettingV2"
+        try:
+            _, res = await self._request("GET", path, params={"deviceSn": device_sn})
+
+            if not res.get("success"):
+                _LOGGER.debug(
+                    "HYXI getModeSettingV2 rejected for %s (device may not support v2): %s",
+                    _mask_id(device_sn),
+                    res.get("code"),
+                )
+                return {}
+
+            data = res.get("data") or {}
+            if not isinstance(data, dict):
+                return {}
+
+            _LOGGER.debug(
+                "HYXI getModeSettingV2 OK for %s: %d keys",
+                _mask_id(device_sn),
+                len(data),
+            )
+            return data
+
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                _LOGGER.debug(
+                    "HYXI getModeSettingV2 not supported for %s (404)",
+                    _mask_id(device_sn),
+                )
+            else:
+                _LOGGER.warning(
+                    "HYXI getModeSettingV2 HTTP error for %s: %s",
+                    _mask_id(device_sn),
+                    e,
+                )
+            return {}
+        except Exception as e:  # pylint: disable=broad-except
+            _LOGGER.debug(
+                "HYXI getModeSettingV2 probe failed for %s: %s", _mask_id(device_sn), e
+            )
+            return {}
+
     @staticmethod
     def _extract_battery_info(i_raw):
         """Helper to extract battery-specific device info."""
@@ -1249,12 +1303,25 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         """Fires off concurrent tasks for Data and Info, merging the results."""
         tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
         is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")
+        is_inverter_type = dev_type in (
+            "INVERTER",
+            "HYBRID_INVERTER",
+            "ALL_IN_ONE",
+            "ESS",
+            "MICRO_ESS",
+            "MICRO_INVERTER",
+        )
 
         ems_task = None
+        mode_v2_task = None
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
             ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
             tasks.append(ems_task)
+
+            if is_inverter_type:
+                mode_v2_task = asyncio.create_task(self.get_mode_setting_v2(sn))
+                tasks.append(mode_v2_task)
 
         # Wait for them to finish
         if tasks:
@@ -1267,6 +1334,17 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             else:
                 _LOGGER.debug(
                     "HYXI EMS telemetry probe returned no data for %s", _mask_id(sn)
+                )
+
+        if mode_v2_task:
+            v2_raw = mode_v2_task.result()
+            if v2_raw:
+                # Prefix keys to avoid collision with existing metrics.
+                entry["metrics"].update({f"mode_v2_{k}": v for k, v in v2_raw.items()})
+                _LOGGER.debug(
+                    "HYXI getModeSettingV2 probe returned %d keys for %s",
+                    len(v2_raw),
+                    _mask_id(sn),
                 )
 
         return sn, entry
