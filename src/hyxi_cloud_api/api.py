@@ -752,6 +752,83 @@ _PEAK_SHAVING_VALUES = {
 class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     """Client for interacting with the HYXI Cloud API."""
 
+    # ── Regional Node Resolution ─────────────────────────────────────────
+
+    SWITCH_URL = "https://switch.hyxicloud.com/switchApi/fe/clientActive"
+    DEFAULT_BASE_URL = "https://open.hyxicloud.com"
+
+    @staticmethod
+    async def resolve_base_url(
+        country_code: str,
+        session: aiohttp.ClientSession,
+        timeout: int = 10,
+    ) -> str | None:
+        """Resolve the correct regional API base URL for a given country.
+
+        Calls the HYXI switch service (no auth required) to determine which
+        regional node serves a given country code. Falls back gracefully —
+        returns None on any network or parsing failure so callers can apply
+        their own default (e.g. HyxiApiClient.DEFAULT_BASE_URL).
+
+        Args:
+            country_code: ISO 3166-1 alpha-2 country code (e.g. "AU", "DE").
+            session: An open aiohttp.ClientSession. Must NOT be closed by
+                this method — the caller owns the session lifecycle.
+            timeout: HTTP timeout in seconds (default 10).
+
+        Returns:
+            Base URL string (e.g. "https://open.hyxicloud.com") or None.
+        """
+        try:
+            async with session.post(
+                HyxiApiClient.SWITCH_URL,
+                json={"countryCode": country_code.upper()},
+                timeout=aiohttp.ClientTimeout(total=timeout),
+                headers={"Content-Type": "application/json"},
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+
+            # The switch response may nest the URL in different keys depending
+            # on the API version. Try each in priority order.
+            node = data.get("data") or {}
+            if isinstance(node, str):
+                # Some versions return the URL string directly in "data"
+                base = node.strip().rstrip("/")
+                if base.startswith("http"):
+                    _LOGGER.debug(
+                        "HYXI Node resolved for country '%s': %s", country_code, base
+                    )
+                    return base
+
+            for key in ("apiUrl", "baseUrl", "nodeUrl", "url"):
+                candidate = node.get(key, "").strip().rstrip("/")
+                if candidate.startswith("http"):
+                    _LOGGER.debug(
+                        "HYXI Node resolved for country '%s' via key '%s': %s",
+                        country_code,
+                        key,
+                        candidate,
+                    )
+                    return candidate
+
+            _LOGGER.warning(
+                "HYXI switch service responded but contained no usable URL "
+                "for country '%s'. Response: %s",
+                country_code,
+                data,
+            )
+            return None
+
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.warning(
+                "HYXI node resolution failed for country '%s': %s — "
+                "falling back to default base URL.",
+                country_code,
+                exc,
+            )
+            return None
+
     class ControlError(Exception):
         """Raised when a device control command fails."""
 
@@ -765,6 +842,14 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         self.session = session
         self.token: str | None = None
         self.token_expires_at: float = 0.0
+
+        # Regional node re-resolution support.
+        # Set country_code so the client can re-resolve the base_url automatically
+        # when a redirect or gateway error signals the node has moved.
+        # on_base_url_changed is an optional async callback invoked with the new URL
+        # so the caller (e.g. HA coordinator) can persist it across restarts.
+        self.country_code: str = ""
+        self.on_base_url_changed: Any = None  # Callable[[str], Awaitable[None]] | None
 
         # Structural & Metadata Cache
         self._discovery_cache: dict[str, Any] = {
@@ -784,6 +869,49 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 "device_type_code": entry["device_type_code"],
                 "device_name": entry.get("device_name"),
             }
+
+    async def _try_reresolve_base_url(self) -> bool:
+        """Attempt to re-resolve the regional base URL using the stored country_code.
+
+        Called automatically when _request() detects a transparent redirect or a
+        502/503 gateway error, both of which signal the configured node has moved
+        or gone offline. Updates self.base_url in-place and invokes
+        on_base_url_changed (if set) so callers can persist the new URL.
+
+        Returns True if the URL changed, False otherwise.
+        """
+        if not self.country_code:
+            _LOGGER.debug(
+                "HYXI node re-resolution skipped: no country_code configured."
+            )
+            return False
+
+        new_url = await HyxiApiClient.resolve_base_url(self.country_code, self.session)
+        if not new_url or new_url.rstrip("/") == self.base_url:
+            _LOGGER.debug(
+                "HYXI node re-resolution: no change from '%s'.", self.base_url
+            )
+            return False
+
+        old_url = self.base_url
+        self.base_url = new_url.rstrip("/")
+        # Force a full re-discovery on the next poll since the node changed.
+        self._discovery_cache["plants"] = None
+        self._discovery_cache_time = 0.0
+
+        _LOGGER.warning(
+            "HYXI regional node changed: '%s' -> '%s'. Updating base URL.",
+            old_url,
+            self.base_url,
+        )
+
+        if self.on_base_url_changed is not None:
+            try:
+                await self.on_base_url_changed(self.base_url)
+            except Exception as cb_exc:  # pylint: disable=broad-except
+                _LOGGER.error("HYXI on_base_url_changed callback failed: %s", cb_exc)
+
+        return True
 
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXI's official Java SDK implementation."""
@@ -821,10 +949,26 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
         return headers
 
+    # HTTP status codes that indicate the configured node has moved or is down,
+    # triggering automatic re-resolution of the base URL.
+    _NODE_ERROR_STATUSES: frozenset[int] = frozenset({502, 503})
+
     async def _request(
         self, method: str, path: str, is_token_request: bool = False, **kwargs
     ) -> tuple[int, dict]:
-        """Centralized helper for making HTTP requests."""
+        """Centralized helper for making HTTP requests.
+
+        Automatically detects two signals that the configured regional node
+        has moved and should be re-resolved:
+
+        1. **Transparent redirect**: aiohttp follows the redirect silently, but
+           response.url.host will differ from self.base_url. The new host is
+           adopted immediately and the request is NOT retried (we already have
+           the response from the correct host).
+
+        2. **502 / 503 Gateway error**: The node is down. Re-resolve and retry
+           the request once against the new URL.
+        """
         url = f"{self.base_url}{path}"
         headers = self._generate_headers(
             path, method.upper(), is_token_request=is_token_request
@@ -839,8 +983,60 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         async with request_func(url, headers=headers, **kwargs) as response:
             status = response.status
 
+            # ── 1. Transparent redirect detection ───────────────────────
+            # aiohttp follows redirects automatically. If the final host
+            # differs from our configured base, HYXI quietly moved the node.
+            # Adopt the new host for future requests and fire the callback.
+            final_base = f"{response.url.scheme}://{response.url.host}"
+            if final_base.rstrip("/") != self.base_url.rstrip("/"):
+                _LOGGER.warning(
+                    "HYXI transparent redirect detected: configured '%s', "
+                    "actual response from '%s'. Updating base URL.",
+                    self.base_url,
+                    final_base,
+                )
+                old_url = self.base_url
+                self.base_url = final_base.rstrip("/")
+                self._discovery_cache["plants"] = None
+                self._discovery_cache_time = 0.0
+                if self.on_base_url_changed is not None:
+                    try:
+                        await self.on_base_url_changed(self.base_url)
+                    except Exception as cb_exc:  # pylint: disable=broad-except
+                        _LOGGER.error(
+                            "HYXI on_base_url_changed callback failed: %s", cb_exc
+                        )
+                _LOGGER.warning(
+                    "HYXI base URL updated: '%s' -> '%s'.", old_url, self.base_url
+                )
+                # Response is already from the correct host — no retry needed.
+
             if is_token_request and status in (401, 403):
                 return status, {}
+
+            # ── 2. Gateway-down re-resolution and retry ──────────────────
+            if status in self._NODE_ERROR_STATUSES:
+                _LOGGER.warning(
+                    "HYXI HTTP %s from '%s' — node may be down. "
+                    "Attempting re-resolution for country '%s'.",
+                    status,
+                    self.base_url,
+                    self.country_code or "(unset)",
+                )
+                changed = await self._try_reresolve_base_url()
+                if changed:
+                    # Retry once with the new base URL and fresh headers.
+                    retry_url = f"{self.base_url}{path}"
+                    retry_headers = self._generate_headers(
+                        path, method.upper(), is_token_request=is_token_request
+                    )
+                    async with request_func(
+                        retry_url, headers=retry_headers, **kwargs
+                    ) as retry_response:
+                        retry_response.raise_for_status()
+                        retry_res = await retry_response.json()
+                        return retry_response.status, retry_res
+                # Re-resolution didn't help — fall through to raise_for_status.
 
             response.raise_for_status()
             res = await response.json()
