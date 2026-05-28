@@ -134,13 +134,15 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     api.query_ems_basic_details = AsyncMock(return_value={})
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
+    api.get_mode_setting_v2 = AsyncMock(return_value={})
+    api.get_vpp_mode_setting = AsyncMock(return_value={})
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
     await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
 
     assert "HYXI EMS telemetry probe returned no data for fefbfd75" in caplog.text
-    # Ensure entry was not updated with EMS metrics
-    assert not entry["metrics"]
+    # VPP keys are always written for INVERTER types; no EMS data should be present.
+    assert "new_metric" not in entry["metrics"]
 
 
 @pytest.mark.asyncio
@@ -150,14 +152,18 @@ async def test_fetch_ems_basic_data_error(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
+    # Raise inside _request so query_ems_basic_details catches it and returns {}
     api._request = AsyncMock(side_effect=Exception("EMS data fetch failed"))
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
+    api.get_mode_setting_v2 = AsyncMock(return_value={})
+    api.get_vpp_mode_setting = AsyncMock(return_value={})
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
     await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
 
-    assert not entry["metrics"]
+    # No EMS data should be present; VPP keys are written regardless.
+    assert "batSoc" not in entry["metrics"]
     assert "HYXI EMS telemetry probe returned no data for fefbfd75" in caplog.text
 
 

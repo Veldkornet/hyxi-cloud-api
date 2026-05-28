@@ -1464,13 +1464,17 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
         if vpp_task:
             vpp_raw = vpp_task.result()
-            if vpp_raw:
-                entry["metrics"].update(vpp_raw)
-                _LOGGER.debug(
-                    "HYXI VPP mode for %s: %s",
-                    _mask_id(sn),
-                    vpp_raw.get("vppMode") or "idle",
-                )
+            # Always write VPP keys so HA sensor attributes are never missing.
+            # Empty dict = device not enrolled in VPP or endpoint not supported.
+            vpp_mode = vpp_raw.get("vppMode", "")
+            entry["metrics"]["vppMode"] = vpp_mode
+            entry["metrics"]["vppCode"] = vpp_raw.get("vppCode", "")
+            entry["metrics"]["vppName"] = vpp_raw.get("vppName", "")
+            _LOGGER.debug(
+                "HYXI VPP mode for %s: '%s'",
+                _mask_id(sn),
+                vpp_mode or "(not enrolled)",
+            )
 
         return sn, entry
 
