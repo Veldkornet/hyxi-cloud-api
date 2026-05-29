@@ -752,6 +752,27 @@ _PEAK_SHAVING_VALUES = {
 class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     """Client for interacting with the HYXI Cloud API."""
 
+    DEFAULT_BASE_URL = "https://open.hyxicloud.com"
+
+    # ── VPP Awareness ────────────────────────────────────────────────────
+    # workMode values that indicate an active VPP program is controlling
+    # this device. The 'workMode' field is already returned in regular
+    # polling metrics — no separate API call is needed.
+    #
+    # Confirmed values (live observation + HYXI community research):
+    #   "16" = VPP mode (virtual power plant dispatch active)
+    #
+    # Standard non-VPP modes for reference (NOT included here):
+    #   "0" = Self-use / general
+    #   "1" = Backup priority
+    #   "2" = Time-of-use / peak shaving
+    #   "3" = Feed-in priority
+    #
+    # workMode is returned as a string from the API ("16", not 16).
+    # Source: live workMode value observed during active VPP dispatch,
+    # corroborated by HYXI community register documentation.
+    VPP_ACTIVE_MODES: frozenset[str] = frozenset({"16"})
+
     class ControlError(Exception):
         """Raised when a device control command fails."""
 
@@ -1072,6 +1093,17 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 _LOGGER.debug(
                     "HYXI EMS telemetry probe returned no data for %s", _mask_id(sn)
                 )
+
+        if not is_comm_unit:
+            # Always write VPP keys so HA sensor attributes are never missing.
+            # Pivot: VPP active detection is now driven by workMode.
+            # If workMode is "16" (VPP active), set vppMode to "16" to trigger HA lockout.
+            work_mode = entry["metrics"].get("workMode", "")
+            entry["metrics"]["vppMode"] = work_mode
+            entry["metrics"]["vppCode"] = ""
+            entry["metrics"]["vppName"] = ""
+            entry["metrics"]["vppManufacturer"] = ""
+            entry["metrics"]["vppSupplierName"] = ""
 
         return sn, entry
 

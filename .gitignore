@@ -29,3 +29,8 @@ htmlcov/
 # Local Mock Overrides
 mock_data.json
 mock_data_example.json
+
+# APK Analysis Artifacts (intelligence saved to KI — binaries not committed)
+*.apk
+*.xapk
+.apk_extract/
