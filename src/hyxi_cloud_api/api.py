@@ -1914,3 +1914,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             res.get("success"),
         )
         return res
+
+    @staticmethod
+    def compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
+        """Calculate derived metrics (grid import/export, bat charging/discharging, etc.) from raw metrics."""
+        return _compute_derived_metrics(m_raw, device_type)
