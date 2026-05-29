@@ -761,7 +761,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     # polling metrics — no separate API call is needed.
     #
     # Confirmed values (live observation + HYXI community research):
-    #   "16" = VPP mode (virtual power plant dispatch active)
+    #   "13" = VPP Charge (remote grid charge active)
+    #   "14" = VPP Discharge (remote grid discharge active)
+    #   "16" = VPP mode (virtual power plant dispatch active / idle)
     #
     # Standard non-VPP modes for reference (NOT included here):
     #   "0" = Self-use / general
@@ -769,10 +771,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     #   "2" = Time-of-use / peak shaving
     #   "3" = Feed-in priority
     #
-    # workMode is returned as a string from the API ("16", not 16).
+    # workMode is returned as a string or integer from the API, cast to string for matching.
     # Source: live workMode value observed during active VPP dispatch,
     # corroborated by HYXI community register documentation.
-    VPP_ACTIVE_MODES: frozenset[str] = frozenset({"16"})
+    VPP_ACTIVE_MODES: frozenset[str] = frozenset({"13", "14", "16"})
 
     class ControlError(Exception):
         """Raised when a device control command fails."""
