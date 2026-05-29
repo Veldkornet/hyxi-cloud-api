@@ -1707,9 +1707,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         if data_code_list is not None:
             body["dataCodeList"] = data_code_list
 
-        return await self._post_subscription(
-            "/api/subscribe/v1/realTimeData", body
-        )
+        return await self._post_subscription("/api/subscribe/v1/realTimeData", body)
 
     async def subscribe_alarm(
         self,
@@ -1759,9 +1757,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             "deviceSnList": device_sn_list,
             "postRate": int(post_rate),
         }
-        return await self._post_subscription(
-            "/api/subscribe/v1/FMRealTimeData", body
-        )
+        return await self._post_subscription("/api/subscribe/v1/FMRealTimeData", body)
 
     async def cancel_subscription(self, subscribe_code: str) -> dict:
         """Cancel a subscription by subscription code.
