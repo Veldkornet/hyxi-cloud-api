@@ -57,6 +57,15 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+HYXI Open API base URLs vary by region. The examples in this README use the
+Europe endpoint by default.
+
+| Node | Request Address |
+| :--- | :--- |
+| China | `https://open-cn.hyxicloud.com` |
+| Europe (default) | `https://open.hyxicloud.com` |
+| North America | `https://open-or.hyxicloud.com` |
+
 ## 🔧 Device Control
 
 You can control inverter operating modes directly through the API. This requires a device serial number, which you can obtain from the device data response above.
@@ -84,6 +93,39 @@ try:
 except client.ControlError as e:
     print(f"Control command failed: {e}")
 ```
+
+## 🔔 Subscriptions
+
+You can subscribe a callback URL to HYXI push notifications for real-time data,
+alarms, and FCAS/frequency-modulation real-time data.
+
+```python
+async def subscription_example(client):
+    callback_url = "https://your-public-callback-host/hyxi/callback"
+    device_sns = ["60700000000001", "60700000000002"]
+
+    real_time = await client.subscribe_real_time_data(
+        callback_url,
+        device_sns,
+        post_rate=60000,  # milliseconds, 5000-3600000
+    )
+
+    alarm = await client.subscribe_alarm(
+        callback_url,
+        device_sns,
+        post_rate=60000,  # milliseconds, 5000-3600000
+    )
+
+    fcas = await client.subscribe_fm_real_time_data(
+        callback_url,
+        device_sns,
+        post_rate=1,  # hours, 1-6
+    )
+
+    await client.cancel_subscription(real_time["data"]["subscribeCode"])
+```
+
+Subscription failures raise `HyxiApiClient.SubscriptionError`.
 
 ## 🛠️ Requirements
 * Python 3.14 or newer

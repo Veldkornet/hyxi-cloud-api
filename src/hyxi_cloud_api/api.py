@@ -776,6 +776,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     class ControlError(Exception):
         """Raised when a device control command fails."""
 
+    class SubscriptionError(Exception):
+        """Raised when a subscription request fails."""
+
     def __init__(
         self, access_key, secret_key, base_url, session: aiohttp.ClientSession
     ):
@@ -930,6 +933,14 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         except Exception as e:
             _LOGGER.error("HYXI Token Request Failed: %s", e)
         return False
+
+    async def _ensure_authenticated(self, error_cls: type[Exception]) -> None:
+        """Refresh the API token or raise the provided domain error."""
+        token_status = await self._refresh_token()
+        if token_status == "auth_failed":
+            raise error_cls("Authentication failed")
+        if not token_status:
+            raise error_cls("Could not obtain API token")
 
     async def _fetch_device_metrics(self, sn, entry):
         """Helper to fetch detailed metrics for a single device."""
@@ -1614,11 +1625,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         Values are strings per the developer docs ('' for idle/self-consumption,
         a wattage like '100' for 1063/1064, '0'/'1' for switches).
         """
-        token_status = await self._refresh_token()
-        if token_status == "auth_failed":
-            raise self.ControlError("Authentication failed")
-        if not token_status:
-            raise self.ControlError("Could not obtain API token")
+        await self._ensure_authenticated(self.ControlError)
 
         path = "/api/device/v2/control"
         body = {
@@ -1640,6 +1647,130 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             res.get("success"),
         )
         return res
+
+    # ── Subscription API ────────────────────────────────────────────────
+
+    async def _post_subscription(self, path: str, body: dict) -> dict:
+        """Send an authenticated subscription request."""
+        await self._ensure_authenticated(self.SubscriptionError)
+
+        _LOGGER.debug("HYXI subscription request to %s", path)
+        _, res = await self._request("POST", path, json=body)
+        if res is None or not res.get("success"):
+            code = res.get("code", "unknown") if res else "no_response"
+            msg = res.get("msg", "") if res else ""
+            raise self.SubscriptionError(
+                f"subscription request failed (code={code}): {msg}"
+            )
+        return res
+
+    @staticmethod
+    def _validate_subscription_device_sns(device_sn_list: list[str]) -> None:
+        """Validate subscription device SN list constraints."""
+        if not device_sn_list:
+            raise ValueError("device_sn_list must contain at least one device SN")
+        if len(device_sn_list) > 1000:
+            raise ValueError("device_sn_list cannot contain more than 1000 device SNs")
+
+    @staticmethod
+    def _validate_callback_url(callback_url: str) -> None:
+        """Validate the subscriber callback URL."""
+        if not callback_url or not callback_url.strip():
+            raise ValueError("callback_url must be a non-empty string")
+
+    @staticmethod
+    def _validate_post_rate_ms(post_rate: int) -> None:
+        """Validate millisecond subscription push rate."""
+        if not 5000 <= post_rate <= 3600000:
+            raise ValueError("post_rate must be between 5000 and 3600000 milliseconds")
+
+    async def subscribe_real_time_data(
+        self,
+        callback_url: str,
+        device_sn_list: list[str],
+        post_rate: int,
+        data_code_list: list[str] | None = None,
+    ) -> dict:
+        """Subscribe to real-time device data notifications.
+
+        Endpoint: POST /api/subscribe/v1/realTimeData
+        """
+        self._validate_callback_url(callback_url)
+        self._validate_subscription_device_sns(device_sn_list)
+        self._validate_post_rate_ms(post_rate)
+
+        body: dict[str, Any] = {
+            "callBackUrl": callback_url,
+            "deviceSnList": device_sn_list,
+            "postRate": int(post_rate),
+        }
+        if data_code_list is not None:
+            body["dataCodeList"] = data_code_list
+
+        return await self._post_subscription("/api/subscribe/v1/realTimeData", body)
+
+    async def subscribe_alarm(
+        self,
+        callback_url: str,
+        device_sn_list: list[str],
+        post_rate: int,
+        alarm_code_list: list[str] | None = None,
+    ) -> dict:
+        """Subscribe to device alarm notifications.
+
+        Endpoint: POST /api/subscribe/v1/alarm
+        """
+        self._validate_callback_url(callback_url)
+        self._validate_subscription_device_sns(device_sn_list)
+        self._validate_post_rate_ms(post_rate)
+
+        body: dict[str, Any] = {
+            "callBackUrl": callback_url,
+            "deviceSnList": device_sn_list,
+            "postRate": int(post_rate),
+        }
+        if alarm_code_list is not None:
+            body["alarmCodeList"] = alarm_code_list
+
+        return await self._post_subscription("/api/subscribe/v1/alarm", body)
+
+    async def subscribe_fm_real_time_data(
+        self,
+        callback_url: str,
+        device_sn_list: list[str],
+        post_rate: int,
+    ) -> dict:
+        """Subscribe to FCAS/frequency modulation real-time device data.
+
+        Endpoint: POST /api/subscribe/v1/FMRealTimeData
+
+        Args:
+            post_rate: Push rate in hours. Must be between 1 and 6.
+        """
+        self._validate_callback_url(callback_url)
+        self._validate_subscription_device_sns(device_sn_list)
+        if not 1 <= post_rate <= 6:
+            raise ValueError("post_rate must be between 1 and 6 hours")
+
+        body = {
+            "callBackUrl": callback_url,
+            "deviceSnList": device_sn_list,
+            "postRate": int(post_rate),
+        }
+        return await self._post_subscription("/api/subscribe/v1/FMRealTimeData", body)
+
+    async def cancel_subscription(self, subscribe_code: str) -> dict:
+        """Cancel a subscription by subscription code.
+
+        Endpoint: POST /api/subscribe/v1/cancel
+        """
+        if not subscribe_code or not subscribe_code.strip():
+            raise ValueError("subscribe_code must be a non-empty string")
+
+        return await self._post_subscription(
+            "/api/subscribe/v1/cancel",
+            {"subscribeCode": subscribe_code.strip()},
+        )
 
     async def set_mode_idle(self, device_sn: str) -> dict:
         """Set inverter to Idle mode (controlId 1062).
@@ -1779,3 +1910,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             res.get("success"),
         )
         return res
+
+    @staticmethod
+    def compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
+        """Calculate derived metrics (grid import/export, bat charging/discharging, etc.) from raw metrics."""
+        return _compute_derived_metrics(m_raw, device_type)
