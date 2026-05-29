@@ -38,9 +38,6 @@ async def test_discovery_caching_logic():
     # 5. Info for Inverter
     # 6. Metrics for Inverter
     # 7. EMS Probe
-    # 8. getModeSettingV2 Probe
-    # 9. getVppModeSetting Probe
-    # 10. vppSupplier (startup-only, via _execute_fetch_full_discovery)
 
     with patch.object(client, "_request") as mock_req:
         mock_req.side_effect = [
@@ -51,15 +48,12 @@ async def test_discovery_caching_logic():
             (200, info_resp),
             (200, metrics_resp),
             (200, {}),  # EMS
-            (200, {}),  # getModeSettingV2
-            (200, {}),  # getVppModeSetting
-            (200, {}),  # vppSupplier (full discovery only)
         ]
 
         # First call: Full Discovery
         res1 = await client.get_all_device_data()
         assert res1["data"]["S1"]["sw_version"] == "V1"
-        assert mock_req.call_count == 10
+        assert mock_req.call_count == 7
 
         # Second call: Should use cache (Fast Poll)
         # Sequence expected for Fast Poll:
@@ -67,21 +61,17 @@ async def test_discovery_caching_logic():
         # 2. Info (for SN)
         # 3. Metrics (for SN)
         # 4. EMS Probe
-        # 5. getModeSettingV2 Probe
-        # 6. getVppModeSetting Probe
         mock_req.reset_mock()
         mock_req.side_effect = [
             (200, alarms_resp),
             (200, info_resp),
             (200, metrics_resp),
             (200, {}),  # EMS
-            (200, {}),  # getModeSettingV2
-            (200, {}),  # getVppModeSetting
         ]
 
         res2 = await client.get_all_device_data()
         assert res2["data"]["S1"]["sw_version"] == "V1"  # Still there from cache
-        assert mock_req.call_count == 6
+        assert mock_req.call_count == 4
 
         # Verify specific URL paths for fast poll
         calls = mock_req.call_args_list
@@ -99,12 +89,9 @@ async def test_discovery_caching_logic():
             (200, info_resp),
             (200, metrics_resp),
             (200, {}),  # EMS
-            (200, {}),  # getModeSettingV2
-            (200, {}),  # getVppModeSetting
-            (200, {}),  # vppSupplier (full discovery only)
         ]
         await client.get_all_device_data(force_discovery=True)
-        assert mock_req.call_count == 10
+        assert mock_req.call_count == 7
 
 
 @pytest.mark.asyncio

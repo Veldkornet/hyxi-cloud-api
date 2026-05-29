@@ -277,8 +277,6 @@ async def test_fetch_ems_basic_data_success(caplog):
     api.query_ems_basic_details = AsyncMock(return_value={"new_metric": "new_value"})
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
-    api.get_mode_setting_v2 = AsyncMock(return_value={})
-    api.get_vpp_mode_setting = AsyncMock(return_value={})
 
     ems_sn = "10602251600016"
     entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
@@ -304,8 +302,6 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     api.query_ems_basic_details = AsyncMock(return_value={})
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
-    api.get_mode_setting_v2 = AsyncMock(return_value={})
-    api.get_vpp_mode_setting = AsyncMock(return_value={})
 
     ems_sn = "EMS123"
     entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}

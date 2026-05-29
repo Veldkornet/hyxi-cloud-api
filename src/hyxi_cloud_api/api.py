@@ -752,104 +752,26 @@ _PEAK_SHAVING_VALUES = {
 class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     """Client for interacting with the HYXI Cloud API."""
 
-    # ── Regional Node Resolution ─────────────────────────────────────────
-
-    SWITCH_URL = "https://switch.hyxicloud.com/switchApi/fe/clientActive"
     DEFAULT_BASE_URL = "https://open.hyxicloud.com"
 
     # ── VPP Awareness ────────────────────────────────────────────────────
-    # Modes that indicate an active VPP is controlling this device.
-    # Manual controls should be locked out when any of these are active.
-    # Source: HYXI 6.0.8 APK string table (com.hyx.power).
-    VPP_ACTIVE_MODES: frozenset[str] = frozenset(
-        {
-            "vppModeCharge",
-            "vppModeDischarge",
-            "vppModeSelfConsumption",
-            "vppModeOffGrid",
-            "vppModeConnForcedCharge",
-            "vppModeResponse",
-            # Alternate snake_case representations observed in some firmware versions
-            "charge",
-            "discharge",
-            "self_consumption",
-            "off_grid",
-            "conn_forced_charge",
-            "response",
-        }
-    )
-
-    @staticmethod
-    async def resolve_base_url(
-        country_code: str,
-        session: aiohttp.ClientSession,
-        timeout: int = 10,
-    ) -> str | None:
-        """Resolve the correct regional API base URL for a given country.
-
-        Calls the HYXI switch service (no auth required) to determine which
-        regional node serves a given country code. Falls back gracefully —
-        returns None on any network or parsing failure so callers can apply
-        their own default (e.g. HyxiApiClient.DEFAULT_BASE_URL).
-
-        Args:
-            country_code: ISO 3166-1 alpha-2 country code (e.g. "AU", "DE").
-            session: An open aiohttp.ClientSession. Must NOT be closed by
-                this method — the caller owns the session lifecycle.
-            timeout: HTTP timeout in seconds (default 10).
-
-        Returns:
-            Base URL string (e.g. "https://open.hyxicloud.com") or None.
-        """
-        try:
-            async with session.post(
-                HyxiApiClient.SWITCH_URL,
-                json={"countryCode": country_code.upper()},
-                timeout=aiohttp.ClientTimeout(total=timeout),
-                headers={"Content-Type": "application/json"},
-            ) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-
-            # The switch response may nest the URL in different keys depending
-            # on the API version. Try each in priority order.
-            node = data.get("data") or {}
-            if isinstance(node, str):
-                # Some versions return the URL string directly in "data"
-                base = node.strip().rstrip("/")
-                if base.startswith("http"):
-                    _LOGGER.debug(
-                        "HYXI Node resolved for country '%s': %s", country_code, base
-                    )
-                    return base
-
-            for key in ("apiUrl", "baseUrl", "nodeUrl", "url"):
-                candidate = node.get(key, "").strip().rstrip("/")
-                if candidate.startswith("http"):
-                    _LOGGER.debug(
-                        "HYXI Node resolved for country '%s' via key '%s': %s",
-                        country_code,
-                        key,
-                        candidate,
-                    )
-                    return candidate
-
-            _LOGGER.warning(
-                "HYXI switch service responded but contained no usable URL "
-                "for country '%s'. Response: %s",
-                country_code,
-                data,
-            )
-            return None
-
-        except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.warning(
-                "HYXI node resolution failed for country '%s': %s — "
-                "falling back to default base URL.",
-                country_code,
-                exc,
-            )
-            return None
+    # workMode values that indicate an active VPP program is controlling
+    # this device. The 'workMode' field is already returned in regular
+    # polling metrics — no separate API call is needed.
+    #
+    # Confirmed values (live observation + HYXI community research):
+    #   "16" = VPP mode (virtual power plant dispatch active)
+    #
+    # Standard non-VPP modes for reference (NOT included here):
+    #   "0" = Self-use / general
+    #   "1" = Backup priority
+    #   "2" = Time-of-use / peak shaving
+    #   "3" = Feed-in priority
+    #
+    # workMode is returned as a string from the API ("16", not 16).
+    # Source: live workMode value observed during active VPP dispatch,
+    # corroborated by HYXI community register documentation.
+    VPP_ACTIVE_MODES: frozenset[str] = frozenset({"16"})
 
     class ControlError(Exception):
         """Raised when a device control command fails."""
@@ -864,14 +786,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         self.session = session
         self.token: str | None = None
         self.token_expires_at: float = 0.0
-
-        # Regional node re-resolution support.
-        # Set country_code so the client can re-resolve the base_url automatically
-        # when a redirect or gateway error signals the node has moved.
-        # on_base_url_changed is an optional async callback invoked with the new URL
-        # so the caller (e.g. HA coordinator) can persist it across restarts.
-        self.country_code: str = ""
-        self.on_base_url_changed: Any = None  # Callable[[str], Awaitable[None]] | None
 
         # Structural & Metadata Cache
         self._discovery_cache: dict[str, Any] = {
@@ -891,49 +805,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 "device_type_code": entry["device_type_code"],
                 "device_name": entry.get("device_name"),
             }
-
-    async def _try_reresolve_base_url(self) -> bool:
-        """Attempt to re-resolve the regional base URL using the stored country_code.
-
-        Called automatically when _request() detects a transparent redirect or a
-        502/503 gateway error, both of which signal the configured node has moved
-        or gone offline. Updates self.base_url in-place and invokes
-        on_base_url_changed (if set) so callers can persist the new URL.
-
-        Returns True if the URL changed, False otherwise.
-        """
-        if not self.country_code:
-            _LOGGER.debug(
-                "HYXI node re-resolution skipped: no country_code configured."
-            )
-            return False
-
-        new_url = await HyxiApiClient.resolve_base_url(self.country_code, self.session)
-        if not new_url or new_url.rstrip("/") == self.base_url:
-            _LOGGER.debug(
-                "HYXI node re-resolution: no change from '%s'.", self.base_url
-            )
-            return False
-
-        old_url = self.base_url
-        self.base_url = new_url.rstrip("/")
-        # Force a full re-discovery on the next poll since the node changed.
-        self._discovery_cache["plants"] = None
-        self._discovery_cache_time = 0.0
-
-        _LOGGER.warning(
-            "HYXI regional node changed: '%s' -> '%s'. Updating base URL.",
-            old_url,
-            self.base_url,
-        )
-
-        if self.on_base_url_changed is not None:
-            try:
-                await self.on_base_url_changed(self.base_url)
-            except Exception as cb_exc:  # pylint: disable=broad-except
-                _LOGGER.error("HYXI on_base_url_changed callback failed: %s", cb_exc)
-
-        return True
 
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXI's official Java SDK implementation."""
@@ -971,26 +842,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
         return headers
 
-    # HTTP status codes that indicate the configured node has moved or is down,
-    # triggering automatic re-resolution of the base URL.
-    _NODE_ERROR_STATUSES: frozenset[int] = frozenset({502, 503})
-
     async def _request(
         self, method: str, path: str, is_token_request: bool = False, **kwargs
     ) -> tuple[int, dict]:
-        """Centralized helper for making HTTP requests.
-
-        Automatically detects two signals that the configured regional node
-        has moved and should be re-resolved:
-
-        1. **Transparent redirect**: aiohttp follows the redirect silently, but
-           response.url.host will differ from self.base_url. The new host is
-           adopted immediately and the request is NOT retried (we already have
-           the response from the correct host).
-
-        2. **502 / 503 Gateway error**: The node is down. Re-resolve and retry
-           the request once against the new URL.
-        """
+        """Centralized helper for making HTTP requests."""
         url = f"{self.base_url}{path}"
         headers = self._generate_headers(
             path, method.upper(), is_token_request=is_token_request
@@ -1005,60 +860,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         async with request_func(url, headers=headers, **kwargs) as response:
             status = response.status
 
-            # ── 1. Transparent redirect detection ───────────────────────
-            # aiohttp follows redirects automatically. If the final host
-            # differs from our configured base, HYXI quietly moved the node.
-            # Adopt the new host for future requests and fire the callback.
-            final_base = f"{response.url.scheme}://{response.url.host}"
-            if final_base.rstrip("/") != self.base_url.rstrip("/"):
-                _LOGGER.warning(
-                    "HYXI transparent redirect detected: configured '%s', "
-                    "actual response from '%s'. Updating base URL.",
-                    self.base_url,
-                    final_base,
-                )
-                old_url = self.base_url
-                self.base_url = final_base.rstrip("/")
-                self._discovery_cache["plants"] = None
-                self._discovery_cache_time = 0.0
-                if self.on_base_url_changed is not None:
-                    try:
-                        await self.on_base_url_changed(self.base_url)
-                    except Exception as cb_exc:  # pylint: disable=broad-except
-                        _LOGGER.error(
-                            "HYXI on_base_url_changed callback failed: %s", cb_exc
-                        )
-                _LOGGER.warning(
-                    "HYXI base URL updated: '%s' -> '%s'.", old_url, self.base_url
-                )
-                # Response is already from the correct host — no retry needed.
-
             if is_token_request and status in (401, 403):
                 return status, {}
-
-            # ── 2. Gateway-down re-resolution and retry ──────────────────
-            if status in self._NODE_ERROR_STATUSES:
-                _LOGGER.warning(
-                    "HYXI HTTP %s from '%s' — node may be down. "
-                    "Attempting re-resolution for country '%s'.",
-                    status,
-                    self.base_url,
-                    self.country_code or "(unset)",
-                )
-                changed = await self._try_reresolve_base_url()
-                if changed:
-                    # Retry once with the new base URL and fresh headers.
-                    retry_url = f"{self.base_url}{path}"
-                    retry_headers = self._generate_headers(
-                        path, method.upper(), is_token_request=is_token_request
-                    )
-                    async with request_func(
-                        retry_url, headers=retry_headers, **kwargs
-                    ) as retry_response:
-                        retry_response.raise_for_status()
-                        retry_res = await retry_response.json()
-                        return retry_response.status, retry_res
-                # Re-resolution didn't help — fall through to raise_for_status.
 
             response.raise_for_status()
             res = await response.json()
@@ -1187,142 +990,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             )
         return {}
 
-    async def get_mode_setting_v2(self, device_sn: str) -> dict:
-        """Fetch extended mode settings from the v2 endpoint.
-
-        Probes /hyx-plant/selfDevice/v1/getModeSettingV2 which returns richer
-        operating mode context (e.g. scheduled modes, current active mode
-        reason) compared to the v1 endpoint. Results are merged into
-        entry['metrics'] with a 'mode_v2_' prefix by the caller.
-
-        Returns an empty dict on any failure — 404 means the device
-        does not support v2 (common on older hardware), other errors
-        are logged. The caller must never depend on this data being present.
-        """
-        path = "/hyx-plant/selfDevice/v1/getModeSettingV2"
-        try:
-            _, res = await self._request("GET", path, params={"deviceSn": device_sn})
-
-            if not res.get("success"):
-                _LOGGER.debug(
-                    "HYXI getModeSettingV2 rejected for %s (device may not support v2): %s",
-                    _mask_id(device_sn),
-                    res.get("code"),
-                )
-                return {}
-
-            data = res.get("data") or {}
-            if not isinstance(data, dict):
-                return {}
-
-            _LOGGER.debug(
-                "HYXI getModeSettingV2 OK for %s: %d keys",
-                _mask_id(device_sn),
-                len(data),
-            )
-            return data
-
-        except aiohttp.ClientResponseError as e:
-            if e.status == 404:
-                _LOGGER.debug(
-                    "HYXI getModeSettingV2 not supported for %s (404)",
-                    _mask_id(device_sn),
-                )
-            else:
-                _LOGGER.warning(
-                    "HYXI getModeSettingV2 HTTP error for %s: %s",
-                    _mask_id(device_sn),
-                    e,
-                )
-            return {}
-        except Exception as e:  # pylint: disable=broad-except
-            _LOGGER.debug(
-                "HYXI getModeSettingV2 probe failed for %s: %s", _mask_id(device_sn), e
-            )
-            return {}
-
-    # ── VPP Methods ──────────────────────────────────────────────────────
-
-    async def get_vpp_mode_setting(self, device_sn: str) -> dict:
-        """Fetch the current VPP mode for a device (polled every cycle).
-
-        Calls GET /hyx-plant/deviceInstruct/v1/getVppModeSetting.
-        Returns a dict containing at minimum {vppMode, vppCode, vppName}
-        or {} on any failure. The caller must tolerate missing keys.
-
-        The 'vppMode' value should be checked against VPP_ACTIVE_MODES to
-        determine if manual control is currently locked out.
-        """
-        path = "/hyx-plant/deviceInstruct/v1/getVppModeSetting"
-        try:
-            _, res = await self._request("GET", path, params={"deviceSn": device_sn})
-            if not res.get("success"):
-                _LOGGER.debug(
-                    "HYXI getVppModeSetting rejected for %s: code=%s",
-                    _mask_id(device_sn),
-                    res.get("code"),
-                )
-                return {}
-            data = res.get("data") or {}
-            if not isinstance(data, dict):
-                return {}
-            return {
-                "vppMode": data.get("vppMode") or "",
-                "vppCode": data.get("vppCode") or "",
-                "vppName": data.get("vppName") or "",
-            }
-        except aiohttp.ClientResponseError as e:
-            if e.status == 404:
-                _LOGGER.debug(
-                    "HYXI getVppModeSetting not supported for %s (404)",
-                    _mask_id(device_sn),
-                )
-            else:
-                _LOGGER.warning(
-                    "HYXI getVppModeSetting HTTP error for %s: %s",
-                    _mask_id(device_sn),
-                    e,
-                )
-            return {}
-        except Exception as e:  # pylint: disable=broad-except
-            _LOGGER.debug(
-                "HYXI getVppModeSetting failed for %s: %s", _mask_id(device_sn), e
-            )
-            return {}
-
-    async def get_vpp_supplier(self, device_sn: str) -> dict:
-        """Fetch the registered VPP supplier for a device (startup-only).
-
-        Calls GET /hyx-plant/vpp/v1/vppSupplier. This is called once
-        during full discovery and cached alongside static device info.
-        The registered VPP supplier name rarely changes and does not need
-        to be re-fetched on every poll cycle.
-
-        Returns {vppManufacturer, vppSupplierName} or {} on any failure.
-        """
-        path = "/hyx-plant/vpp/v1/vppSupplier"
-        try:
-            _, res = await self._request("GET", path, params={"deviceSn": device_sn})
-            if not res.get("success"):
-                _LOGGER.debug(
-                    "HYXI vppSupplier rejected for %s: code=%s",
-                    _mask_id(device_sn),
-                    res.get("code"),
-                )
-                return {}
-            data = res.get("data") or {}
-            if not isinstance(data, dict):
-                return {}
-            return {
-                "vppManufacturer": data.get("vppManufacturer") or "",
-                "vppSupplierName": data.get("vppSupplierName")
-                or data.get("name")
-                or "",
-            }
-        except Exception as e:  # pylint: disable=broad-except
-            _LOGGER.debug("HYXI vppSupplier failed for %s: %s", _mask_id(device_sn), e)
-            return {}
-
     @staticmethod
     def _extract_battery_info(i_raw):
         """Helper to extract battery-specific device info."""
@@ -1403,40 +1070,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         except Exception as e:
             _LOGGER.error("Error fetching device info for %s: %s", _mask_id(sn), e)
 
-    # VPP-capable device types — poll getVppModeSetting every cycle.
-    _VPP_CAPABLE_TYPES: frozenset[str] = frozenset(
-        {"INVERTER", "HYBRID_INVERTER", "ALL_IN_ONE", "ESS"}
-    )
-
     async def _fetch_all_for_device(self, sn, entry, dev_type):
         """Fires off concurrent tasks for Data and Info, merging the results."""
         tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
         is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")
-        is_inverter_type = dev_type in (
-            "INVERTER",
-            "HYBRID_INVERTER",
-            "ALL_IN_ONE",
-            "ESS",
-            "MICRO_ESS",
-            "MICRO_INVERTER",
-        )
-        is_vpp_capable = dev_type in self._VPP_CAPABLE_TYPES
 
         ems_task = None
-        mode_v2_task = None
-        vpp_task = None
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
             ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
             tasks.append(ems_task)
-
-            if is_inverter_type:
-                mode_v2_task = asyncio.create_task(self.get_mode_setting_v2(sn))
-                tasks.append(mode_v2_task)
-
-            if is_vpp_capable:
-                vpp_task = asyncio.create_task(self.get_vpp_mode_setting(sn))
-                tasks.append(vpp_task)
 
         # Wait for them to finish
         if tasks:
@@ -1451,30 +1094,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     "HYXI EMS telemetry probe returned no data for %s", _mask_id(sn)
                 )
 
-        if mode_v2_task:
-            v2_raw = mode_v2_task.result()
-            if v2_raw:
-                # Prefix keys to avoid collision with existing metrics.
-                entry["metrics"].update({f"mode_v2_{k}": v for k, v in v2_raw.items()})
-                _LOGGER.debug(
-                    "HYXI getModeSettingV2 probe returned %d keys for %s",
-                    len(v2_raw),
-                    _mask_id(sn),
-                )
-
-        if vpp_task:
-            vpp_raw = vpp_task.result()
+        if not is_comm_unit:
             # Always write VPP keys so HA sensor attributes are never missing.
-            # Empty dict = device not enrolled in VPP or endpoint not supported.
-            vpp_mode = vpp_raw.get("vppMode", "")
-            entry["metrics"]["vppMode"] = vpp_mode
-            entry["metrics"]["vppCode"] = vpp_raw.get("vppCode", "")
-            entry["metrics"]["vppName"] = vpp_raw.get("vppName", "")
-            _LOGGER.debug(
-                "HYXI VPP mode for %s: '%s'",
-                _mask_id(sn),
-                vpp_mode or "(not enrolled)",
-            )
+            # Pivot: VPP active detection is now driven by workMode.
+            # If workMode is "16" (VPP active), set vppMode to "16" to trigger HA lockout.
+            work_mode = entry["metrics"].get("workMode", "")
+            entry["metrics"]["vppMode"] = work_mode
+            entry["metrics"]["vppCode"] = ""
+            entry["metrics"]["vppName"] = ""
+            entry["metrics"]["vppManufacturer"] = ""
+            entry["metrics"]["vppSupplierName"] = ""
 
         return sn, entry
 
@@ -1944,15 +1573,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         await self._process_plants_data(
             state, allow_back_discovery=allow_back_discovery
         )
-
-        # Fetch VPP supplier once per full discovery (startup/re-discovery only).
-        # The registered VPP supplier rarely changes — no need to poll every cycle.
-        for sn, entry in state.results.items():
-            dev_type = entry.get("device_type_code", "")
-            if dev_type in self._VPP_CAPABLE_TYPES:
-                supplier = await self.get_vpp_supplier(sn)
-                if supplier:
-                    entry["metrics"].update(supplier)
 
         return state.results
 

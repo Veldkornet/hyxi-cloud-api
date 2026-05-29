@@ -134,8 +134,6 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     api.query_ems_basic_details = AsyncMock(return_value={})
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
-    api.get_mode_setting_v2 = AsyncMock(return_value={})
-    api.get_vpp_mode_setting = AsyncMock(return_value={})
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
     await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
@@ -156,8 +154,6 @@ async def test_fetch_ems_basic_data_error(caplog):
     api._request = AsyncMock(side_effect=Exception("EMS data fetch failed"))
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
-    api.get_mode_setting_v2 = AsyncMock(return_value={})
-    api.get_vpp_mode_setting = AsyncMock(return_value={})
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
     await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
