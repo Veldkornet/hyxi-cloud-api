@@ -19,6 +19,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 try:
     from datetime import UTC, datetime
@@ -1677,6 +1678,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         """Validate the subscriber callback URL."""
         if not callback_url or not callback_url.strip():
             raise ValueError("callback_url must be a non-empty string")
+        parsed = urlparse(callback_url.strip())
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("callback_url must be a valid http/https URL")
 
     @staticmethod
     def _validate_post_rate_ms(post_rate: int) -> None:
