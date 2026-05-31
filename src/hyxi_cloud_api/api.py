@@ -1921,3 +1921,92 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     def compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
         """Calculate derived metrics (grid import/export, bat charging/discharging, etc.) from raw metrics."""
         return _compute_derived_metrics(m_raw, device_type)
+
+    def process_push_data(self, payload: dict) -> dict[str, dict[str, Any]]:
+        """Process real-time push data from HYXI Cloud.
+
+        Parses the flat push payload, matches it to the discovery cache,
+        filters collector metrics, and computes derived metrics.
+
+        Returns a dictionary of:
+        {
+            "device_sn": {
+                "sn": "device_sn",
+                "metrics": { ... },
+                "model": "...",
+                "device_type_code": "..."
+            }
+        }
+        """
+        if not isinstance(payload, dict):
+            _LOGGER.warning("HYXI Push: Payload is not a dictionary")
+            return {}
+
+        data_list = payload.get("dataList")
+        if not isinstance(data_list, list):
+            _LOGGER.warning("HYXI Push: dataList is missing or not a list")
+            return {}
+
+        now_utc = datetime.now(UTC).isoformat()
+        results = {}
+
+        for device in data_list:
+            if not isinstance(device, dict):
+                continue
+
+            sn = device.get("deviceSn")
+            if not sn:
+                continue
+
+            # Extract metrics from flat payload dictionary
+            # Strip metadata/routing keys
+            raw_metrics = {}
+            for k, v in device.items():
+                if k in ("deviceSn", "reportTimestamp", "collectTime"):
+                    continue
+                raw_metrics[k] = v
+
+            # Handle collectTime / reportTimestamp to resolve last_seen
+            last_seen = now_utc
+            collect_time = device.get("collectTime")
+            report_ts = device.get("reportTimestamp")
+
+            if collect_time is not None:
+                try:
+                    last_seen = datetime.fromtimestamp(
+                        float(collect_time), UTC
+                    ).isoformat()
+                except ValueError, TypeError:
+                    pass
+            elif report_ts is not None:
+                try:
+                    last_seen = datetime.fromtimestamp(
+                        float(report_ts) / 1000.0, UTC
+                    ).isoformat()
+                except ValueError, TypeError:
+                    pass
+
+            raw_metrics["last_seen"] = last_seen
+
+            # Retrieve info from discovery cache
+            device_info = self._discovery_cache.get("device_info", {}).get(sn, {})
+            device_type = str(device_info.get("device_type_code") or "").upper()
+
+            # Filter collector metrics
+            if device_type == "COLLECTOR":
+                metrics = _filter_collector_metrics(raw_metrics)
+            else:
+                metrics = raw_metrics.copy()
+
+            # Compute derived metrics
+            derived = _compute_derived_metrics(metrics, device_type)
+            metrics.update(derived)
+
+            results[sn] = {
+                "sn": sn,
+                "metrics": metrics,
+                "model": device_info.get("model", "Unknown"),
+                "device_type_code": device_info.get("device_type_code", "Unknown"),
+            }
+
+        return results
