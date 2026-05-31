@@ -2010,3 +2010,80 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             }
 
         return results
+
+    def process_alarm_push_data(self, payload: dict) -> dict[str, list[dict]]:
+        """Process alarm push data from HYXI Cloud.
+
+        Parses the alarm push callback payload and returns a dict mapping
+        device SN to a list of alarm records in the same shape that
+        coordinator.data[sn]["alarms"] uses during polling.
+
+        Alarm push payload shape (dataList item):
+            {
+                "deviceSn": "...",
+                "alarmCode": "1234",
+                "alarmName": "Over temperature alarm",
+                "alarmState": "1",        # "0"=resolved, "1"/"2"=active
+                "alarmTime": 1712728593000,   # ms epoch
+                "endTime": null or ms epoch,
+                "happenTime": 1712728593000,  # alternative field name
+            }
+
+        Returns:
+            {
+                "device_sn": [
+                    {"alarmCode": "1234", "alarmName": "...", "alarmState": "1", ...}
+                ]
+            }
+        """
+        if not isinstance(payload, dict):
+            _LOGGER.warning("HYXI Alarm Push: Payload is not a dictionary")
+            return {}
+
+        data_list = payload.get("dataList")
+        if not isinstance(data_list, list):
+            _LOGGER.warning("HYXI Alarm Push: dataList is missing or not a list")
+            return {}
+
+        results: dict[str, list[dict]] = {}
+
+        for item in data_list:
+            if not isinstance(item, dict):
+                continue
+
+            sn = item.get("deviceSn")
+            if not sn:
+                continue
+
+            alarm_code = str(item.get("alarmCode", ""))
+
+            # Resolve alarm name: use payload name if present, fall back to ALARM_CODE_MAP
+            alarm_name = item.get("alarmName") or ALARM_CODE_MAP.get(
+                alarm_code, f"Unknown alarm ({alarm_code})"
+            )
+
+            # Normalise state — push may use "alarmState" or "happenState"
+            alarm_state = item.get("alarmState") or item.get("happenState")
+
+            # Normalise time fields — push may use "alarmTime" or "happenTime"
+            alarm_time = item.get("alarmTime") or item.get("happenTime")
+            end_time = item.get("endTime") or item.get("recoverTime")
+
+            alarm_record = {
+                "alarmCode": alarm_code,
+                "alarmName": alarm_name,
+                "alarmState": alarm_state,
+                "alarmTime": alarm_time,
+                "endTime": end_time,
+            }
+
+            results.setdefault(sn, []).append(alarm_record)
+            _LOGGER.debug(
+                "HYXI Alarm Push: %s — code %s (%s) state=%s",
+                sn,
+                alarm_code,
+                alarm_name,
+                alarm_state,
+            )
+
+        return results
