@@ -1922,7 +1922,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         """Calculate derived metrics (grid import/export, bat charging/discharging, etc.) from raw metrics."""
         return _compute_derived_metrics(m_raw, device_type)
 
-    def process_push_data(self, payload: dict) -> dict[str, dict[str, Any]]:
+    def process_push_data(
+        self,
+        payload: dict,
+        existing_metrics: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, dict[str, Any]]:
         """Process real-time push data from HYXI Cloud.
 
         Parses the flat push payload, matches it to the discovery cache,
@@ -1966,6 +1970,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     continue
                 raw_metrics[k] = v
 
+            # Retrieve info from discovery cache
+            device_info = self._discovery_cache.get("device_info", {}).get(sn, {})
+            device_type = str(device_info.get("device_type_code") or "").upper()
+
             # Handle collectTime / reportTimestamp to resolve last_seen
             last_seen = now_utc
             collect_time = device.get("collectTime")
@@ -1986,25 +1994,29 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 except ValueError, TypeError:
                     pass
 
-            raw_metrics["last_seen"] = last_seen
-
-            # Retrieve info from discovery cache
-            device_info = self._discovery_cache.get("device_info", {}).get(sn, {})
-            device_type = str(device_info.get("device_type_code") or "").upper()
-
             # Filter collector metrics
             if device_type == "COLLECTOR":
-                metrics = _filter_collector_metrics(raw_metrics)
+                metrics_to_update = _filter_collector_metrics(raw_metrics)
             else:
-                metrics = raw_metrics.copy()
+                metrics_to_update = raw_metrics.copy()
+            # Merge with existing metrics if provided, ignoring None/null values
+            merged_metrics = {}
+            if existing_metrics and sn in existing_metrics:
+                # Copy existing to avoid mutating caller's dictionary directly
+                merged_metrics = dict(existing_metrics[sn])
 
-            # Compute derived metrics
-            derived = _compute_derived_metrics(metrics, device_type)
-            metrics.update(derived)
+            for k, v in metrics_to_update.items():
+                if v is not None:
+                    merged_metrics[k] = v
+            merged_metrics["last_seen"] = last_seen
+
+            # Compute derived metrics on the full merged dataset
+            derived = _compute_derived_metrics(merged_metrics, device_type)
+            merged_metrics.update(derived)
 
             results[sn] = {
                 "sn": sn,
-                "metrics": metrics,
+                "metrics": merged_metrics,
                 "model": device_info.get("model", "Unknown"),
                 "device_type_code": device_info.get("device_type_code", "Unknown"),
             }
