@@ -1988,14 +1988,14 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     last_seen = datetime.fromtimestamp(
                         float(collect_time), UTC
                     ).isoformat()
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             elif report_ts is not None:
                 try:
                     last_seen = datetime.fromtimestamp(
                         float(report_ts) / 1000.0, UTC
                     ).isoformat()
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
             # Filter collector metrics
