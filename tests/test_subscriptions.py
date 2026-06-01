@@ -161,3 +161,35 @@ async def test_subscription_validation():
 
     with pytest.raises(ValueError, match="subscribe_code must be a non-empty string"):
         await api.cancel_subscription(" ")
+
+
+@pytest.mark.asyncio
+async def test_post_subscription_success_direct():
+    """Test _post_subscription success path."""
+    api = _client()
+    api._request = AsyncMock(
+        return_value=(200, {"success": True, "code": "0", "data": "test"})
+    )
+    res = await api._post_subscription("/test/path", {"key": "value"})
+    assert res == {"success": True, "code": "0", "data": "test"}
+    api._request.assert_called_once_with("POST", "/test/path", json={"key": "value"})
+
+
+@pytest.mark.asyncio
+async def test_post_subscription_none_response():
+    """Test _post_subscription when response is None."""
+    api = _client()
+    api._request = AsyncMock(return_value=(200, None))
+    with pytest.raises(api.SubscriptionError, match=r"code=no_response"):
+        await api._post_subscription("/test/path", {"key": "value"})
+
+
+@pytest.mark.asyncio
+async def test_post_subscription_success_false():
+    """Test _post_subscription when response has success=False."""
+    api = _client()
+    api._request = AsyncMock(
+        return_value=(200, {"success": False, "code": "400", "msg": "Bad Request"})
+    )
+    with pytest.raises(api.SubscriptionError, match=r"code=400.*Bad Request"):
+        await api._post_subscription("/test/path", {"key": "value"})
