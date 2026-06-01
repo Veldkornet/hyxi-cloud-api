@@ -343,6 +343,7 @@ async def test_set_device_control_api_failure():
     ):
         await api.set_device_control("SN123", {"1062": "1"})
 
+
 @pytest.mark.asyncio
 async def test_set_device_control_empty_settings():
     """Test set_device_control handles empty settings gracefully, warning and returning empty dict."""
