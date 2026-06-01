@@ -587,6 +587,16 @@ def _compute_load_metrics(m_raw: dict, derived: dict[str, float]) -> None:
             + _get_f("ph3Loadp", m_raw)
         )
 
+    if "loadPower" in m_raw or "totalPac" in m_raw:
+        derived["load_power_w"] = _get_f("loadPower", m_raw)
+
+        if (
+            derived["load_power_w"] == 0.0
+            and m_raw.get("status") == 1
+            and "totalPac" in m_raw
+        ):
+            derived["load_power_w"] = _get_f("totalPac", m_raw)
+
 
 def _compute_grid_metrics(m_raw: dict, derived: dict[str, float]) -> None:
     """Calculate grid import/export metrics."""
