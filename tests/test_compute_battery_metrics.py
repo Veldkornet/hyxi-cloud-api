@@ -4,6 +4,7 @@ from src.hyxi_cloud_api.api import _compute_battery_metrics
 
 
 def test_compute_battery_metrics_all_in_one():
+    """Test ALL_IN_ONE device specific logic where pbat is preferred."""
     derived: dict[str, float] = {}
     m_raw = {"batP": 500.0, "pbat": -450.0}
     _compute_battery_metrics(m_raw, derived, "ALL_IN_ONE")
@@ -13,6 +14,7 @@ def test_compute_battery_metrics_all_in_one():
 
 
 def test_compute_battery_metrics_all_in_one_fallback_to_bat_p():
+    """Test ALL_IN_ONE fallback logic when pbat is zero."""
     derived: dict[str, float] = {}
     m_raw = {"batP": -500.0, "pbat": 0.0}
     _compute_battery_metrics(m_raw, derived, "ALL_IN_ONE")
@@ -22,6 +24,7 @@ def test_compute_battery_metrics_all_in_one_fallback_to_bat_p():
 
 
 def test_compute_battery_metrics_other_devices():
+    """Test standard device logic where batP is preferred."""
     derived: dict[str, float] = {}
     m_raw = {"batP": 600.0, "pbat": 550.0}
     _compute_battery_metrics(m_raw, derived, "OTHER")
@@ -31,6 +34,7 @@ def test_compute_battery_metrics_other_devices():
 
 
 def test_compute_battery_metrics_other_devices_fallback_to_pbat():
+    """Test standard device fallback logic when batP is zero."""
     derived: dict[str, float] = {}
     m_raw = {"batP": 0.0, "pbat": 400.0}
     _compute_battery_metrics(m_raw, derived, "OTHER")
@@ -40,6 +44,7 @@ def test_compute_battery_metrics_other_devices_fallback_to_pbat():
 
 
 def test_compute_battery_metrics_ems_device_type_no_keys():
+    """Test EMS device type logic handles empty input keys."""
     derived: dict[str, float] = {}
     m_raw: dict = {}
     _compute_battery_metrics(m_raw, derived, "EMS")
@@ -49,6 +54,7 @@ def test_compute_battery_metrics_ems_device_type_no_keys():
 
 
 def test_compute_battery_metrics_totals():
+    """Test handling of total charging and discharging statistics."""
     derived: dict[str, float] = {}
     m_raw = {"batCharge": 12.5, "batDisCharge": 45.6}
     _compute_battery_metrics(m_raw, derived, "OTHER")
@@ -57,12 +63,14 @@ def test_compute_battery_metrics_totals():
 
 
 def test_compute_battery_metrics_empty():
+    """Test graceful handling of empty inputs."""
     derived: dict[str, float] = {}
     _compute_battery_metrics({}, derived, "")
     assert not derived
 
 
 def test_compute_battery_metrics_none_device_type():
+    """Test graceful handling of missing device_type."""
     derived: dict[str, float] = {}
     m_raw = {"batP": -100.0}
     _compute_battery_metrics(m_raw, derived, None)  # type: ignore
