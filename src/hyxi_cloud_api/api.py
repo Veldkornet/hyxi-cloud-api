@@ -1638,6 +1638,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         Values are strings per the developer docs ('' for idle/self-consumption,
         a wattage like '100' for 1063/1064, '0'/'1' for switches).
         """
+        if not control_map:
+            _LOGGER.warning("set_device_control called with empty settings")
+            return {}
+
         await self._ensure_authenticated(self.ControlError)
 
         path = "/api/device/v2/control"

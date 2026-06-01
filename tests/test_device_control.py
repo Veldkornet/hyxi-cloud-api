@@ -281,3 +281,77 @@ async def test_alter_alarm_api_failure():
 
     with pytest.raises(api.ControlError, match="alarm alteration failed"):
         await api.alter_alarm([10086])
+
+
+@pytest.mark.asyncio
+async def test_set_device_control_success():
+    """Test set_device_control sends correct control map and handles success."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, {"success": True}))
+
+    result = await api.set_device_control("SN123", {"1062": "1"})
+
+    assert result["success"] is True
+    api._request.assert_called_once()
+    call_args, call_kwargs = api._request.call_args
+    assert call_args[0] == "POST"
+    assert call_args[1] == "/api/device/v2/control"
+    body = call_kwargs.get("json")
+    assert body == {"deviceControlMap": {"SN123": {"1062": "1"}}}
+
+
+@pytest.mark.asyncio
+async def test_set_device_control_key_conversion():
+    """Test set_device_control correctly converts integer keys to strings."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, {"success": True}))
+
+    result = await api.set_device_control("SN123", {1062: "1", "1063": "3000"})
+
+    assert result["success"] is True
+    call_kwargs = api._request.call_args
+    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    assert body["deviceControlMap"]["SN123"] == {"1062": "1", "1063": "3000"}
+
+
+@pytest.mark.asyncio
+async def test_set_device_control_no_response():
+    """Test set_device_control raises ControlError when no response is returned."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, None))
+
+    with pytest.raises(
+        api.ControlError, match="controlMap write failed \\(code=no_response\\):"
+    ):
+        await api.set_device_control("SN123", {"1062": "1"})
+
+
+@pytest.mark.asyncio
+async def test_set_device_control_api_failure():
+    """Test set_device_control raises ControlError when API returns success=False."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(
+        return_value=(200, {"success": False, "code": "E123", "msg": "API Error"})
+    )
+
+    with pytest.raises(
+        api.ControlError, match="controlMap write failed \\(code=E123\\): API Error"
+    ):
+        await api.set_device_control("SN123", {"1062": "1"})
+
+
+@pytest.mark.asyncio
+async def test_set_device_control_empty_settings():
+    """Test set_device_control handles empty settings gracefully, warning and returning empty dict."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock()
+
+    result = await api.set_device_control("SN123", {})
+
+    assert result == {}
+    api._request.assert_not_called()
