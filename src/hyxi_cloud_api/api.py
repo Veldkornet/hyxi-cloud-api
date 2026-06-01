@@ -1628,6 +1628,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         Values are strings per the developer docs ('' for idle/self-consumption,
         a wattage like '100' for 1063/1064, '0'/'1' for switches).
         """
+        if not control_map:
+            _LOGGER.warning("set_device_control called with empty settings")
+            return {}
+
         await self._ensure_authenticated(self.ControlError)
 
         path = "/api/device/v2/control"
@@ -1984,14 +1988,14 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     last_seen = datetime.fromtimestamp(
                         float(collect_time), UTC
                     ).isoformat()
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
             elif report_ts is not None:
                 try:
                     last_seen = datetime.fromtimestamp(
                         float(report_ts) / 1000.0, UTC
                     ).isoformat()
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
 
             # Filter collector metrics
