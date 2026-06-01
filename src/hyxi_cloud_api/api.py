@@ -587,6 +587,16 @@ def _compute_load_metrics(m_raw: dict, derived: dict[str, float]) -> None:
             + _get_f("ph3Loadp", m_raw)
         )
 
+    if "loadPower" in m_raw or "totalPac" in m_raw:
+        derived["load_power_w"] = _get_f("loadPower", m_raw)
+
+        if (
+            derived["load_power_w"] == 0.0
+            and m_raw.get("status") == 1
+            and "totalPac" in m_raw
+        ):
+            derived["load_power_w"] = _get_f("totalPac", m_raw)
+
 
 def _compute_grid_metrics(m_raw: dict, derived: dict[str, float]) -> None:
     """Calculate grid import/export metrics."""
@@ -602,7 +612,7 @@ def _compute_battery_metrics(
     """Calculate battery charge/discharge metrics."""
     bat_p_dc = _get_f("batP", m_raw)
     pbat = _get_f("pbat", m_raw)
-    device_type_str = str(device_type or "").upper()
+    device_type_str = str(device_type or "")
 
     if "batP" in m_raw or "pbat" in m_raw or device_type_str in ("EMS", "15", "16"):
         # ALL_IN_ONE: prefer pbat — batP can have an inverted sign convention,
@@ -1042,7 +1052,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             "ratedFrequency": i_raw.get("ratedFrequency"),
         }
 
-        device_type_code = entry.get("device_type_code", "").upper()
+        device_type_code = entry.get("device_type_code", "")
         if _BATTERY_DEVICE_REGEX.search(device_type_code):
             base_info.update(HyxiApiClient._extract_battery_info(i_raw))
 
@@ -1426,12 +1436,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         """Helper to concurrently process plants to gather metrics and alarms."""
         device_fetch_tasks, alarm_fetch_tasks = self._build_plant_tasks(state)
 
-        await HyxiApiClient._execute_device_tasks(device_fetch_tasks)
-
-        plant_alarms = await self._fetch_and_process_alarms(
-            alarm_fetch_tasks,
-            state,
-            allow_back_discovery=allow_back_discovery,
+        _, plant_alarms = await asyncio.gather(
+            HyxiApiClient._execute_device_tasks(device_fetch_tasks),
+            self._fetch_and_process_alarms(
+                alarm_fetch_tasks,
+                state,
+                allow_back_discovery=allow_back_discovery,
+            ),
         )
 
         # 3. Concurrent Metrics
@@ -1457,8 +1468,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-        dev_type_upper = dev_type.upper()
-        if _PARENT_DEVICE_REGEX.search(dev_type_upper):
+        if _PARENT_DEVICE_REGEX.search(dev_type):
             sub_device_tasks.append(self._fetch_sub_devices(sn, state))
 
     async def _process_alarms_and_back_discovery(
@@ -1593,7 +1603,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     @staticmethod
     def _build_device_entry(sn, device_data, now):
         """Build a standardized device entry dictionary from raw API data."""
-        dev_type = str(device_data.get("deviceType") or "UNKNOWN")
+        dev_type = str(device_data.get("deviceType") or "UNKNOWN").upper()
         friendly_name = (
             DEVICE_TYPE_MAP.get(dev_type) or dev_type.replace("_", " ").title()
         )
@@ -1972,7 +1982,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             # Retrieve info from discovery cache
             device_info = self._discovery_cache.get("device_info", {}).get(sn, {})
-            device_type = str(device_info.get("device_type_code") or "").upper()
+            device_type = str(device_info.get("device_type_code") or "")
 
             # Handle collectTime / reportTimestamp to resolve last_seen
             last_seen = now_utc
