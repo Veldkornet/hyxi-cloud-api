@@ -89,3 +89,54 @@ def test_process_push_data_success():
     assert coll_metrics["signalVal"] == "-65"
     assert coll_metrics["acP"] == "1000.0"  # Not filtered by keywords
     assert "batSoc" not in coll_metrics  # Filtered (contains 'bat')
+
+
+def test_process_push_data_with_existing_metrics():
+    """Test process_push_data merges new updates with existing metrics before computing derived metrics."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    api._discovery_cache["device_info"] = {
+        "INV123": {
+            "model": "H5K-HT",
+            "device_type_code": "HYBRID_INVERTER",
+            "device_name": "My Inverter",
+        }
+    }
+
+    # Historical metrics in coordinator: phase 2 and 3 load power, and grid power
+    existing_metrics = {
+        "INV123": {
+            "ph2Loadp": 300.0,
+            "ph3Loadp": 200.0,
+            "gridP": "-1.0",
+        }
+    }
+
+    # Incoming push notification: only phase 1 load power updated
+    payload = {
+        "dataList": [
+            {
+                "deviceSn": "INV123",
+                "collectTime": 1717764875,
+                "ph1Loadp": "500.0",
+            }
+        ]
+    }
+
+    results = api.process_push_data(payload, existing_metrics=existing_metrics)
+
+    assert "INV123" in results
+    metrics = results["INV123"]["metrics"]
+
+    # Incoming push value updated
+    assert metrics["ph1Loadp"] == "500.0"
+    # Existing metrics preserved
+    assert metrics["ph2Loadp"] == 300.0
+    assert metrics["ph3Loadp"] == 200.0
+    assert metrics["gridP"] == "-1.0"
+
+    # Derived metrics calculated on the fully merged metrics map:
+    # home_load = ph1Loadp + ph2Loadp + ph3Loadp = 500 + 300 + 200 = 1000.0
+    assert metrics["home_load"] == 1000.0
+    assert metrics["grid_import"] == 1000.0
+    assert metrics["grid_export"] == 0.0
