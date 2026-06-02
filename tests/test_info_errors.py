@@ -123,3 +123,28 @@ async def test_fetch_device_info_client_error_handling(caplog):
     )
     # Ensure it didn't crash and entry was not updated with metrics
     assert "sw_version" not in entry
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_info_invalid_data_type():
+    """Test that _fetch_device_info handles unexpected data types in the response data gracefully."""
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api._refresh_token = AsyncMock(return_value=True)
+
+    mock_response = MagicMock()
+    yielded_response = mock_response.__aenter__.return_value
+    yielded_response.raise_for_status = MagicMock()
+    yielded_response.json = AsyncMock(
+        return_value={
+            "success": True,
+            "data": "unexpected_string",
+        }
+    )
+    yielded_response.status = 200
+
+    mock_session.get.return_value = mock_response
+
+    entry = {"metrics": {}, "device_type_code": "INVERTER"}
+    await api._fetch_device_info("10602251600016", entry)
+    assert "sw_version" not in entry
