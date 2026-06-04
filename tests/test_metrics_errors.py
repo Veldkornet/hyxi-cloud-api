@@ -139,7 +139,7 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
 
     assert "HYXI EMS telemetry probe returned no data for fefbfd75" in caplog.text
-    # VPP keys are always written for INVERTER types; no EMS data should be present.
+    # No EMS data should be merged into metrics.
     assert "new_metric" not in entry["metrics"]
 
 
@@ -158,7 +158,7 @@ async def test_fetch_ems_basic_data_error(caplog):
     entry = {"metrics": {}, "device_type_code": "EMS"}
     await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
 
-    # No EMS data should be present; VPP keys are written regardless.
+    # No EMS data should be merged into metrics.
     assert "batSoc" not in entry["metrics"]
     assert "HYXI EMS telemetry probe returned no data for fefbfd75" in caplog.text
 

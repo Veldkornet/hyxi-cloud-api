@@ -924,7 +924,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     # Confirmed values (live observation + HYXI community research):
     #   "13" = VPP Charge (remote grid charge active)
     #   "14" = VPP Discharge (remote grid discharge active)
-    #   "16" = VPP mode (virtual power plant dispatch active / idle)
+    #   "16" = VPP Enrolled / Standby (device registered, NOT under active dispatch)
     #
     # Standard non-VPP modes for reference (NOT included here):
     #   "0" = Self-use / general
@@ -935,7 +935,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     # workMode is returned as a string or integer from the API, cast to string for matching.
     # Source: live workMode value observed during active VPP dispatch,
     # corroborated by HYXI community register documentation.
-    VPP_ACTIVE_MODES: frozenset[str] = frozenset({"13", "14", "16"})
+    VPP_ACTIVE_MODES: frozenset[str] = frozenset(
+        {"13", "14"}
+    )  # "16" = standby only, not active dispatch
 
     class ControlError(Exception):
         """Raised when a device control command fails."""
@@ -1268,17 +1270,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 _LOGGER.debug(
                     "HYXI EMS telemetry probe returned no data for %s", _mask_id(sn)
                 )
-
-        if not is_comm_unit:
-            # Always write VPP keys so HA sensor attributes are never missing.
-            # Pivot: VPP active detection is now driven by workMode.
-            # If workMode is "16" (VPP active), set vppMode to "16" to trigger HA lockout.
-            work_mode = entry["metrics"].get("workMode", "")
-            entry["metrics"]["vppMode"] = work_mode
-            entry["metrics"]["vppCode"] = ""
-            entry["metrics"]["vppName"] = ""
-            entry["metrics"]["vppManufacturer"] = ""
-            entry["metrics"]["vppSupplierName"] = ""
 
         return sn, entry
 
