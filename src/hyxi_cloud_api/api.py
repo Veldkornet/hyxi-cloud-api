@@ -677,6 +677,157 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
     return derived
 
 
+def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-many-statements
+    """Flatten a nested push device payload into the flat layout expected by the SDK."""
+    flat: dict = {}
+
+    # 1. record
+    if "record" in device and isinstance(device["record"], dict):
+        rec = device["record"]
+        if "deviceSn" in rec:
+            flat["deviceSn"] = rec["deviceSn"]
+        if "collectTime" in rec:
+            try:
+                flat["collectTime"] = float(rec["collectTime"]) / 1000.0
+            except ValueError, TypeError:
+                flat["collectTime"] = rec["collectTime"]
+        if "parentSn" in rec:
+            flat["parentSn"] = rec["parentSn"]
+        if "deviceState" in rec:
+            flat["deviceState"] = rec["deviceState"]
+
+    # Copy root device keys that might already be flat
+    for k in ("deviceSn", "collectTime", "reportTimestamp"):
+        if k in device and device[k] is not None:
+            val = device[k]
+            if k == "collectTime":
+                try:
+                    num_val = float(val)
+                    if num_val > 10000000000:
+                        flat[k] = num_val / 1000.0
+                    else:
+                        flat[k] = val
+                except ValueError, TypeError:
+                    flat[k] = val
+            else:
+                flat[k] = val
+
+    # 2. system
+    if "system" in device and isinstance(device["system"], dict):
+        sys_info = device["system"]
+        if "workMode" in sys_info:
+            flat["workMode"] = sys_info["workMode"]
+
+    # 3. ac
+    if "ac" in device and isinstance(device["ac"], dict):
+        ac_info = device["ac"]
+        if "frequencyHz" in ac_info:
+            flat["f"] = ac_info["frequencyHz"]
+        if "powerW" in ac_info:
+            flat["acP"] = ac_info["powerW"]
+        if "energyKwh" in ac_info:
+            flat["acE"] = ac_info["energyKwh"]
+
+    # 4. pv
+    if "pv" in device and isinstance(device["pv"], dict):
+        pv_info = device["pv"]
+        if "totalPowerW" in pv_info:
+            flat["ppv"] = pv_info["totalPowerW"]
+        for i in range(1, 5):
+            pv_key = f"pv{i}"
+            if pv_key in pv_info and isinstance(pv_info[pv_key], dict):
+                pvi = pv_info[pv_key]
+                if "voltageV" in pvi:
+                    flat[f"pv{i}v"] = pvi["voltageV"]
+                if "currentA" in pvi:
+                    flat[f"pv{i}i"] = pvi["currentA"]
+                if "powerW" in pvi:
+                    flat[f"pv{i}p"] = pvi["powerW"]
+
+    # 5. battery
+    if "battery" in device and isinstance(device["battery"], dict):
+        bat = device["battery"]
+        if "serialNumber" in bat:
+            flat["batSn"] = bat["serialNumber"]
+        if "capacityKwh" in bat:
+            flat["batCap"] = bat["capacityKwh"]
+        if "socPercent" in bat:
+            flat["batSoc"] = bat["socPercent"]
+        if "sohPercent" in bat:
+            flat["batSoh"] = bat["sohPercent"]
+        if "powerW" in bat:
+            flat["batP"] = bat["powerW"]
+        if "pbatW" in bat:
+            flat["pbat"] = bat["pbatW"]
+        if "voltageV" in bat:
+            flat["batV"] = bat["voltageV"]
+        if "currentA" in bat:
+            flat["batI"] = bat["currentA"]
+        if "chargeEnergyKwh" in bat:
+            flat["batCharge"] = bat["chargeEnergyKwh"]
+        if "dischargeEnergyKwh" in bat:
+            flat["batDisCharge"] = bat["dischargeEnergyKwh"]
+
+        # battery.temperature
+        if "temperature" in bat and isinstance(bat["temperature"], dict):
+            btemp = bat["temperature"]
+            if "chargeTempC" in btemp:
+                flat["batTch"] = btemp["chargeTempC"]
+            if "cellLowTempC" in btemp:
+                flat["batTcl"] = btemp["cellLowTempC"]
+
+        # battery.limits
+        if "limits" in bat and isinstance(bat["limits"], dict):
+            blim = bat["limits"]
+            if "maxChargePowerW" in blim:
+                flat["maxChargePower"] = blim["maxChargePowerW"]
+            if "maxDischargePowerW" in blim:
+                flat["maxDischargePower"] = blim["maxDischargePowerW"]
+
+        # battery.cellVoltage
+        if "cellVoltage" in bat and isinstance(bat["cellVoltage"], dict):
+            bvol = bat["cellVoltage"]
+            if "cellVoltageLowV" in bvol:
+                flat["batVcl"] = bvol["cellVoltageLowV"]
+            if "cellVoltageHighV" in bvol:
+                flat["batVch"] = bvol["cellVoltageHighV"]
+
+    # 6. dcBus
+    if "dcBus" in device and isinstance(device["dcBus"], dict):
+        dbus = device["dcBus"]
+        if "vbus" in dbus:
+            flat["vbus"] = dbus["vbus"]
+
+    # 7. temperatures
+    if "temperatures" in device and isinstance(device["temperatures"], dict):
+        temps = device["temperatures"]
+        if "inverterTempC" in temps:
+            flat["tinv"] = temps["inverterTempC"]
+
+    # 8. phases
+    if "phases" in device and isinstance(device["phases"], dict):
+        phs = device["phases"]
+        for i in range(1, 4):
+            ph_key = f"ph{i}"
+            if ph_key in phs and isinstance(phs[ph_key], dict):
+                phi = phs[ph_key]
+                if "voltageV" in phi:
+                    flat[f"ph{i}v"] = phi["voltageV"]
+                if "currentA" in phi:
+                    flat[f"ph{i}i"] = phi["currentA"]
+                if "powerW" in phi:
+                    flat[f"ph{i}p"] = phi["powerW"]
+                if "epsPowerW" in phi:
+                    flat[f"ph{i}Loadp"] = phi["epsPowerW"]
+
+    # Copy any other keys at the root that aren't dictionaries
+    for k, v in device.items():
+        if k not in flat and not isinstance(v, dict):
+            flat[k] = v
+
+    return flat
+
+
 @functools.lru_cache(maxsize=1024)
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
@@ -1971,6 +2122,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         for device in data_list:
             if not isinstance(device, dict):
                 continue
+
+            device = _flatten_nested_push_device(device)
 
             sn = device.get("deviceSn")
             if not sn:
