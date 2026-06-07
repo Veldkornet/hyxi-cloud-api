@@ -600,8 +600,16 @@ def _compute_load_metrics(m_raw: dict, derived: dict[str, float]) -> None:
 
 def _compute_grid_metrics(m_raw: dict, derived: dict[str, float]) -> None:
     """Calculate grid import/export metrics."""
-    if "gridP" in m_raw:
+    grid = None
+    if "gridP" in m_raw and m_raw["gridP"] is not None and m_raw["gridP"] != "":
         grid = _get_f("gridP", m_raw, 1000.0)
+    elif "ph1p" in m_raw or "ph2p" in m_raw or "ph3p" in m_raw:
+        # Sum up individual phase powers (which are in Watts) to compute grid power fallback
+        grid = _get_f("ph1p", m_raw) + _get_f("ph2p", m_raw) + _get_f("ph3p", m_raw)
+        # Store the derived gridP back in metrics (in kW to align with API standard format)
+        derived["gridP"] = round(grid / 1000.0, 4)
+
+    if grid is not None:
         derived["grid_import"] = abs(grid) if grid < 0 else 0.0
         derived["grid_export"] = grid if grid > 0 else 0.0
 
@@ -819,6 +827,23 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
                     flat[f"ph{i}p"] = phi["powerW"]
                 if "epsPowerW" in phi:
                     flat[f"ph{i}Loadp"] = phi["epsPowerW"]
+
+    # 9. grid
+    if "grid" in device and isinstance(device["grid"], dict):
+        grd = device["grid"]
+        if "powerW" in grd and grd["powerW"] is not None:
+            try:
+                flat["gridP"] = float(grd["powerW"]) / 1000.0
+            except ValueError, TypeError:
+                flat["gridP"] = grd["powerW"]
+        if "frequencyHz" in grd:
+            flat["gridF"] = grd["frequencyHz"]
+        if "powerFactor" in grd:
+            flat["gridPfd"] = grd["powerFactor"]
+        if "energyInKwh" in grd:
+            flat["gridEIn"] = grd["energyInKwh"]
+        if "energyOutKwh" in grd:
+            flat["gridEOut"] = grd["energyOutKwh"]
 
     # Copy any other keys at the root that aren't dictionaries
     for k, v in device.items():

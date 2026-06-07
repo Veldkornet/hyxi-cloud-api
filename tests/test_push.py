@@ -218,6 +218,13 @@ def test_process_push_data_nested_format():
                         "epsPowerW": 269.0,
                     }
                 },
+                "grid": {
+                    "powerW": -1500.0,
+                    "frequencyHz": 50.02,
+                    "powerFactor": 0.98,
+                    "energyInKwh": 1023.4,
+                    "energyOutKwh": 504.2,
+                },
             }
         ]
     }
@@ -257,6 +264,13 @@ def test_process_push_data_nested_format():
     assert metrics["ph1i"] == 1.88
     assert metrics["ph1p"] == 450.0
     assert metrics["ph1Loadp"] == 269.0
+    assert metrics["gridP"] == -1.5
+    assert metrics["gridF"] == 50.02
+    assert metrics["gridPfd"] == 0.98
+    assert metrics["gridEIn"] == 1023.4
+    assert metrics["gridEOut"] == 504.2
+    assert metrics["grid_import"] == 1500.0
+    assert metrics["grid_export"] == 0.0
 
 
 def test_process_push_data_flat_ms_collect_time():
