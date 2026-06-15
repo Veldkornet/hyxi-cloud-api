@@ -110,6 +110,23 @@ async def test_cancel_subscription():
 
 
 @pytest.mark.asyncio
+async def test_cancel_subscription_return_value():
+    """Test subscription cancellation return value matches expected API response."""
+    api = _client()
+
+    # Execute the method
+    result = await api.cancel_subscription("valid-sub-code")
+
+    # Verify the return payload matches the API response
+    assert result == {
+        "code": "0",
+        "msg": "Success",
+        "data": {"subscribeCode": "sub-code"},
+        "success": True,
+    }
+
+
+@pytest.mark.asyncio
 async def test_subscription_error_on_auth_failed():
     """Test SubscriptionError is raised when authentication fails."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
