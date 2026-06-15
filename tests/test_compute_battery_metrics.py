@@ -107,3 +107,24 @@ def test_compute_battery_metrics_none_device_type():
     _compute_battery_metrics(m_raw, derived, None)  # type: ignore
     assert derived["bat_charging"] == 100.0
     assert derived["bat_power_dc"] == -100.0
+
+
+def test_compute_battery_metrics_both_present():
+    """Test that when both polling and daily keys are present, they are preserved.
+
+    Cumulative values should take priority for battery totals.
+    """
+    derived: dict[str, float] = {}
+    m_raw = {
+        "totalEchg": 366.3,
+        "totalEdchg": 371.3,
+        "batCharge": 2.3,
+        "batDisCharge": 4.4,
+    }
+    _compute_battery_metrics(m_raw, derived, "OTHER")
+    assert derived["bat_charge_total"] == 366.3
+    assert derived["bat_discharge_total"] == 371.3
+    assert derived["totalEchg"] == 366.3
+    assert derived["totalEdchg"] == 371.3
+    assert derived["batCharge"] == 2.3
+    assert derived["batDisCharge"] == 4.4
