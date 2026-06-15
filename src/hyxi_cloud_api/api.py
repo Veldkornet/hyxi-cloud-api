@@ -646,28 +646,44 @@ def _compute_battery_metrics(
         return True
 
     # Unify cumulative battery charge energy telemetry keys to resolve polling/push mismatch
-    charge_val = None
-    if _is_valid_metric("batCharge"):
-        charge_val = _get_f("batCharge", m_raw)
-    elif _is_valid_metric("totalEchg"):
-        charge_val = _get_f("totalEchg", m_raw)
+    total_echg_val = (
+        _get_f("totalEchg", m_raw) if _is_valid_metric("totalEchg") else None
+    )
+    bat_charge_val = (
+        _get_f("batCharge", m_raw) if _is_valid_metric("batCharge") else None
+    )
 
-    if charge_val is not None:
-        derived["bat_charge_total"] = charge_val
-        derived["totalEchg"] = charge_val
-        derived["batCharge"] = charge_val
+    if total_echg_val is not None:
+        derived["totalEchg"] = total_echg_val
+        derived["bat_charge_total"] = total_echg_val
+        if bat_charge_val is None:
+            derived["batCharge"] = total_echg_val
+
+    if bat_charge_val is not None:
+        derived["batCharge"] = bat_charge_val
+        if total_echg_val is None:
+            derived["totalEchg"] = bat_charge_val
+            derived["bat_charge_total"] = bat_charge_val
 
     # Unify cumulative battery discharge energy telemetry keys to resolve polling/push mismatch
-    discharge_val = None
-    if _is_valid_metric("batDisCharge"):
-        discharge_val = _get_f("batDisCharge", m_raw)
-    elif _is_valid_metric("totalEdchg"):
-        discharge_val = _get_f("totalEdchg", m_raw)
+    total_edchg_val = (
+        _get_f("totalEdchg", m_raw) if _is_valid_metric("totalEdchg") else None
+    )
+    bat_discharge_val = (
+        _get_f("batDisCharge", m_raw) if _is_valid_metric("batDisCharge") else None
+    )
 
-    if discharge_val is not None:
-        derived["bat_discharge_total"] = discharge_val
-        derived["totalEdchg"] = discharge_val
-        derived["batDisCharge"] = discharge_val
+    if total_edchg_val is not None:
+        derived["totalEdchg"] = total_edchg_val
+        derived["bat_discharge_total"] = total_edchg_val
+        if bat_discharge_val is None:
+            derived["batDisCharge"] = total_edchg_val
+
+    if bat_discharge_val is not None:
+        derived["batDisCharge"] = bat_discharge_val
+        if total_edchg_val is None:
+            derived["totalEdchg"] = bat_discharge_val
+            derived["bat_discharge_total"] = bat_discharge_val
 
 
 def _compute_pv_metrics(m_raw: dict, derived: dict[str, float]) -> None:
