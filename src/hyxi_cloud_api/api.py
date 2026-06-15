@@ -2250,7 +2250,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if not sn:
                 continue
 
-            alarm_code = str(item.get("alarmCode", ""))
+            alarm_code = f"{item.get('alarmCode', '')}"
 
             # Resolve alarm name: use payload name if present, fall back to ALARM_CODE_MAP
             alarm_name = item.get("alarmName") or ALARM_CODE_MAP.get(
