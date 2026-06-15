@@ -60,6 +60,37 @@ def test_compute_battery_metrics_totals():
     _compute_battery_metrics(m_raw, derived, "OTHER")
     assert derived["bat_charge_total"] == 12.5
     assert derived["bat_discharge_total"] == 45.6
+    assert derived["totalEchg"] == 12.5
+    assert derived["totalEdchg"] == 45.6
+    assert derived["batCharge"] == 12.5
+    assert derived["batDisCharge"] == 45.6
+
+
+def test_compute_battery_metrics_polling_keys():
+    """Test fallback and synchronization when only polling keys are present."""
+    derived: dict[str, float] = {}
+    m_raw = {"totalEchg": 100.5, "totalEdchg": 200.2}
+    _compute_battery_metrics(m_raw, derived, "OTHER")
+    assert derived["bat_charge_total"] == 100.5
+    assert derived["bat_discharge_total"] == 200.2
+    assert derived["totalEchg"] == 100.5
+    assert derived["totalEdchg"] == 200.2
+    assert derived["batCharge"] == 100.5
+    assert derived["batDisCharge"] == 200.2
+
+
+def test_compute_battery_metrics_null_and_empty_handling():
+    """Verify that null-equivalent and empty values do not pollute derived metrics."""
+    derived: dict[str, float] = {}
+    m_raw = {
+        "batCharge": 150.0,
+        "totalEchg": "null",
+        "batDisCharge": "None",
+        "totalEdchg": 250.0,
+    }
+    _compute_battery_metrics(m_raw, derived, "OTHER")
+    assert derived["bat_charge_total"] == 150.0
+    assert derived["bat_discharge_total"] == 250.0
 
 
 def test_compute_battery_metrics_empty():
