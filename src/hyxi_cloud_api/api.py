@@ -2043,18 +2043,14 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         )
 
     async def set_micro_power_limit(self, device_sn: str, percentage: int) -> dict:
-        """Set Maximum Power Limitation for a Microinverter (controlId 3012).
-
-        For **MICRO_INVERTER** devices.
-        Actual power limit = percentage * rated power.
-
-        Args:
-            device_sn: Device serial number.
-            percentage: Power limit as a percentage of rated power (0-100).
         """
-        if not 0 <= percentage <= 100:
-            raise ValueError(f"percentage must be between 0 and 100, got {percentage}")
-        return await self.set_device_control(device_sn, {3012: str(int(percentage))})
+        Set micro-inverter power limit percentage (0-100).
+        """
+        return await self.set_device_control(
+            device_sn=device_sn,
+            param_code="activePowerLimitSet",
+            value=percentage,
+        )
 
     async def restart_device(self, device_sn: str) -> dict:
         """Restart a Microinverter (controlId 3013).
