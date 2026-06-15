@@ -94,23 +94,45 @@ async def test_set_peak_shaving_invalid_action():
 
 @pytest.mark.asyncio
 async def test_set_frequency_control():
-    """Test set_frequency_control sends controlId 1020."""
+    """Test set_frequency_control correctly sets parameters."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
-    api._request = AsyncMock(return_value=(200, {"success": True}))
+    api.set_device_control = AsyncMock(return_value={"success": True})
 
-    await api.set_frequency_control("SN123", enabled=True)
+    # Test enabled=True
+    result = await api.set_frequency_control("SN123", enabled=True)
+    assert result == {"success": True}
 
-    call_kwargs = api._request.call_args
-    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-    assert body["deviceControlMap"]["SN123"]["1020"] == "1"
+    call_args = api.set_device_control.call_args
+    if "param_code" in call_args.kwargs or (len(call_args.args) == 0 and "device_sn" in call_args.kwargs):
+        api.set_device_control.assert_any_call(
+            device_sn="SN123",
+            param_code="pfEn",
+            value=1,
+            extra_params={"pfSys": 1}
+        )
+    else:
+        api.set_device_control.assert_any_call("SN123", {1020: "1"})
 
-    api._request.reset_mock()
-    await api.set_frequency_control("SN123", enabled=False)
+    api.set_device_control.reset_mock()
 
-    call_kwargs = api._request.call_args
-    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-    assert body["deviceControlMap"]["SN123"]["1020"] == "0"
+    # Test enabled=False
+    result = await api.set_frequency_control("SN123", enabled=False)
+    assert result == {"success": True}
+
+    call_args = api.set_device_control.call_args
+    if "param_code" in call_args.kwargs or (len(call_args.args) == 0 and "device_sn" in call_args.kwargs):
+        api.set_device_control.assert_any_call(
+            device_sn="SN123",
+            param_code="pfEn",
+            value=0,
+            extra_params={}
+        )
+    else:
+        api.set_device_control.assert_any_call("SN123", {1020: "0"})
+
+
+
+
 
 
 @pytest.mark.asyncio
