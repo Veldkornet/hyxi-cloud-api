@@ -636,10 +636,38 @@ def _compute_battery_metrics(
         derived["bat_discharging"] = power_source if power_source > 0 else 0.0
         derived["bat_power_dc"] = bat_p_dc
 
-    if "batCharge" in m_raw:
-        derived["bat_charge_total"] = _get_f("batCharge", m_raw)
-    if "batDisCharge" in m_raw:
-        derived["bat_discharge_total"] = _get_f("batDisCharge", m_raw)
+    def _is_valid_metric(k: str) -> bool:
+        v = m_raw.get(k)
+        if v is None:
+            return False
+        if isinstance(v, str):
+            v_cleaned = v.strip().lower()
+            return bool(v_cleaned and v_cleaned not in ("null", "none", "na", "--"))
+        return True
+
+    # Unify cumulative battery charge energy telemetry keys to resolve polling/push mismatch
+    charge_val = None
+    if _is_valid_metric("batCharge"):
+        charge_val = _get_f("batCharge", m_raw)
+    elif _is_valid_metric("totalEchg"):
+        charge_val = _get_f("totalEchg", m_raw)
+
+    if charge_val is not None:
+        derived["bat_charge_total"] = charge_val
+        derived["totalEchg"] = charge_val
+        derived["batCharge"] = charge_val
+
+    # Unify cumulative battery discharge energy telemetry keys to resolve polling/push mismatch
+    discharge_val = None
+    if _is_valid_metric("batDisCharge"):
+        discharge_val = _get_f("batDisCharge", m_raw)
+    elif _is_valid_metric("totalEdchg"):
+        discharge_val = _get_f("totalEdchg", m_raw)
+
+    if discharge_val is not None:
+        derived["bat_discharge_total"] = discharge_val
+        derived["totalEdchg"] = discharge_val
+        derived["batDisCharge"] = discharge_val
 
 
 def _compute_pv_metrics(m_raw: dict, derived: dict[str, float]) -> None:
