@@ -103,12 +103,11 @@ async def test_set_frequency_control():
     assert result == {"success": True}
 
     call_args = api.set_device_control.call_args
-    if "param_code" in call_args.kwargs or (len(call_args.args) == 0 and "device_sn" in call_args.kwargs):
+    if "param_code" in call_args.kwargs or (
+        len(call_args.args) == 0 and "device_sn" in call_args.kwargs
+    ):
         api.set_device_control.assert_any_call(
-            device_sn="SN123",
-            param_code="pfEn",
-            value=1,
-            extra_params={"pfSys": 1}
+            device_sn="SN123", param_code="pfEn", value=1, extra_params={"pfSys": 1}
         )
     else:
         api.set_device_control.assert_any_call("SN123", {1020: "1"})
@@ -120,19 +119,14 @@ async def test_set_frequency_control():
     assert result == {"success": True}
 
     call_args = api.set_device_control.call_args
-    if "param_code" in call_args.kwargs or (len(call_args.args) == 0 and "device_sn" in call_args.kwargs):
+    if "param_code" in call_args.kwargs or (
+        len(call_args.args) == 0 and "device_sn" in call_args.kwargs
+    ):
         api.set_device_control.assert_any_call(
-            device_sn="SN123",
-            param_code="pfEn",
-            value=0,
-            extra_params={}
+            device_sn="SN123", param_code="pfEn", value=0, extra_params={}
         )
     else:
         api.set_device_control.assert_any_call("SN123", {1020: "0"})
-
-
-
-
 
 
 @pytest.mark.asyncio
