@@ -222,6 +222,30 @@ async def test_set_micro_power_limit_invalid_percentage():
 
 
 @pytest.mark.asyncio
+async def test_set_micro_power_limit_mocked_control():
+    """Test set_micro_power_limit by mocking set_device_control and checking edge cases."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.set_device_control = AsyncMock(return_value={"success": True})
+
+    # Test 80%
+    result = await api.set_micro_power_limit("SN123", percentage=80)
+    api.set_device_control.assert_awaited_once_with("SN123", {3012: "80"})
+    assert result == {"success": True}
+
+    # Test boundary 0%
+    api.set_device_control.reset_mock()
+    result = await api.set_micro_power_limit("SN123", percentage=0)
+    api.set_device_control.assert_awaited_once_with("SN123", {3012: "0"})
+    assert result == {"success": True}
+
+    # Test boundary 100%
+    api.set_device_control.reset_mock()
+    result = await api.set_micro_power_limit("SN123", percentage=100)
+    api.set_device_control.assert_awaited_once_with("SN123", {3012: "100"})
+    assert result == {"success": True}
+
+
+@pytest.mark.asyncio
 async def test_restart_device():
     """Test restart_device sends controlId 3013 with value '1'."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
