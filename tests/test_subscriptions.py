@@ -58,6 +58,46 @@ async def test_subscribe_real_time_data():
 
 
 @pytest.mark.asyncio
+async def test_subscribe_real_time_data_mock_post_subscription():
+    """Test real-time data subscription by mocking _post_subscription."""
+    api = _client()
+    api._post_subscription = AsyncMock(return_value={"success": True, "data": "mocked"})
+
+    # Test with data_code_list
+    result = await api.subscribe_real_time_data(
+        callback_url="https://example.com/hyxi",
+        device_sn_list=["SN1"],
+        post_rate=5000,
+        data_code_list=["pv1p"],
+    )
+    assert result == {"success": True, "data": "mocked"}
+    api._post_subscription.assert_called_with(
+        "/api/subscribe/v1/realTimeData",
+        {
+            "callBackUrl": "https://example.com/hyxi",
+            "deviceSnList": ["SN1"],
+            "postRate": 5000,
+            "dataCodeList": ["pv1p"],
+        },
+    )
+
+    # Test without data_code_list
+    result = await api.subscribe_real_time_data(
+        callback_url="https://example.com/hyxi",
+        device_sn_list=["SN1"],
+        post_rate=5000,
+    )
+    api._post_subscription.assert_called_with(
+        "/api/subscribe/v1/realTimeData",
+        {
+            "callBackUrl": "https://example.com/hyxi",
+            "deviceSnList": ["SN1"],
+            "postRate": 5000,
+        },
+    )
+
+
+@pytest.mark.asyncio
 async def test_subscribe_alarm():
     """Test alarm subscription payload."""
     api = _client()
