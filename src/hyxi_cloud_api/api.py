@@ -72,6 +72,8 @@ _COLLECTOR_FILTER_REGEX = re.compile(
 
 _PV_KEYS = tuple((f"pv{i}v", f"pv{i}i", f"pv{i}p") for i in range(1, 5))
 
+_METRICS_EXCLUDED_KEYS = frozenset({"deviceSn", "reportTimestamp", "collectTime"})
+
 # Official HYXI Alarm Code Reference Table
 ALARM_CODE_MAP = {
     "704": "The ambient temperature is too high",
@@ -2149,7 +2151,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             # Strip metadata/routing keys
             raw_metrics = {}
             for k, v in device.items():
-                if k in ("deviceSn", "reportTimestamp", "collectTime"):
+                if k in _METRICS_EXCLUDED_KEYS:
                     continue
                 raw_metrics[k] = v
 
