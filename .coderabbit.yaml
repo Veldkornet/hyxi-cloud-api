@@ -1,0 +1,29 @@
+# .coderabbit.yaml
+# Core configuration for CodeRabbit AI reviews in hyxi-cloud-api
+language: "en-US"
+reviews:
+  profile: "assertive"
+  collapse_draft_pr: true
+  path_filters:
+    - "!**/tests/**"
+    - "!docs/**"
+  tools:
+    code_helper:
+      enabled: true
+    chat:
+      enabled: true
+
+  # Custom system instructions to prioritize secure client/library development
+  system_instructions: |
+    You are a Senior Security-Focused API/Library Reviewer. Enforce strict pythonic patterns and defense-in-depth security:
+
+    1. Credentials & Secrets:
+       - Flag any hardcoded tokens, passwords, or client secrets. Ensure configuration relies on environment variables or secure auth stores.
+
+    2. Robust Input Handling:
+       - Look for robust handling of floating-point parsing, network timeouts, and raw API response validation (especially around the regional node-switching logic).
+       - Ensure float calculations use localized safety checks (e.g., checking for NaN/Inf/out-of-bounds).
+
+    3. Workflow Security:
+       - Verify that any newly introduced GitHub Action conforms to the 40-character commit hash pinning policy.
+       - Enforce `harden-runner` requirements for secure CI/CD egress.
