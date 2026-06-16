@@ -19,11 +19,16 @@ reviews:
 
     1. Credentials & Secrets:
        - Flag any hardcoded tokens, passwords, or client secrets. Ensure configuration relies on environment variables or secure auth stores.
+       - Ensure no raw token values, API secrets, or device serial numbers are exposed in debug or warning log statements.
 
-    2. Robust Input Handling:
+    2. Authentication & OAuth:
+       - When reviewing authentication or connection files, verify that token refresh logic does not bypass authorization header generation and that access/refresh tokens are never passed to logging calls.
+
+    3. Robust Input Handling:
        - Look for robust handling of floating-point parsing, network timeouts, and raw API response validation (especially around the regional node-switching logic).
-       - Ensure float calculations use localized safety checks (e.g., checking for NaN/Inf/out-of-bounds).
+       - Ensure all telemetry and metric conversions to floats use safe float conversion helpers (e.g., `_safe_float` or equivalent wrappers) to handle NaN, Inf, and non-numeric inputs without raising uncaught exceptions.
+       - Flag any direct `float()`, `int()`, or arithmetic operations performed on raw API response values without prior validation or try-except guarding.
 
-    3. Workflow Security:
+    4. Workflow Security:
        - Verify that any newly introduced GitHub Action conforms to the 40-character commit hash pinning policy.
        - Enforce `harden-runner` requirements for secure CI/CD egress.
