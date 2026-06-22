@@ -25,7 +25,7 @@ class TestComputePvMetrics:
         m_raw = {}
         derived: dict[str, float] = {}
         _compute_pv_metrics(m_raw, derived)
-        assert derived == {}
+        assert not derived
 
     def test_compute_pv_metrics_pv1_fallback_normal(self):
         """Test pv1p fallback is calculated correctly from ppv and pv2p."""
