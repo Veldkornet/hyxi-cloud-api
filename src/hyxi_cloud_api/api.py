@@ -15,6 +15,7 @@ import hmac
 import logging
 import os
 import re
+import secrets
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -899,6 +900,9 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
     return flat
 
 
+_LOG_SALT = secrets.token_bytes(16)
+
+
 @functools.lru_cache(maxsize=1024)
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
@@ -912,7 +916,7 @@ def _mask_id(value: str) -> str:
     if not value or value == "None":
         return "****"
     id_str = str(value)
-    return hashlib.sha256(id_str.encode("utf-8")).hexdigest()[:8]
+    return hashlib.sha256(_LOG_SALT + id_str.encode("utf-8")).hexdigest()[:8]
 
 
 # Keys in raw API response dicts that contain identifying or personal information.
