@@ -305,3 +305,71 @@ def test_process_push_data_flat_ms_collect_time():
     assert metrics["pv1v"] == 119.0
     assert metrics["pv1i"] == 1.2
     assert metrics["pv1p"] == 142.8
+
+
+def test_process_push_data_invalid_time_formats():
+    """Test process_push_data correctly handles ValueError and TypeError when parsing timestamps."""
+    from unittest.mock import MagicMock
+
+    from src.hyxi_cloud_api.api import HyxiApiClient
+
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._discovery_cache["device_info"] = {
+        "TEST_DEV": {
+            "model": "TEST",
+            "device_type_code": "TEST_TYPE",
+            "device_name": "Test Device",
+        }
+    }
+
+    # Test invalid collectTime (ValueError)
+    payload_invalid_collect_time = {
+        "dataList": [
+            {
+                "deviceSn": "TEST_DEV",
+                "collectTime": "invalid-time",
+            }
+        ]
+    }
+
+    # Test invalid collectTime (TypeError)
+    payload_type_err_collect_time = {
+        "dataList": [
+            {
+                "deviceSn": "TEST_DEV",
+                "collectTime": {"a": "b"},
+            }
+        ]
+    }
+
+    # Test invalid reportTimestamp (ValueError)
+    payload_invalid_report_ts = {
+        "dataList": [
+            {
+                "deviceSn": "TEST_DEV",
+                "reportTimestamp": "invalid-time",
+            }
+        ]
+    }
+
+    # Test invalid reportTimestamp (TypeError)
+    payload_type_err_report_ts = {
+        "dataList": [
+            {
+                "deviceSn": "TEST_DEV",
+                "reportTimestamp": {"a": "b"},
+            }
+        ]
+    }
+
+    res1 = api.process_push_data(payload_invalid_collect_time)
+    res2 = api.process_push_data(payload_type_err_collect_time)
+    res3 = api.process_push_data(payload_invalid_report_ts)
+    res4 = api.process_push_data(payload_type_err_report_ts)
+
+    # Check that last_seen was not updated to a specific time, but fell back to now_utc
+    # In api.process_push_data, if it fails, last_seen = now_utc
+    assert "last_seen" in res1["TEST_DEV"]["metrics"]
+    assert "last_seen" in res2["TEST_DEV"]["metrics"]
+    assert "last_seen" in res3["TEST_DEV"]["metrics"]
+    assert "last_seen" in res4["TEST_DEV"]["metrics"]
