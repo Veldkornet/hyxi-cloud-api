@@ -246,6 +246,30 @@ async def test_set_micro_power_limit_mocked_control():
 
 
 @pytest.mark.asyncio
+async def test_restart_device_mocked_control():
+    """Test restart_device by mocking set_device_control and checking edge cases."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.set_device_control = AsyncMock(return_value={"success": True})
+
+    result = await api.restart_device(device_sn="SN123")
+
+    assert result == {"success": True}
+    api.set_device_control.assert_called_once()
+
+    call_args, call_kwargs = api.set_device_control.call_args
+    if "param_code" in call_kwargs:
+        assert call_kwargs["device_sn"] == "SN123"
+        assert call_kwargs["param_code"] == "rebootSet"
+        assert call_kwargs["value"] == 1
+    elif len(call_args) > 1 and call_args[1] == "rebootSet":
+        assert call_args[0] == "SN123"
+        assert call_args[1] == "rebootSet"
+        assert call_args[2] == 1
+    else:
+        api.set_device_control.assert_awaited_once_with("SN123", {3013: "1"})
+
+
+@pytest.mark.asyncio
 async def test_restart_device():
     """Test restart_device sends controlId 3013 with value '1'."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
