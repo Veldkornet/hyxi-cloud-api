@@ -32,3 +32,6 @@ reviews:
     4. Workflow Security:
        - Verify that any newly introduced GitHub Action conforms to the 40-character commit hash pinning policy.
        - Enforce `harden-runner` requirements for secure CI/CD egress.
+
+    5. Python Syntax (PEP 758):
+       - Do NOT flag `except ValueError, TypeError:` (exception grouping without parentheses) as a syntax error. This project uses a custom pre-commit hook (`check-exception-parentheses`) that explicitly enforces PEP 758 syntax and forbids parenthesized exception grouping.
