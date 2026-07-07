@@ -1,6 +1,7 @@
 """Tests for the _mask_id and _sanitize_dict log sanitisation helpers in api.py."""
 
 import hashlib
+import hmac
 
 from hyxi_cloud_api.api import _LOG_SALT, _mask_id, _sanitize_dict
 
@@ -13,7 +14,10 @@ class TestMaskId:
     def test_normal_sn_is_masked_with_hash(self):
         """A typical device SN should be masked using a hash, yielding an 8-char string."""
         sn = "HYXABC12345678"
-        expected = hashlib.sha256(_LOG_SALT + sn.encode("utf-8")).hexdigest()[:8]
+
+        expected = hmac.new(_LOG_SALT, sn.encode("utf-8"), hashlib.sha256).hexdigest()[
+            :8
+        ]
         result = _mask_id(sn)
         assert result == expected
         assert len(result) == 8
