@@ -128,3 +128,41 @@ def test_compute_battery_metrics_both_present():
     assert derived["totalEdchg"] == 371.3
     assert derived["batCharge"] == 2.3
     assert derived["batDisCharge"] == 4.4
+
+
+def test_is_valid_metric_edge_cases():
+    """Test all edge cases for _is_valid_metric helper via _compute_battery_metrics."""
+    invalid_values = [
+        None,
+        "",
+        "   ",
+        "null",
+        "NULL",
+        " none ",
+        "na",
+        " NA ",
+        "--",
+    ]
+
+    for val in invalid_values:
+        derived: dict[str, float] = {}
+        m_raw = {"totalEchg": val}
+        _compute_battery_metrics(m_raw, derived, "OTHER")
+        assert "totalEchg" not in derived
+        assert "bat_charge_total" not in derived
+
+    valid_values = [
+        0,
+        1.5,
+        "1.5",
+        " 2.5 ",
+        "0",
+    ]
+
+    for val in valid_values:
+        derived: dict[str, float] = {}
+        m_raw = {"totalEchg": val}
+        _compute_battery_metrics(m_raw, derived, "OTHER")
+        assert "totalEchg" in derived
+        assert "bat_charge_total" in derived
+        assert derived["totalEchg"] == float(val)
