@@ -18,7 +18,10 @@ mock_aiohttp = sys.modules["aiohttp"]
 
 """Tests for _filter_collector_metrics optimization."""
 
-from src.hyxi_cloud_api.api import _filter_collector_metrics
+from src.hyxi_cloud_api.api import (
+    _filter_collector_metrics,
+    _is_collector_key_allowed,
+)
 
 
 def test_filter_collector_metrics_filtering():
@@ -73,3 +76,58 @@ def test_filter_collector_metrics_case_insensitivity():
     filtered = _filter_collector_metrics(m_raw)
     assert "BATTERY_TEMP" not in filtered
     assert "PV_VOLTAGE" not in filtered
+
+
+def test_is_collector_key_allowed_true():
+    """Verify that safe keys are allowed."""
+    assert _is_collector_key_allowed("totalE") is True
+    assert _is_collector_key_allowed("temp") is True
+    assert _is_collector_key_allowed("soc") is True
+    assert _is_collector_key_allowed("voltage") is True
+    assert _is_collector_key_allowed("current") is True
+    assert _is_collector_key_allowed("randomKey") is True
+
+
+def test_is_collector_key_allowed_false():
+    """Verify that sensitive keys are not allowed."""
+    assert _is_collector_key_allowed("pbat") is False
+    assert _is_collector_key_allowed("gridP") is False
+    assert _is_collector_key_allowed("ph1Loadp") is False
+    assert _is_collector_key_allowed("ph2Loadp") is False
+    assert _is_collector_key_allowed("ph3Loadp") is False
+    assert _is_collector_key_allowed("vpv1") is False
+    assert _is_collector_key_allowed("vbat") is False
+
+
+def test_is_collector_key_allowed_case_insensitivity():
+    """Verify case insensitivity."""
+    assert _is_collector_key_allowed("BAT_VOLTAGE") is False
+    assert _is_collector_key_allowed("PV_VOLTAGE") is False
+    assert _is_collector_key_allowed("GRID_POWER") is False
+    assert _is_collector_key_allowed("LOAD_POWER") is False
+    assert _is_collector_key_allowed("PH1_LOAD") is False
+    assert _is_collector_key_allowed("PH2_LOAD") is False
+    assert _is_collector_key_allowed("PH3_LOAD") is False
+    assert _is_collector_key_allowed("BaT") is False
+    assert _is_collector_key_allowed("pBAt") is False
+
+
+def test_is_collector_key_allowed_cache():
+    """Verify that the lru_cache works and caches results."""
+    # Clear cache to ensure clean state
+    _is_collector_key_allowed.cache_clear()
+
+    # First call - should be a miss
+    res1 = _is_collector_key_allowed("totalE")
+
+    # Second call - should be a hit
+    res2 = _is_collector_key_allowed("totalE")
+
+    # Check cache info
+    cache_info = _is_collector_key_allowed.cache_info()
+
+    assert res1 is True
+    assert res2 is True
+    assert cache_info.hits == 1
+    assert cache_info.misses == 1
+    assert cache_info.currsize == 1
