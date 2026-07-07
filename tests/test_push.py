@@ -309,9 +309,6 @@ def test_process_push_data_flat_ms_collect_time():
 
 def test_process_push_data_invalid_time_formats():
     """Test process_push_data correctly handles ValueError and TypeError when parsing timestamps."""
-    from unittest.mock import MagicMock
-
-    from src.hyxi_cloud_api.api import HyxiApiClient
 
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._discovery_cache["device_info"] = {
