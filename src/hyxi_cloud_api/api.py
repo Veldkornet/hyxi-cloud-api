@@ -15,6 +15,7 @@ import hmac
 import logging
 import os
 import re
+import secrets
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -899,6 +900,22 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
     return flat
 
 
+# Deployment-configured secret for log masking. If not provided,
+# falls back to a process-random secret.
+_LOG_SALT = os.environ.get("HYXI_LOG_SALT", "").encode("utf-8") or secrets.token_bytes(
+    16
+)
+
+
+def set_log_salt(salt: str | bytes) -> None:
+    """Set a deployment-stable secret for cross-device log correlation."""
+    global _LOG_SALT  # pylint: disable=global-statement
+    if isinstance(salt, str):
+        salt = salt.encode("utf-8")
+    _LOG_SALT = salt
+    _mask_id.cache_clear()
+
+
 @functools.lru_cache(maxsize=1024)
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
@@ -912,7 +929,7 @@ def _mask_id(value: str) -> str:
     if not value or value == "None":
         return "****"
     id_str = str(value)
-    return hashlib.sha256(id_str.encode("utf-8")).hexdigest()[:8]
+    return hmac.new(_LOG_SALT, id_str.encode("utf-8"), hashlib.sha256).hexdigest()[:8]
 
 
 # Keys in raw API response dicts that contain identifying or personal information.

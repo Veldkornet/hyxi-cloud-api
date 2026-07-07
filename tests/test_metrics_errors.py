@@ -41,7 +41,8 @@ async def test_fetch_device_metrics_request_error(caplog):
     # Use a longer SN so it's not fully masked to ****
     await api._fetch_device_metrics("10602251600016", entry)
 
-    assert "Error fetching metrics for fefbfd75: Mock client error" in caplog.text
+    assert "Error fetching metrics for " in caplog.text
+    assert "Mock client error" in caplog.text
     # Ensure it didn't crash and entry was not updated with metrics
     assert not entry["metrics"]
 
@@ -60,7 +61,8 @@ async def test_fetch_device_metrics_network_error(caplog):
     # Use a longer SN so it's not fully masked to ****
     await api._fetch_device_metrics("10602251600016", entry)
 
-    assert "Error fetching metrics for fefbfd75: Connection reset" in caplog.text
+    assert "Error fetching metrics for " in caplog.text
+    assert "Connection reset" in caplog.text
     # Ensure it didn't crash and entry was not updated with metrics
     assert not entry["metrics"]
 
@@ -90,7 +92,7 @@ async def test_fetch_device_metrics_invalid_json(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_metrics("10602251600016", entry)
 
-    assert "Error fetching metrics for fefbfd75" in caplog.text
+    assert "Error fetching metrics for " in caplog.text
     assert not entry["metrics"]
 
 
@@ -118,7 +120,7 @@ async def test_fetch_device_metrics_api_error(caplog):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     await api._fetch_device_metrics("10602251600016", entry)
 
-    assert "HYXI API metrics rejected for fefbfd75" in caplog.text
+    assert "HYXI API metrics rejected for " in caplog.text
     assert "success" in caplog.text  # _sanitize_dict logs full response dict
     assert not entry["metrics"]
 
@@ -138,7 +140,7 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     entry = {"metrics": {}, "device_type_code": "EMS"}
     await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
 
-    assert "HYXI EMS telemetry probe returned no data for fefbfd75" in caplog.text
+    assert "HYXI EMS telemetry probe returned no data for " in caplog.text
     # No EMS data should be merged into metrics.
     assert "new_metric" not in entry["metrics"]
 
@@ -160,7 +162,7 @@ async def test_fetch_ems_basic_data_error(caplog):
 
     # No EMS data should be merged into metrics.
     assert "batSoc" not in entry["metrics"]
-    assert "HYXI EMS telemetry probe returned no data for fefbfd75" in caplog.text
+    assert "HYXI EMS telemetry probe returned no data for " in caplog.text
 
 
 @pytest.mark.asyncio
@@ -177,10 +179,8 @@ async def test_query_ems_basic_details_error(caplog):
 
     assert result == {}
 
-    assert (
-        "HYXI EMS Basic Data Request Failed for fefbfd75: EMS query failed"
-        in caplog.text
-    )
+    assert "HYXI EMS Basic Data Request Failed for" in caplog.text
+    assert "EMS query failed" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -197,10 +197,8 @@ async def test_query_ems_basic_details_network_error(caplog):
 
     assert result == {}
 
-    assert (
-        "HYXI EMS Basic Data Request Failed for fefbfd75: Connection reset"
-        in caplog.text
-    )
+    assert "HYXI EMS Basic Data Request Failed for" in caplog.text
+    assert "Connection reset" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -221,7 +219,7 @@ async def test_query_ems_basic_details_non_zero_code(caplog):
     result = await api.query_ems_basic_details("10602251600016")
 
     assert result == {}
-    assert "HYXI EMS Basic Data Request Rejected for fefbfd75" in caplog.text
+    assert "HYXI EMS Basic Data Request Rejected for " in caplog.text
 
 
 @pytest.mark.asyncio
@@ -237,5 +235,5 @@ async def test_query_ems_basic_details_malformed_response(caplog):
     result = await api.query_ems_basic_details("10602251600016")
 
     assert result == {}
-    assert "HYXI EMS Basic Data Request Failed for fefbfd75" in caplog.text
+    assert "HYXI EMS Basic Data Request Failed for " in caplog.text
     assert "object has no attribute 'get'" in caplog.text

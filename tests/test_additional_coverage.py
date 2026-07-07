@@ -32,7 +32,7 @@ async def test_fetch_sub_devices_coverage(caplog):
 
     # Verify debug log was hit (line 1243)
     # PARENT_SN is masked to ca7b0e8c
-    assert "HYXI Found 3 sub-devices under ca7b0e8c" in caplog.text
+    assert "HYXI Found 3 sub-devices under " in caplog.text
     # Verify duplicate/empty check worked (line 1253)
     assert api._fetch_all_for_device.call_count == 1
     api._fetch_all_for_device.assert_called_once_with(
@@ -54,7 +54,8 @@ async def test_fetch_sub_devices_coverage(caplog):
     api._fetch_sub_device_list = AsyncMock(side_effect=Exception("Database failure"))
     await api._fetch_sub_devices("PARENT_SN", state)
     # PARENT_SN is masked to ca7b0e8c
-    assert "Error fetching sub-devices for ca7b0e8c: Database failure" in caplog.text
+    assert "Error fetching sub-devices for " in caplog.text
+    assert "Database failure" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -71,7 +72,7 @@ async def test_fetch_alarms_for_plant_coverage(caplog):
     res = await api._fetch_alarms_for_plant("PLANT_123")
     assert res == []
     # PLANT_123 is masked to b7a0873d
-    assert "HYXI API Alarm Fetch Rejected for Plant b7a0873d" in caplog.text
+    assert "HYXI API Alarm Fetch Rejected for Plant " in caplog.text
 
     # 2. Alarm Name Mapping (line 1295)
     api._request = AsyncMock(
