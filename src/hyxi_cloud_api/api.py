@@ -15,8 +15,8 @@ import hmac
 import logging
 import os
 import re
-import secrets
 import time
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
@@ -900,7 +900,7 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
     return flat
 
 
-_LOG_SALT = secrets.token_bytes(16)
+_LOG_SALT = uuid.getnode().to_bytes(6, "big")
 
 
 @functools.lru_cache(maxsize=1024)
