@@ -25,7 +25,7 @@ jobs:
 
       - name: Dependabot metadata
         id: metadata
-        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2.3.0
+        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2.5.0
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
@@ -40,6 +40,12 @@ jobs:
 
           # Dependabot outputs a comma-separated string for grouped updates
           IFS=',' read -r -a DEPS <<< "$DEPENDENCY_NAMES" || true
+
+          if [ "${#DEPS[@]}" -eq 0 ] || [ -z "${DEPS[0]}" ]; then
+            echo "::notice title=Manual Review Required::No dependencies found in metadata. Skipping auto-merge."
+            echo "is_allowed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           ALLOWED=true
           for DEP in "${DEPS[@]}"; do
@@ -56,13 +62,31 @@ jobs:
 
           echo "is_allowed=$ALLOWED" >> "$GITHUB_OUTPUT"
 
+      - name: Approve Dependabot PR
+        if: >
+          steps.metadata.outputs.update-type != 'version-update:semver-major' &&
+          steps.verify.outputs.is_allowed == 'true'
+        run: |
+          if ! OUTPUT=$(gh pr review --approve "$PR_URL" 2>&1); then
+            echo "::notice title=Approval Failed::Failed to automatically approve PR. This is usually due to permission restrictions. Output: $OUTPUT"
+          fi
+        env:
+          PR_URL: ${{github.event.pull_request.html_url}}
+          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+
       - name: Enable auto-merge for Dependabot PRs
         if: >
           steps.metadata.outputs.update-type != 'version-update:semver-major' &&
           steps.verify.outputs.is_allowed == 'true'
         run: |
-          gh pr review --approve "$PR_URL"
-          gh pr merge --auto --squash "$PR_URL"
+          if ! OUTPUT=$(gh pr merge --auto --squash "$PR_URL" 2>&1); then
+            if echo "$OUTPUT" | grep -iq "workflow.*permission"; then
+              echo "::notice title=Manual Merge Required::GitHub Actions cannot auto-merge PRs that modify workflow files due to security restrictions. Please merge manually."
+            else
+              echo "::error::Failed to enable auto-merge: $OUTPUT"
+              exit 1
+            fi
+          fi
         env:
           PR_URL: ${{github.event.pull_request.html_url}}
           GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
