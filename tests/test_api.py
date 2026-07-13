@@ -689,3 +689,16 @@ async def test_execute_fetch_all_force_discovery_integration():
             # Ensure we successfully parsed the data, meaning full discovery worked
             assert "device_1" in result
             assert result["device_1"]["sw_version"] == "v1.0"
+
+
+@pytest.mark.asyncio
+async def test_get_all_device_data_unexpected_error():
+    """Test that get_all_device_data propagates unexpected errors."""
+    fake_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    # Mock _execute_fetch_all to raise Exception
+    api._execute_fetch_all = AsyncMock(side_effect=Exception("Unexpected Error"))
+
+    with pytest.raises(Exception, match="Unexpected Error"):
+        await api.get_all_device_data()
