@@ -732,6 +732,58 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
     return derived
 
 
+def _resolve_push_timestamp(device: dict, now_utc: str) -> str:
+    """Determine the last_seen timestamp from collectTime or reportTimestamp."""
+    collect_time = device.get("collectTime")
+    report_ts = device.get("reportTimestamp")
+
+    if collect_time is not None:
+        try:
+            return datetime.fromtimestamp(float(collect_time), UTC).isoformat()
+        except ValueError, TypeError:
+            pass
+    elif report_ts is not None:
+        try:
+            return datetime.fromtimestamp(float(report_ts) / 1000.0, UTC).isoformat()
+        except ValueError, TypeError:
+            pass
+    return now_utc
+
+
+def _extract_raw_push_metrics(device: dict) -> dict[str, Any]:
+    """Extract metrics from flat payload dictionary, stripping metadata/routing keys."""
+    raw_metrics: dict[str, Any] = {}
+    for k, v in device.items():
+        if k in _METRICS_EXCLUDED_KEYS:
+            continue
+        raw_metrics[k] = v
+    return raw_metrics
+
+
+def _merge_push_metrics(
+    sn: str,
+    raw_metrics: dict,
+    device_type: str,
+    existing_metrics: dict[str, dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Filter collector metrics and merge with existing metrics."""
+    if device_type == "COLLECTOR":
+        metrics_to_update = _filter_collector_metrics(raw_metrics)
+    else:
+        metrics_to_update = raw_metrics.copy()
+
+    merged_metrics: dict[str, Any] = {}
+    if existing_metrics and sn in existing_metrics:
+        # Copy existing to avoid mutating caller's dictionary directly
+        merged_metrics = dict(existing_metrics[sn])
+
+    for k, v in metrics_to_update.items():
+        if v is not None:
+            merged_metrics[k] = v
+
+    return merged_metrics
+
+
 def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-many-statements
     """Flatten a nested push device payload into the flat layout expected by the SDK."""
     flat: dict = {}
@@ -2208,52 +2260,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if not sn:
                 continue
 
-            # Extract metrics from flat payload dictionary
-            # Strip metadata/routing keys
-            raw_metrics = {}
-            for k, v in device.items():
-                if k in _METRICS_EXCLUDED_KEYS:
-                    continue
-                raw_metrics[k] = v
-
             # Retrieve info from discovery cache
             device_info = self._discovery_cache.get("device_info", {}).get(sn, {})
             device_type = str(device_info.get("device_type_code") or "")
 
-            # Handle collectTime / reportTimestamp to resolve last_seen
-            last_seen = now_utc
-            collect_time = device.get("collectTime")
-            report_ts = device.get("reportTimestamp")
+            raw_metrics = _extract_raw_push_metrics(device)
+            last_seen = _resolve_push_timestamp(device, now_utc)
 
-            if collect_time is not None:
-                try:
-                    last_seen = datetime.fromtimestamp(
-                        float(collect_time), UTC
-                    ).isoformat()
-                except ValueError, TypeError:
-                    pass
-            elif report_ts is not None:
-                try:
-                    last_seen = datetime.fromtimestamp(
-                        float(report_ts) / 1000.0, UTC
-                    ).isoformat()
-                except ValueError, TypeError:
-                    pass
-
-            # Filter collector metrics
-            if device_type == "COLLECTOR":
-                metrics_to_update = _filter_collector_metrics(raw_metrics)
-            else:
-                metrics_to_update = raw_metrics.copy()
-            # Merge with existing metrics if provided, ignoring None/null values
-            merged_metrics = {}
-            if existing_metrics and sn in existing_metrics:
-                # Copy existing to avoid mutating caller's dictionary directly
-                merged_metrics = dict(existing_metrics[sn])
-
-            for k, v in metrics_to_update.items():
-                if v is not None:
-                    merged_metrics[k] = v
+            merged_metrics = _merge_push_metrics(
+                sn, raw_metrics, device_type, existing_metrics
+            )
             merged_metrics["last_seen"] = last_seen
 
             # Compute derived metrics on the full merged dataset
