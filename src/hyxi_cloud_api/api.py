@@ -25,10 +25,9 @@ from urllib.parse import urlparse
 try:
     from datetime import UTC, datetime
 except ImportError:
-    from datetime import datetime
+    from datetime import datetime, timezone
 
-    # pylint: disable=W0127,E0601
-    UTC = UTC
+    UTC = timezone.utc  # noqa
 
 import aiohttp
 
@@ -45,18 +44,41 @@ class FetchState:
 
 
 _LOGGER = logging.getLogger(__name__)
-_battery_device_types = (
-    "INVERTER",
-    "ESS",
-    "HALO",
-    "1",
-    "15",
-    "16",
-    "MICRO_STORAGE_ALL_IN_ONE",
+_battery_device_types = frozenset(
+    (
+        "INVERTER",
+        "HYBRID_INVERTER",
+        "STRING_INVERTER",
+        "MICRO_INVERTER",
+        "ESS",
+        "HALO",
+        "1",
+        "15",
+        "16",
+        "MICRO_STORAGE_ALL_IN_ONE",
+    )
 )
-_BATTERY_DEVICE_REGEX = re.compile("|".join(_battery_device_types))
-_parent_device_types = ("COLLECTOR", "DMU", "INVERTER", "ALL_IN_ONE")
-_PARENT_DEVICE_REGEX = re.compile("|".join(_parent_device_types))
+_parent_device_types = frozenset(
+    (
+        "COLLECTOR",
+        "DMU",
+        "INVERTER",
+        "HYBRID_INVERTER",
+        "STRING_INVERTER",
+        "MICRO_INVERTER",
+        "ALL_IN_ONE",
+        "MICRO_STORAGE_ALL_IN_ONE",
+    )
+)
+_EMS_DEVICE_TYPES = frozenset(
+    (
+        "EMS",
+        "ENERGY_STORAGE_BATTERY",
+        "MICRO_STORAGE_ALL_IN_ONE",
+        "15",
+        "16",
+    )
+)
 _COLLECTOR_FILTER_KEYWORDS = (
     "bat",
     "pv",
@@ -564,9 +586,7 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         if val is None or val == "":
             return 0.0
         return round(float(val) * mult, 2)
-    except ValueError:
-        return 0.0
-    except TypeError:
+    except ValueError, TypeError:
         return 0.0
 
 
@@ -625,7 +645,7 @@ def _compute_battery_metrics(
     pbat = _get_f("pbat", m_raw)
     device_type_str = str(device_type or "")
 
-    if "batP" in m_raw or "pbat" in m_raw or device_type_str in ("EMS", "15", "16"):
+    if "batP" in m_raw or "pbat" in m_raw or device_type_str in _EMS_DEVICE_TYPES:
         # ALL_IN_ONE: prefer pbat — batP can have an inverted sign convention,
         # while pbat is consistently negative-for-charging / positive-for-discharging.
         # Other devices: prefer batP (DC terminals), fall back to pbat.
@@ -730,6 +750,60 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
     _compute_micro_ess_fallback_metrics(m_raw, derived)
 
     return derived
+
+
+def _resolve_push_timestamp(device: dict[str, Any], now_utc: datetime) -> datetime:
+    """Determine the last_seen timestamp from collectTime or reportTimestamp."""
+    collect_time = device.get("collectTime")
+    report_ts = device.get("reportTimestamp")
+
+    if collect_time is not None:
+        try:
+            return datetime.fromtimestamp(float(collect_time), UTC)
+        except ValueError, TypeError, OverflowError, OSError:
+            pass
+
+    if report_ts is not None:
+        try:
+            return datetime.fromtimestamp(float(report_ts) / 1000.0, UTC)
+        except ValueError, TypeError, OverflowError, OSError:
+            pass
+
+    return now_utc
+
+
+def _extract_raw_push_metrics(device: dict[str, Any]) -> dict[str, Any]:
+    """Extract metrics from flat payload dictionary, stripping metadata/routing keys."""
+    raw_metrics: dict[str, Any] = {}
+    for k, v in device.items():
+        if k in _METRICS_EXCLUDED_KEYS:
+            continue
+        raw_metrics[k] = v
+    return raw_metrics
+
+
+def _merge_push_metrics(
+    sn: str,
+    raw_metrics: dict[str, Any],
+    device_type: str,
+    existing_metrics: dict[str, dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Filter collector metrics and merge with existing metrics."""
+    if device_type == "COLLECTOR":
+        metrics_to_update = _filter_collector_metrics(raw_metrics)
+    else:
+        metrics_to_update = raw_metrics.copy()
+
+    merged_metrics: dict[str, Any] = {}
+    if existing_metrics and sn in existing_metrics:
+        # Copy existing to avoid mutating caller's dictionary directly
+        merged_metrics = dict(existing_metrics[sn])
+
+    for k, v in metrics_to_update.items():
+        if v is not None:
+            merged_metrics[k] = v
+
+    return merged_metrics
 
 
 def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-many-statements
@@ -1294,7 +1368,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         }
 
         device_type_code = entry.get("device_type_code", "")
-        if _BATTERY_DEVICE_REGEX.search(device_type_code):
+        if device_type_code in _battery_device_types:
             base_info.update(HyxiApiClient._extract_battery_info(i_raw))
 
         entry["metrics"].update(base_info)
@@ -1343,8 +1417,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         ems_task = None
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
-            ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
-            tasks.append(ems_task)
+
+            actual_type = entry.get("device_type_code", dev_type)
+            if actual_type in _EMS_DEVICE_TYPES:
+                ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
+                tasks.append(ems_task)
 
         # Wait for them to finish
         if tasks:
@@ -1425,7 +1502,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
             # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-            if _PARENT_DEVICE_REGEX.search(dev_type):
+            if dev_type in _parent_device_types:
                 _LOGGER.debug(
                     "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
                     _mask_id(sn),
@@ -1698,7 +1775,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-        if _PARENT_DEVICE_REGEX.search(dev_type):
+        if dev_type in _parent_device_types:
             sub_device_tasks.append(self._fetch_sub_devices(sn, state))
 
     async def _process_alarms_and_back_discovery(
@@ -2195,7 +2272,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             _LOGGER.warning("HYXI Push: dataList is missing or not a list")
             return {}
 
-        now_utc = datetime.now(UTC).isoformat()
+        now_utc = datetime.now(UTC)
         results = {}
 
         for device in data_list:
@@ -2208,53 +2285,17 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if not sn:
                 continue
 
-            # Extract metrics from flat payload dictionary
-            # Strip metadata/routing keys
-            raw_metrics = {}
-            for k, v in device.items():
-                if k in _METRICS_EXCLUDED_KEYS:
-                    continue
-                raw_metrics[k] = v
-
             # Retrieve info from discovery cache
             device_info = self._discovery_cache.get("device_info", {}).get(sn, {})
             device_type = str(device_info.get("device_type_code") or "")
 
-            # Handle collectTime / reportTimestamp to resolve last_seen
-            last_seen = now_utc
-            collect_time = device.get("collectTime")
-            report_ts = device.get("reportTimestamp")
+            raw_metrics = _extract_raw_push_metrics(device)
+            last_seen = _resolve_push_timestamp(device, now_utc)
 
-            if collect_time is not None:
-                try:
-                    last_seen = datetime.fromtimestamp(
-                        float(collect_time), UTC
-                    ).isoformat()
-                except ValueError, TypeError:
-                    pass
-            elif report_ts is not None:
-                try:
-                    last_seen = datetime.fromtimestamp(
-                        float(report_ts) / 1000.0, UTC
-                    ).isoformat()
-                except ValueError, TypeError:
-                    pass
-
-            # Filter collector metrics
-            if device_type == "COLLECTOR":
-                metrics_to_update = _filter_collector_metrics(raw_metrics)
-            else:
-                metrics_to_update = raw_metrics.copy()
-            # Merge with existing metrics if provided, ignoring None/null values
-            merged_metrics = {}
-            if existing_metrics and sn in existing_metrics:
-                # Copy existing to avoid mutating caller's dictionary directly
-                merged_metrics = dict(existing_metrics[sn])
-
-            for k, v in metrics_to_update.items():
-                if v is not None:
-                    merged_metrics[k] = v
-            merged_metrics["last_seen"] = last_seen
+            merged_metrics = _merge_push_metrics(
+                sn, raw_metrics, device_type, existing_metrics
+            )
+            merged_metrics["last_seen"] = last_seen.isoformat()
 
             # Compute derived metrics on the full merged dataset
             derived = _compute_derived_metrics(merged_metrics, device_type)

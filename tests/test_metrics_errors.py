@@ -19,7 +19,7 @@ mock_aiohttp = sys.modules["aiohttp"]
 """Tests for exception handling in _fetch_device_metrics."""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
@@ -138,7 +138,7 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     api._fetch_device_metrics = AsyncMock()
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
-    await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
+    await api._fetch_all_for_device("10602251600016", entry, "EMS")
 
     assert "HYXI EMS telemetry probe returned no data for " in caplog.text
     # No EMS data should be merged into metrics.
@@ -158,7 +158,7 @@ async def test_fetch_ems_basic_data_error(caplog):
     api._fetch_device_metrics = AsyncMock()
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
-    await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
+    await api._fetch_all_for_device("10602251600016", entry, "EMS")
 
     # No EMS data should be merged into metrics.
     assert "batSoc" not in entry["metrics"]
@@ -237,3 +237,49 @@ async def test_query_ems_basic_details_malformed_response(caplog):
     assert result == {}
     assert "HYXI EMS Basic Data Request Failed for " in caplog.text
     assert "object has no attribute 'get'" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_query_ems_basic_details_parse_error(caplog):
+    """Test that query_ems_basic_details handles exceptions during parsing."""
+    caplog.set_level(logging.ERROR)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Return a response with code 0 but invalid data type to trigger an exception
+    api._request = AsyncMock(return_value=(200, {"code": "0", "data": []}))
+
+    with patch(
+        "hyxi_cloud_api.api._parse_ems_kv", side_effect=Exception("Parsing error")
+    ):
+        result = await api.query_ems_basic_details("10602251600016")
+
+    assert result == {}
+    assert "HYXI EMS Basic Data Request Failed for" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_metrics_parsing_error(caplog, monkeypatch):
+    """Test that _fetch_device_metrics handles parsing errors gracefully."""
+    caplog.set_level(logging.ERROR)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Return a success response so that it enters the 'if res_q.get("success"):' block
+    api._request = AsyncMock(
+        return_value=(200, {"success": True, "data": [{"key": "bad"}]})
+    )
+
+    def mock_parse(*args, **kwargs):
+        raise ValueError("Mock parsing error")
+
+    # Mock _parse_data_list to trigger the exception block at line 1234
+    import hyxi_cloud_api.api as api_module  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(api_module, "_parse_data_list", mock_parse)
+
+    entry = {"metrics": {}, "device_type_code": "INVERTER"}
+    await api._fetch_device_metrics("10602251600016", entry)
+
+    assert "Error fetching metrics for " in caplog.text
+    assert "Mock parsing error" in caplog.text

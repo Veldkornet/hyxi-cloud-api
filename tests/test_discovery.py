@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.hyxi_cloud_api.api import FetchState, HyxiApiClient
+from hyxi_cloud_api.api import FetchState, HyxiApiClient
 
 
 def _setup_mock_api():
@@ -259,7 +259,7 @@ async def test_fetch_sub_devices_rejected():
 
     with pytest.MonkeyPatch.context() as m:
         mock_logger = MagicMock()
-        m.setattr("src.hyxi_cloud_api.api._LOGGER", mock_logger)
+        m.setattr("hyxi_cloud_api.api._LOGGER", mock_logger)
 
         await api._fetch_sub_devices("BAD_SN", state)
 
@@ -284,7 +284,7 @@ async def test_fetch_sub_devices_exception():
 
     with pytest.MonkeyPatch.context() as m:
         mock_logger = MagicMock()
-        m.setattr("src.hyxi_cloud_api.api._LOGGER", mock_logger)
+        m.setattr("hyxi_cloud_api.api._LOGGER", mock_logger)
 
         await api._fetch_sub_devices("SOME_SN", state)
 
@@ -337,3 +337,28 @@ async def test_back_discovery_sn_validation():
     res = await api.get_all_device_data(allow_back_discovery=True)
     assert "123" not in res["data"]
     api._fetch_all_for_device.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fetch_sub_devices_outer_exception():
+    """Verify that an exception in _fetch_sub_devices is caught and logged."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    # Mock _fetch_sub_device_list to raise an exception directly
+    api._fetch_sub_device_list = AsyncMock(side_effect=Exception("Outer Exception"))
+
+    state = FetchState(now="Plant123")
+
+    with pytest.MonkeyPatch.context() as m:
+        mock_logger = MagicMock()
+        m.setattr("hyxi_cloud_api.api._LOGGER", mock_logger)
+
+        await api._fetch_sub_devices("SOME_SN", state)
+
+        assert len(state.metric_tasks) == 0
+        assert len(state.discovered_sns) == 0
+
+        # Verify the logger caught the exception
+        mock_logger.error.assert_called_once()
+        args, _ = mock_logger.error.call_args
+        assert "Error fetching sub-devices for" in args[0]
