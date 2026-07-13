@@ -252,10 +252,10 @@ async def test_fetch_device_metrics_parsing_error(caplog, monkeypatch):
     )
 
     def mock_parse(*args, **kwargs):
-        raise Exception("Mock parsing error")
+        raise ValueError("Mock parsing error")
 
     # Mock _parse_data_list to trigger the exception block at line 1234
-    import hyxi_cloud_api.api as api_module
+    import hyxi_cloud_api.api as api_module  # pylint: disable=import-outside-toplevel
 
     monkeypatch.setattr(api_module, "_parse_data_list", mock_parse)
 
