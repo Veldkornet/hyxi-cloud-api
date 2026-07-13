@@ -25,10 +25,9 @@ from urllib.parse import urlparse
 try:
     from datetime import UTC, datetime
 except ImportError:
-    from datetime import datetime
+    from datetime import datetime, timezone
 
-    # pylint: disable=W0127,E0601
-    UTC = UTC
+    UTC = timezone.utc
 
 import aiohttp
 
