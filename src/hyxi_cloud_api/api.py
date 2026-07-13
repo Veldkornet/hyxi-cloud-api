@@ -45,18 +45,28 @@ class FetchState:
 
 
 _LOGGER = logging.getLogger(__name__)
-_battery_device_types = (
+_battery_device_types = frozenset((
     "INVERTER",
+    "HYBRID_INVERTER",
+    "STRING_INVERTER",
+    "MICRO_INVERTER",
     "ESS",
     "HALO",
     "1",
     "15",
     "16",
     "MICRO_STORAGE_ALL_IN_ONE",
-)
-_BATTERY_DEVICE_REGEX = re.compile("|".join(_battery_device_types))
-_parent_device_types = ("COLLECTOR", "DMU", "INVERTER", "ALL_IN_ONE")
-_PARENT_DEVICE_REGEX = re.compile("|".join(_parent_device_types))
+))
+_parent_device_types = frozenset((
+    "COLLECTOR",
+    "DMU",
+    "INVERTER",
+    "HYBRID_INVERTER",
+    "STRING_INVERTER",
+    "MICRO_INVERTER",
+    "ALL_IN_ONE",
+    "MICRO_STORAGE_ALL_IN_ONE",
+))
 _COLLECTOR_FILTER_KEYWORDS = (
     "bat",
     "pv",
@@ -744,7 +754,7 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
         if "collectTime" in rec:
             try:
                 flat["collectTime"] = float(rec["collectTime"]) / 1000.0
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 flat["collectTime"] = rec["collectTime"]
         if "parentSn" in rec:
             flat["parentSn"] = rec["parentSn"]
@@ -762,7 +772,7 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
                         flat[k] = num_val / 1000.0
                     else:
                         flat[k] = val
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     flat[k] = val
             else:
                 flat[k] = val
@@ -881,7 +891,7 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
         if "powerW" in grd and grd["powerW"] is not None:
             try:
                 flat["gridP"] = float(grd["powerW"]) / 1000.0
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 flat["gridP"] = grd["powerW"]
         if "frequencyHz" in grd:
             flat["gridF"] = grd["frequencyHz"]
@@ -1294,7 +1304,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         }
 
         device_type_code = entry.get("device_type_code", "")
-        if _BATTERY_DEVICE_REGEX.search(device_type_code):
+        if device_type_code in _battery_device_types:
             base_info.update(HyxiApiClient._extract_battery_info(i_raw))
 
         entry["metrics"].update(base_info)
@@ -1425,7 +1435,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
             # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
-            if _PARENT_DEVICE_REGEX.search(dev_type):
+            if dev_type in _parent_device_types:
                 _LOGGER.debug(
                     "HYXI Parent Device Found: %s (%s). Probing for sub-devices...",
                     _mask_id(sn),
@@ -1698,7 +1708,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
 
         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
-        if _PARENT_DEVICE_REGEX.search(dev_type):
+        if dev_type in _parent_device_types:
             sub_device_tasks.append(self._fetch_sub_devices(sn, state))
 
     async def _process_alarms_and_back_discovery(
@@ -2230,14 +2240,14 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     last_seen = datetime.fromtimestamp(
                         float(collect_time), UTC
                     ).isoformat()
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
             elif report_ts is not None:
                 try:
                     last_seen = datetime.fromtimestamp(
                         float(report_ts) / 1000.0, UTC
                     ).isoformat()
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
 
             # Filter collector metrics
