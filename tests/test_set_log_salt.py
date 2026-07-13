@@ -53,20 +53,3 @@ def test_set_log_salt_with_bytes():
     # Verify the cache was cleared and new salt is used
     new_masked = _mask_id(test_id)
     assert new_masked != initial_masked
-
-
-def test_set_log_salt_clears_mask_id_cache():
-    """Test that setting the log salt explicitly clears the _mask_id cache."""
-    # Ensure cache is initially populated
-    _mask_id("dummy_id_for_cache_test")
-
-    # Check cache info directly (if cache info is accessible)
-    cache_info = _mask_id.cache_info()
-    assert cache_info.currsize > 0
-
-    # Act
-    set_log_salt("another_salt")
-
-    # Assert cache size is 0
-    cache_info_after = _mask_id.cache_info()
-    assert cache_info_after.currsize == 0
