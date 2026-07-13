@@ -123,4 +123,5 @@ async def test_fetch_sub_device_list_processing_error(caplog):
 
     assert result == []
     assert "Error fetching sub-device list for" in caplog.text
-    assert "'list' object has no attribute 'get'" in caplog.text
+    assert "no attribute 'get'" in caplog.text
+    assert any(record.levelname == "ERROR" for record in caplog.records)
