@@ -281,7 +281,7 @@ async def test_fetch_ems_basic_data_success(caplog):
     ems_sn = "10602251600016"
     entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
 
-    await api._fetch_all_for_device(ems_sn, entry, "INVERTER")
+    await api._fetch_all_for_device(ems_sn, entry, "EMS")
 
     # Assert query_ems_basic_details was called
     api.query_ems_basic_details.assert_called_once_with(ems_sn)
@@ -306,7 +306,7 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     ems_sn = "EMS123"
     entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
 
-    await api._fetch_all_for_device(ems_sn, entry, "INVERTER")
+    await api._fetch_all_for_device(ems_sn, entry, "EMS")
 
     # Assert query_ems_basic_details was called
     api.query_ems_basic_details.assert_called_once_with("EMS123")
@@ -497,7 +497,7 @@ async def test_fetch_all_for_device_collector():
 async def test_fetch_all_for_device_non_collector():
     """Test _fetch_all_for_device when dev_type is not COLLECTOR.
 
-    Non-collector devices (e.g. INVERTER) trigger device info, metrics, and EMS
+    Non-collector devices (e.g. INVERTER) trigger device info and metrics
     telemetry probing concurrently. query_ems_basic_details must be mocked to
     prevent unawaited coroutine RuntimeWarnings from the real HTTP path.
     """
@@ -520,7 +520,7 @@ async def test_fetch_all_for_device_non_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_called_once_with(sn, entry)
-    api.query_ems_basic_details.assert_called_once_with(sn)
+    api.query_ems_basic_details.assert_not_called()
 
 
 # --- TEST 6: Empty Data Response (The "Halo ESS" Scenario) ---

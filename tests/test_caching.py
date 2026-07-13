@@ -53,14 +53,13 @@ async def test_discovery_caching_logic():
         # First call: Full Discovery
         res1 = await client.get_all_device_data()
         assert res1["data"]["S1"]["sw_version"] == "V1"
-        assert mock_req.call_count == 7
+        assert mock_req.call_count == 6
 
         # Second call: Should use cache (Fast Poll)
         # Sequence expected for Fast Poll:
         # 1. Alarms (for Plant)
         # 2. Info (for SN)
         # 3. Metrics (for SN)
-        # 4. EMS Probe
         mock_req.reset_mock()
         mock_req.side_effect = [
             (200, alarms_resp),
@@ -71,7 +70,7 @@ async def test_discovery_caching_logic():
 
         res2 = await client.get_all_device_data()
         assert res2["data"]["S1"]["sw_version"] == "V1"  # Still there from cache
-        assert mock_req.call_count == 4
+        assert mock_req.call_count == 3
 
         # Verify specific URL paths for fast poll
         calls = mock_req.call_args_list
@@ -91,7 +90,7 @@ async def test_discovery_caching_logic():
             (200, {}),  # EMS
         ]
         await client.get_all_device_data(force_discovery=True)
-        assert mock_req.call_count == 7
+        assert mock_req.call_count == 6
 
 
 @pytest.mark.asyncio

@@ -1343,8 +1343,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         ems_task = None
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
-            ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
-            tasks.append(ems_task)
+            if dev_type in (
+                "EMS",
+                "ENERGY_STORAGE_BATTERY",
+                "MICRO_STORAGE_ALL_IN_ONE",
+                "15",
+                "16",
+            ):
+                ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
+                tasks.append(ems_task)
 
         # Wait for them to finish
         if tasks:

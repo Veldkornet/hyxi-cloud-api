@@ -138,7 +138,7 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     api._fetch_device_metrics = AsyncMock()
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
-    await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
+    await api._fetch_all_for_device("10602251600016", entry, "EMS")
 
     assert "HYXI EMS telemetry probe returned no data for " in caplog.text
     # No EMS data should be merged into metrics.
@@ -158,7 +158,7 @@ async def test_fetch_ems_basic_data_error(caplog):
     api._fetch_device_metrics = AsyncMock()
 
     entry = {"metrics": {}, "device_type_code": "EMS"}
-    await api._fetch_all_for_device("10602251600016", entry, "INVERTER")
+    await api._fetch_all_for_device("10602251600016", entry, "EMS")
 
     # No EMS data should be merged into metrics.
     assert "batSoc" not in entry["metrics"]
