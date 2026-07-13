@@ -522,6 +522,21 @@ async def test_fetch_all_for_device_non_collector():
     api._fetch_device_metrics.assert_called_once_with(sn, entry)
     api.query_ems_basic_details.assert_not_called()
 
+    # Reset mocks before verifying EMS-capable device behaviour
+    api._fetch_device_info.reset_mock()
+    api._fetch_device_metrics.reset_mock()
+    api.query_ems_basic_details.reset_mock()
+
+    # EMS-capable non-collector devices should still trigger the EMS probe
+    ems_sn = "EMS123"
+    ems_entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
+
+    await api._fetch_all_for_device(ems_sn, ems_entry, "EMS")
+
+    api._fetch_device_info.assert_called_once_with(ems_sn, ems_entry)
+    api._fetch_device_metrics.assert_called_once_with(ems_sn, ems_entry)
+    api.query_ems_basic_details.assert_called_once_with(ems_sn)
+
 
 # --- TEST 6: Empty Data Response (The "Halo ESS" Scenario) ---
 @pytest.mark.asyncio

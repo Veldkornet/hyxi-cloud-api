@@ -55,6 +55,13 @@ _battery_device_types = (
     "MICRO_STORAGE_ALL_IN_ONE",
 )
 _BATTERY_DEVICE_REGEX = re.compile("|".join(_battery_device_types))
+_EMS_DEVICE_TYPES = (
+    "EMS",
+    "ENERGY_STORAGE_BATTERY",
+    "MICRO_STORAGE_ALL_IN_ONE",
+    "15",
+    "16",
+)
 _parent_device_types = ("COLLECTOR", "DMU", "INVERTER", "ALL_IN_ONE")
 _PARENT_DEVICE_REGEX = re.compile("|".join(_parent_device_types))
 _COLLECTOR_FILTER_KEYWORDS = (
@@ -625,7 +632,7 @@ def _compute_battery_metrics(
     pbat = _get_f("pbat", m_raw)
     device_type_str = str(device_type or "")
 
-    if "batP" in m_raw or "pbat" in m_raw or device_type_str in ("EMS", "15", "16"):
+    if "batP" in m_raw or "pbat" in m_raw or device_type_str in _EMS_DEVICE_TYPES:
         # ALL_IN_ONE: prefer pbat — batP can have an inverted sign convention,
         # while pbat is consistently negative-for-charging / positive-for-discharging.
         # Other devices: prefer batP (DC terminals), fall back to pbat.
@@ -1343,13 +1350,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         ems_task = None
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
-            if dev_type in (
-                "EMS",
-                "ENERGY_STORAGE_BATTERY",
-                "MICRO_STORAGE_ALL_IN_ONE",
-                "15",
-                "16",
-            ):
+
+            actual_type = entry.get("device_type_code", dev_type)
+            if actual_type in _EMS_DEVICE_TYPES:
                 ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
                 tasks.append(ems_task)
 
