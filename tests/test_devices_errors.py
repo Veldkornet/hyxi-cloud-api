@@ -114,3 +114,5 @@ async def test_fetch_devices_for_plant_general_exception(caplog):
 
     assert "Error fetching devices for plant" in caplog.text
     assert "Unexpected generic error" in caplog.text
+    assert not state.metric_tasks
+    assert not state.discovered_sns
