@@ -106,3 +106,21 @@ async def test_fetch_sub_device_list_client_error(caplog):
     assert result == []
     assert "Error fetching sub-device list for" in caplog.text
     assert "Connection refused" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fetch_sub_device_list_processing_error(caplog):
+    """Verify that a general Exception during processing is caught, logged, and returns an empty list."""
+    caplog.set_level(logging.ERROR)
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    # Mocking the request to return something that causes an exception (like a list instead of dict)
+    # when attempting to use res_sd.get("success")
+    api._request = AsyncMock(
+        return_value=(200, ["this", "is", "a", "list", "not", "a", "dict"])
+    )
+
+    result = await api._fetch_sub_device_list("parent123")
+
+    assert result == []
+    assert "Error fetching sub-device list for" in caplog.text
+    assert "'list' object has no attribute 'get'" in caplog.text
