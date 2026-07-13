@@ -97,6 +97,7 @@ async def test_fetch_devices_for_plant_invalid_json(caplog):
     assert not state.metric_tasks
     assert not state.discovered_sns
 
+
 @pytest.mark.asyncio
 async def test_fetch_devices_for_plant_general_exception(caplog):
     """Test that _fetch_devices_for_plant handles general exceptions."""
@@ -104,8 +105,9 @@ async def test_fetch_devices_for_plant_general_exception(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-
-    api._fetch_device_list_for_plant = AsyncMock(side_effect=Exception("Unexpected generic error"))
+    api._fetch_device_list_for_plant = AsyncMock(
+        side_effect=Exception("Unexpected generic error")
+    )
 
     state = FetchState(now="2024-01-01")
     await api._fetch_devices_for_plant("plant123", state)
