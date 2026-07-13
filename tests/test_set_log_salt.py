@@ -2,7 +2,7 @@
 
 import pytest
 
-import hyxi_cloud_api.api as api
+from hyxi_cloud_api import api
 from hyxi_cloud_api.api import _mask_id, set_log_salt
 
 
