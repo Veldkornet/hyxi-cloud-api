@@ -45,28 +45,32 @@ class FetchState:
 
 
 _LOGGER = logging.getLogger(__name__)
-_battery_device_types = frozenset((
-    "INVERTER",
-    "HYBRID_INVERTER",
-    "STRING_INVERTER",
-    "MICRO_INVERTER",
-    "ESS",
-    "HALO",
-    "1",
-    "15",
-    "16",
-    "MICRO_STORAGE_ALL_IN_ONE",
-))
-_parent_device_types = frozenset((
-    "COLLECTOR",
-    "DMU",
-    "INVERTER",
-    "HYBRID_INVERTER",
-    "STRING_INVERTER",
-    "MICRO_INVERTER",
-    "ALL_IN_ONE",
-    "MICRO_STORAGE_ALL_IN_ONE",
-))
+_battery_device_types = frozenset(
+    (
+        "INVERTER",
+        "HYBRID_INVERTER",
+        "STRING_INVERTER",
+        "MICRO_INVERTER",
+        "ESS",
+        "HALO",
+        "1",
+        "15",
+        "16",
+        "MICRO_STORAGE_ALL_IN_ONE",
+    )
+)
+_parent_device_types = frozenset(
+    (
+        "COLLECTOR",
+        "DMU",
+        "INVERTER",
+        "HYBRID_INVERTER",
+        "STRING_INVERTER",
+        "MICRO_INVERTER",
+        "ALL_IN_ONE",
+        "MICRO_STORAGE_ALL_IN_ONE",
+    )
+)
 _COLLECTOR_FILTER_KEYWORDS = (
     "bat",
     "pv",
@@ -754,7 +758,7 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
         if "collectTime" in rec:
             try:
                 flat["collectTime"] = float(rec["collectTime"]) / 1000.0
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 flat["collectTime"] = rec["collectTime"]
         if "parentSn" in rec:
             flat["parentSn"] = rec["parentSn"]
@@ -772,7 +776,7 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
                         flat[k] = num_val / 1000.0
                     else:
                         flat[k] = val
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     flat[k] = val
             else:
                 flat[k] = val
@@ -891,7 +895,7 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
         if "powerW" in grd and grd["powerW"] is not None:
             try:
                 flat["gridP"] = float(grd["powerW"]) / 1000.0
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 flat["gridP"] = grd["powerW"]
         if "frequencyHz" in grd:
             flat["gridF"] = grd["frequencyHz"]
@@ -2240,14 +2244,14 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     last_seen = datetime.fromtimestamp(
                         float(collect_time), UTC
                     ).isoformat()
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             elif report_ts is not None:
                 try:
                     last_seen = datetime.fromtimestamp(
                         float(report_ts) / 1000.0, UTC
                     ).isoformat()
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
             # Filter collector metrics
