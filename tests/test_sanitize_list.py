@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from src.hyxi_cloud_api.api import _sanitize_list
+from hyxi_cloud_api.api import _sanitize_list
 
 
 def test_sanitize_list_empty():
@@ -29,7 +29,7 @@ def test_sanitize_list_nested():
     assert _sanitize_list(raw) == [1, [None, 2], None]
 
 
-@patch("src.hyxi_cloud_api.api._mask_id", return_value="MASKED")
+@patch("hyxi_cloud_api.api._mask_id", return_value="MASKED")
 def test_sanitize_list_with_dicts(mock_mask):
     """Test that dictionaries within a list are sanitized correctly."""
     raw = [{"deviceSn": "123456789"}, ""]

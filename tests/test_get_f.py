@@ -86,3 +86,13 @@ class TestGetF:
         """Test a condition that triggers a ValueError and returns 0.0."""
         data = {"key": "not-a-number"}
         assert _get_f("key", data) == 0.0
+
+    def test_get_f_explicit_type_error(self):
+        """Test specific condition triggering TypeError at line 567."""
+        data = {"key": []}
+        assert _get_f("key", data) == 0.0
+
+    def test_type_error_mult(self):
+        """Invalid multiplier type should return 0.0 due to TypeError."""
+        data = {"key": 10}
+        assert _get_f("key", data, mult="invalid") == 0.0

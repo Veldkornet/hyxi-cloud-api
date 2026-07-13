@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient
+from hyxi_cloud_api.api import HyxiApiClient
 
 
 @pytest.mark.asyncio
@@ -103,7 +103,7 @@ async def test_fetch_plants_empty_list_warning():
         )
     )
 
-    with patch("src.hyxi_cloud_api.api._LOGGER") as mock_logger:
+    with patch("hyxi_cloud_api.api._LOGGER") as mock_logger:
         plants = await api._fetch_plants()
         assert plants == []
         mock_logger.warning.assert_called_once_with(

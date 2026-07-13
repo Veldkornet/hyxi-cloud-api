@@ -1,5 +1,5 @@
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientError"):
     m = MagicMock()
@@ -94,5 +94,25 @@ async def test_fetch_devices_for_plant_invalid_json(caplog):
     await api._fetch_devices_for_plant("plant123", state)
 
     assert "Error fetching devices for plant" in caplog.text
+    assert not state.metric_tasks
+    assert not state.discovered_sns
+
+
+@pytest.mark.asyncio
+async def test_fetch_devices_for_plant_general_exception(caplog):
+    """Test that _fetch_devices_for_plant handles general exceptions."""
+    caplog.set_level(logging.ERROR)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    api._fetch_device_list_for_plant = AsyncMock(
+        side_effect=Exception("Unexpected generic error")
+    )
+
+    state = FetchState(now="2024-01-01")
+    await api._fetch_devices_for_plant("plant123", state)
+
+    assert "Error fetching devices for plant" in caplog.text
+    assert "Unexpected generic error" in caplog.text
     assert not state.metric_tasks
     assert not state.discovered_sns

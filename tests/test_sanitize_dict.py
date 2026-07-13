@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from src.hyxi_cloud_api.api import _sanitize_dict, _sanitize_list
+from hyxi_cloud_api.api import _sanitize_dict, _sanitize_list
 
 
 def test_sanitize_dict_plant_address():
@@ -16,7 +16,7 @@ def test_sanitize_dict_plant_address():
     assert result["plantAddress"] == "[REDACTED]"
 
 
-@patch("src.hyxi_cloud_api.api._mask_id", return_value="MASKED")
+@patch("hyxi_cloud_api.api._mask_id", return_value="MASKED")
 def test_sanitize_dict_sensitive_keys(mock_mask_id):
     """Test that keys matching _SENSITIVE_KEYS are correctly masked."""
     raw = {
@@ -25,7 +25,7 @@ def test_sanitize_dict_sensitive_keys(mock_mask_id):
         "plantId": None,  # falsy value
     }
     with patch(
-        "src.hyxi_cloud_api.api._SENSITIVE_KEYS", {"deviceSn", "parentSn", "plantId"}
+        "hyxi_cloud_api.api._SENSITIVE_KEYS", {"deviceSn", "parentSn", "plantId"}
     ):
         result = _sanitize_dict(raw)
 
@@ -60,7 +60,7 @@ def test_sanitize_dict_alarmstate_passthrough():
     assert result["alarmState"] == "inactive"
 
 
-@patch("src.hyxi_cloud_api.api._mask_id", return_value="MASKED")
+@patch("hyxi_cloud_api.api._mask_id", return_value="MASKED")
 def test_sanitize_dict_auth_keys(mock_mask_id):
     """Test that authentication keys are correctly masked."""
     raw = {
@@ -70,7 +70,7 @@ def test_sanitize_dict_auth_keys(mock_mask_id):
         "password": "super_secret_password",
     }
     with patch(
-        "src.hyxi_cloud_api.api._SENSITIVE_KEYS",
+        "hyxi_cloud_api.api._SENSITIVE_KEYS",
         {"token", "access_token", "refresh_token", "password"},
     ):
         result = _sanitize_dict(raw)
@@ -128,8 +128,8 @@ def test_sanitize_list():
         "",
         [{"plantId": "987654321", "otherKey": 123}, ""],
     ]
-    with patch("src.hyxi_cloud_api.api._SENSITIVE_KEYS", {"deviceSn", "plantId"}):
-        with patch("src.hyxi_cloud_api.api._mask_id", return_value="MASKED"):
+    with patch("hyxi_cloud_api.api._SENSITIVE_KEYS", {"deviceSn", "plantId"}):
+        with patch("hyxi_cloud_api.api._mask_id", return_value="MASKED"):
             result = _sanitize_list(raw_list)
 
     expected = [
@@ -160,10 +160,10 @@ def test_sanitize_list_edge_cases():
         [[{"password": "xyz", "empty": ""}, ""]],
     ]
     with patch(
-        "src.hyxi_cloud_api.api._SENSITIVE_KEYS",
+        "hyxi_cloud_api.api._SENSITIVE_KEYS",
         {"deviceSn", "plantId", "token", "password"},
     ):
-        with patch("src.hyxi_cloud_api.api._mask_id", return_value="MASKED"):
+        with patch("hyxi_cloud_api.api._mask_id", return_value="MASKED"):
             result = _sanitize_list(raw_list)
 
     expected = [

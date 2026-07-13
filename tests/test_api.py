@@ -281,7 +281,7 @@ async def test_fetch_ems_basic_data_success(caplog):
     ems_sn = "10602251600016"
     entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
 
-    await api._fetch_all_for_device(ems_sn, entry, "INVERTER")
+    await api._fetch_all_for_device(ems_sn, entry, "EMS")
 
     # Assert query_ems_basic_details was called
     api.query_ems_basic_details.assert_called_once_with(ems_sn)
@@ -306,7 +306,7 @@ async def test_fetch_ems_basic_data_no_data(caplog):
     ems_sn = "EMS123"
     entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
 
-    await api._fetch_all_for_device(ems_sn, entry, "INVERTER")
+    await api._fetch_all_for_device(ems_sn, entry, "EMS")
 
     # Assert query_ems_basic_details was called
     api.query_ems_basic_details.assert_called_once_with("EMS123")
@@ -497,7 +497,7 @@ async def test_fetch_all_for_device_collector():
 async def test_fetch_all_for_device_non_collector():
     """Test _fetch_all_for_device when dev_type is not COLLECTOR.
 
-    Non-collector devices (e.g. INVERTER) trigger device info, metrics, and EMS
+    Non-collector devices (e.g. INVERTER) trigger device info and metrics
     telemetry probing concurrently. query_ems_basic_details must be mocked to
     prevent unawaited coroutine RuntimeWarnings from the real HTTP path.
     """
@@ -520,7 +520,22 @@ async def test_fetch_all_for_device_non_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_called_once_with(sn, entry)
-    api.query_ems_basic_details.assert_called_once_with(sn)
+    api.query_ems_basic_details.assert_not_called()
+
+    # Reset mocks before verifying EMS-capable device behaviour
+    api._fetch_device_info.reset_mock()
+    api._fetch_device_metrics.reset_mock()
+    api.query_ems_basic_details.reset_mock()
+
+    # EMS-capable non-collector devices should still trigger the EMS probe
+    ems_sn = "EMS123"
+    ems_entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
+
+    await api._fetch_all_for_device(ems_sn, ems_entry, "EMS")
+
+    api._fetch_device_info.assert_called_once_with(ems_sn, ems_entry)
+    api._fetch_device_metrics.assert_called_once_with(ems_sn, ems_entry)
+    api.query_ems_basic_details.assert_called_once_with(ems_sn)
 
 
 # --- TEST 6: Empty Data Response (The "Halo ESS" Scenario) ---
@@ -689,3 +704,16 @@ async def test_execute_fetch_all_force_discovery_integration():
             # Ensure we successfully parsed the data, meaning full discovery worked
             assert "device_1" in result
             assert result["device_1"]["sw_version"] == "v1.0"
+
+
+@pytest.mark.asyncio
+async def test_get_all_device_data_unexpected_error():
+    """Test that get_all_device_data propagates unexpected errors."""
+    fake_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    # Mock _execute_fetch_all to raise Exception
+    api._execute_fetch_all = AsyncMock(side_effect=Exception("Unexpected Error"))
+
+    with pytest.raises(Exception, match="Unexpected Error"):
+        await api.get_all_device_data()
