@@ -19,7 +19,7 @@ mock_aiohttp = sys.modules["aiohttp"]
 """Tests for exception handling in _fetch_device_metrics."""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
@@ -237,3 +237,22 @@ async def test_query_ems_basic_details_malformed_response(caplog):
     assert result == {}
     assert "HYXI EMS Basic Data Request Failed for " in caplog.text
     assert "object has no attribute 'get'" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_query_ems_basic_details_parse_error(caplog):
+    """Test that query_ems_basic_details handles exceptions during parsing."""
+    caplog.set_level(logging.ERROR)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Return a response with code 0 but invalid data type to trigger an exception
+    api._request = AsyncMock(return_value=(200, {"code": "0", "data": []}))
+
+    with patch(
+        "hyxi_cloud_api.api._parse_ems_kv", side_effect=Exception("Parsing error")
+    ):
+        result = await api.query_ems_basic_details("10602251600016")
+
+    assert result == {}
+    assert "HYXI EMS Basic Data Request Failed for" in caplog.text
