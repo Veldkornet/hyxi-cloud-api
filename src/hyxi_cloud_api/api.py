@@ -32,6 +32,10 @@ except ImportError:
 import aiohttp
 
 
+class TokenRejectedError(aiohttp.ClientError):
+    """Raised when the HYXI Cloud API rejects an authentication token."""
+
+
 @dataclass
 class FetchState:
     """State object to hold shared data during a device fetch cycle."""
@@ -1222,7 +1226,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 )
                 self.token = None
                 self.token_expires_at = 0
-                raise aiohttp.ClientError("Server rejected token")
+                raise TokenRejectedError("Server rejected token")
 
             return status, res
 
@@ -1333,9 +1337,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     _mask_id(sn),
                     _sanitize_dict(res_q),
                 )
+        except TokenRejectedError:  # pylint: disable=try-except-raise
+            raise
         except Exception as e:
-            if "Server rejected token" in str(e):
-                raise
             _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
 
     async def query_ems_basic_details(self, ems_sn):
@@ -1353,9 +1357,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 _mask_id(ems_sn),
                 _sanitize_dict(res),
             )
+        except TokenRejectedError:  # pylint: disable=try-except-raise
+            raise
         except Exception as e:
-            if "Server rejected token" in str(e):
-                raise
             _LOGGER.error(
                 "HYXI EMS Basic Data Request Failed for %s: %s", _mask_id(ems_sn), e
             )
@@ -1438,9 +1442,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     _sanitize_dict(res_i),
                 )
 
+        except TokenRejectedError:  # pylint: disable=try-except-raise
+            raise
         except Exception as e:
-            if "Server rejected token" in str(e):
-                raise
             _LOGGER.error("Error fetching device info for %s: %s", _mask_id(sn), e)
 
     async def _fetch_all_for_device(self, sn, entry, dev_type):
@@ -1515,14 +1519,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             await self._process_devices_for_plant(devices, state)
 
+        except TokenRejectedError:  # pylint: disable=try-except-raise
+            raise
         except Exception as e:
-            if (
-                "Server rejected token" in str(e)
-                or "A000002" in str(e)
-                or "A000005" in str(e)
-                or "C000006" in str(e)
-            ):
-                raise
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
@@ -1574,14 +1573,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             data_val = res_sd.get("data", {})
             return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+        except TokenRejectedError:  # pylint: disable=try-except-raise
+            raise
         except Exception as e:
-            if (
-                "Server rejected token" in str(e)
-                or "A000002" in str(e)
-                or "A000005" in str(e)
-                or "C000006" in str(e)
-            ):
-                raise
             _LOGGER.error(
                 "Error fetching sub-device list for %s: %s", _mask_id(parent_sn), e
             )
@@ -1617,9 +1611,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     self._fetch_all_for_device(sn, entry, raw_type)
                 )
 
+        except TokenRejectedError:  # pylint: disable=try-except-raise
+            raise
         except Exception as e:
-            if "Server rejected token" in str(e):
-                raise
             _LOGGER.error(
                 "Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e
             )
@@ -1652,9 +1646,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     a["alarmName"] = alarm_name
 
             return alarms
+        except TokenRejectedError:  # pylint: disable=try-except-raise  # pylint: disable=try-except-raise
+            raise
         except Exception as e:
-            if "Server rejected token" in str(e):
-                raise
             _LOGGER.error(
                 "Error fetching alarms for plant %s: %s", _mask_id(plant_id), e
             )
