@@ -825,21 +825,31 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
         if "deviceState" in rec:
             flat["deviceState"] = rec["deviceState"]
 
-    # Copy root device keys that might already be flat
-    for k in ("deviceSn", "collectTime", "reportTimestamp"):
-        if k in device and device[k] is not None:
-            val = device[k]
-            if k == "collectTime":
+    # Map discrepancies between Flat Push payload and Flat Pull payload
+    _key_map = {
+        "gridEin": "totalEnt",
+        "gridEIn": "totalEnt",
+        "gridEout": "totalEpt",
+        "gridEOut": "totalEpt",
+    }
+
+    # Copy all root-level keys that are primitive types (support new flat format)
+    for k, v in device.items():
+        if not isinstance(v, dict) and not isinstance(v, list) and v is not None:
+            # Normalize push metric names to match pull metric names
+            mapped_k = _key_map.get(k, k)
+
+            if mapped_k == "collectTime":
                 try:
-                    num_val = float(val)
+                    num_val = float(v)
                     if num_val > 10000000000:
-                        flat[k] = num_val / 1000.0
+                        flat[mapped_k] = num_val / 1000.0
                     else:
-                        flat[k] = val
+                        flat[mapped_k] = v
                 except ValueError, TypeError:
-                    flat[k] = val
+                    flat[mapped_k] = v
             else:
-                flat[k] = val
+                flat[mapped_k] = v
 
     # 2. system
     if "system" in device and isinstance(device["system"], dict):
@@ -962,14 +972,15 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
         if "powerFactor" in grd:
             flat["gridPfd"] = grd["powerFactor"]
         if "energyInKwh" in grd:
-            flat["gridEIn"] = grd["energyInKwh"]
+            flat["totalEnt"] = grd["energyInKwh"]
         if "energyOutKwh" in grd:
-            flat["gridEOut"] = grd["energyOutKwh"]
+            flat["totalEpt"] = grd["energyOutKwh"]
 
     # Copy any other keys at the root that aren't dictionaries
     for k, v in device.items():
         if k not in flat and not isinstance(v, dict):
-            flat[k] = v
+            mapped_k = _key_map.get(k, k)
+            flat[mapped_k] = v
 
     return flat
 
