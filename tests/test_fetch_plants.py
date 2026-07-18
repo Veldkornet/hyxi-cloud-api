@@ -20,10 +20,9 @@ mock_aiohttp = sys.modules["aiohttp"]
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import aiohttp
 import pytest
 
-from hyxi_cloud_api.api import HyxiApiClient
+from hyxi_cloud_api.api import HyxiApiClient, TokenRejectedError
 
 
 @pytest.mark.asyncio
@@ -44,28 +43,6 @@ async def test_fetch_plants_success():
     assert len(plants) == 2
     assert plants[0]["plantId"] == "Pl123"
     assert plants[1]["plantId"] == "Pl456"
-
-
-@pytest.mark.parametrize("error_code", ["A000002", "A000005"])
-@pytest.mark.asyncio
-async def test_fetch_plants_token_rejection(error_code):
-    """Verify that _fetch_plants handles token rejection correctly."""
-    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api.token = "Bearer old_token"
-    api.token_expires_at = 9999999999.0
-
-    api._request = AsyncMock(
-        return_value=(
-            200,
-            {"success": False, "code": error_code, "message": "Invalid access token"},
-        )
-    )
-
-    with pytest.raises(aiohttp.ClientError, match="Server rejected token"):
-        await api._fetch_plants()
-
-    assert api.token is None
-    assert api.token_expires_at == 0
 
 
 @pytest.mark.asyncio
@@ -111,3 +88,37 @@ async def test_fetch_plants_empty_list_warning():
             "If your developer email differs from your app email, you must share "
             "your Plant from the app to the developer email first."
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_code", ["A000002", "A000005", "C000006"])
+async def test_request_token_rejection_errors_are_raised(error_code):
+    """
+    When the HYXI backend rejects a token with a known error code, _request
+    should raise TokenRejectedError.
+    """
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.token = "Bearer good_token"
+    api.token_expires_at = 9999999999.0
+
+    mocked_response = {
+        "success": False,
+        "code": error_code,
+        "msg": "Server rejected token",
+    }
+
+    # Mock the aiohttp client session post method
+    mock_post = MagicMock()
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(return_value=mocked_response)
+    mock_post.return_value.__aenter__.return_value = mock_response
+    api.session.post = mock_post
+
+    with pytest.raises(TokenRejectedError) as exc_info:
+        await api._request("POST", "/api/plant/v1/page", json={})
+
+    assert "Server rejected token" in str(exc_info.value)
+    # Ensure token is cleared
+    assert api.token is None
+    assert api.token_expires_at == 0
