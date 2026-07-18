@@ -1207,6 +1207,20 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             response.raise_for_status()
             res = await response.json()
+
+            if (
+                not is_token_request
+                and not res.get("success")
+                and res.get("code") in ("A000002", "A000005", "C000006")
+            ):
+                _LOGGER.debug(
+                    "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
+                    res.get("code"),
+                )
+                self.token = None
+                self.token_expires_at = 0
+                raise aiohttp.ClientError("Server rejected token")
+
             return status, res
 
     def _apply_token_response(self, data: dict) -> bool:
@@ -1317,6 +1331,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     _sanitize_dict(res_q),
                 )
         except Exception as e:
+            if "Server rejected token" in str(e):
+                raise
             _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
 
     async def query_ems_basic_details(self, ems_sn):
@@ -1335,6 +1351,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 _sanitize_dict(res),
             )
         except Exception as e:
+            if "Server rejected token" in str(e):
+                raise
             _LOGGER.error(
                 "HYXI EMS Basic Data Request Failed for %s: %s", _mask_id(ems_sn), e
             )
@@ -1418,6 +1436,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 )
 
         except Exception as e:
+            if "Server rejected token" in str(e):
+                raise
             _LOGGER.error("Error fetching device info for %s: %s", _mask_id(sn), e)
 
     async def _fetch_all_for_device(self, sn, entry, dev_type):
@@ -1493,6 +1513,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             await self._process_devices_for_plant(devices, state)
 
         except Exception as e:
+            if (
+                "Server rejected token" in str(e)
+                or "A000002" in str(e)
+                or "A000005" in str(e)
+                or "C000006" in str(e)
+            ):
+                raise
             _LOGGER.error(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
@@ -1545,6 +1572,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             data_val = res_sd.get("data", {})
             return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
         except Exception as e:
+            if (
+                "Server rejected token" in str(e)
+                or "A000002" in str(e)
+                or "A000005" in str(e)
+                or "C000006" in str(e)
+            ):
+                raise
             _LOGGER.error(
                 "Error fetching sub-device list for %s: %s", _mask_id(parent_sn), e
             )
@@ -1581,6 +1615,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 )
 
         except Exception as e:
+            if "Server rejected token" in str(e):
+                raise
             _LOGGER.error(
                 "Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e
             )
@@ -1614,6 +1650,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             return alarms
         except Exception as e:
+            if "Server rejected token" in str(e):
+                raise
             _LOGGER.error(
                 "Error fetching alarms for plant %s: %s", _mask_id(plant_id), e
             )
@@ -1671,16 +1709,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         )
 
         if not res_p.get("success"):
-            # 🚀 If the server rejects the token, wipe it and force a retry!
-            if res_p.get("code") in ("A000002", "A000005"):
-                _LOGGER.debug(
-                    "HYXI Server rejected our token (A000002/A000005). Forcing immediate token refresh..."
-                )
-                self.token = None
-                self.token_expires_at = 0
-                # Raising this error kicks it back up to the retry loop
-                raise aiohttp.ClientError("Server rejected token")
-
             _LOGGER.error("HYXI API Plant Fetch Rejected: %s", _sanitize_dict(res_p))
             return None
 
