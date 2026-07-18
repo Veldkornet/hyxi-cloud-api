@@ -526,6 +526,23 @@ INTERNAL_ERROR_MAP = {
     "C999999": "Service exception, please contact the service provide",
 }
 
+_TOKEN_REJECTION_CODES = frozenset(
+    (
+        "A000001",
+        "A000002",
+        "A000003",
+        "A000004",
+        "A000005",
+        "A000006",
+        "A000007",
+        "A000008",
+        "A000009",
+        "A000010",
+        "A000011",
+        "C000006",
+    )
+)
+
 
 # Official HYXI Device Type Reference Table
 DEVICE_TYPE_MAP = {
@@ -1214,9 +1231,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             if not is_token_request and not res.get("success") and res.get("code"):
                 api_code = res.get("code")
-                if (
-                    api_code.startswith("A0000") and api_code != "A000012"
-                ) or api_code == "C000006":
+                if api_code in _TOKEN_REJECTION_CODES:
                     _LOGGER.debug(
                         "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
                         api_code,
@@ -1298,6 +1313,28 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             raise error_cls("Authentication failed")
         if not token_status:
             raise error_cls("Could not obtain API token")
+
+    async def _execute_with_auth_retry(
+        self, method: str, path: str, error_cls: type[Exception], **kwargs
+    ) -> dict:
+        """Execute a request with automatic re-authentication if the token is rejected."""
+        await self._ensure_authenticated(error_cls)
+        try:
+            _, res = await self._request(method, path, **kwargs)
+        except TokenRejectedError:
+            _LOGGER.debug(
+                "Token rejected, forcing re-authentication and retrying request to %s...",
+                path,
+            )
+            await self._ensure_authenticated(error_cls)
+            _, res = await self._request(method, path, **kwargs)
+
+        if res is None or not res.get("success"):
+            code = res.get("code", "unknown") if res else "no_response"
+            msg = res.get("msg", "") if res else ""
+            raise error_cls(f"request failed (code={code}): {msg}")
+
+        return res
 
     async def _fetch_device_metrics(self, sn, entry):
         """Helper to fetch detailed metrics for a single device."""
@@ -1984,8 +2021,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             _LOGGER.warning("set_device_control called with empty settings")
             return {}
 
-        await self._ensure_authenticated(self.ControlError)
-
         path = "/api/device/v2/control"
         body = {
             "deviceControlMap": {device_sn: {str(k): v for k, v in control_map.items()}}
@@ -1995,49 +2030,18 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             _mask_id(device_sn),
             body["deviceControlMap"][device_sn],
         )
-        try:
-            _, res = await self._request("POST", path, json=body)
-        except TokenRejectedError:
-            _LOGGER.debug(
-                "Token rejected, forcing re-authentication and retrying control..."
-            )
-            await self._ensure_authenticated(self.ControlError)
-            _, res = await self._request("POST", path, json=body)
-
-        if res is None or not res.get("success"):
-            code = res.get("code", "unknown") if res else "no_response"
-            msg = res.get("msg", "") if res else ""
-            raise self.ControlError(f"controlMap write failed (code={code}): {msg}")
-        _LOGGER.debug(
-            "HYXI CONTROL response for %s: success=%s",
-            _mask_id(device_sn),
-            res.get("success"),
+        return await self._execute_with_auth_retry(
+            "POST", path, self.ControlError, json=body
         )
-        return res
 
     # ── Subscription API ────────────────────────────────────────────────
 
     async def _post_subscription(self, path: str, body: dict) -> dict:
         """Send an authenticated subscription request."""
-        await self._ensure_authenticated(self.SubscriptionError)
-
         _LOGGER.debug("HYXI subscription request to %s", path)
-        try:
-            _, res = await self._request("POST", path, json=body)
-        except TokenRejectedError:
-            _LOGGER.debug(
-                "Token rejected, forcing re-authentication and retrying subscription..."
-            )
-            await self._ensure_authenticated(self.SubscriptionError)
-            _, res = await self._request("POST", path, json=body)
-
-        if res is None or not res.get("success"):
-            code = res.get("code", "unknown") if res else "no_response"
-            msg = res.get("msg", "") if res else ""
-            raise self.SubscriptionError(
-                f"subscription request failed (code={code}): {msg}"
-            )
-        return res
+        return await self._execute_with_auth_retry(
+            "POST", path, self.SubscriptionError, json=body
+        )
 
     @staticmethod
     def _validate_subscription_device_sns(device_sn_list: list[str]) -> None:
