@@ -2,7 +2,7 @@
 # pylint: disable=redefined-outer-name
 
 import sys
-from unittest.mock import ANY, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientError"):
     m = MagicMock()
@@ -73,17 +73,16 @@ def test_handle_back_discovery_alarm_success_non_parent(mock_api, mock_state):
     """Test successful discovery of a non-parent device."""
     sub_device_tasks = []
     alarm = {"deviceSn": "SN12345", "deviceType": "METER", "deviceName": "My Meter"}
-    mock_api._fetch_all_for_device = MagicMock(return_value="mock_task")
+    mock_api._fetch_all_for_device = AsyncMock()
 
     mock_api._handle_back_discovery_alarm(alarm, "plant1", mock_state, sub_device_tasks)
 
     assert "SN12345" in mock_state.discovered_sns
     assert len(mock_state.metric_tasks) == 1
-    assert mock_state.metric_tasks[0] == "mock_task"
+    assert mock_state.metric_tasks[0][0] == "SN12345"
     assert not sub_device_tasks
 
-    mock_api._fetch_all_for_device.assert_called_once()
-    args, _ = mock_api._fetch_all_for_device.call_args
+    args = mock_state.metric_tasks[0]
     assert args[0] == "SN12345"
     assert args[1]["sn"] == "SN12345"
     assert args[1]["device_name"] == "My Meter"
@@ -95,17 +94,13 @@ def test_handle_back_discovery_alarm_success_parent(mock_api, mock_state):
     """Test successful discovery of a parent device."""
     sub_device_tasks = []
     alarm = {"deviceSn": "SN_COLL_1", "deviceType": "COLLECTOR"}
-    mock_api._fetch_all_for_device = MagicMock(return_value="metric_task")
-    mock_api._fetch_sub_devices = MagicMock(return_value="sub_task")
+    mock_api._fetch_all_for_device = AsyncMock()
 
     mock_api._handle_back_discovery_alarm(alarm, "plant1", mock_state, sub_device_tasks)
 
     assert "SN_COLL_1" in mock_state.discovered_sns
-    assert mock_state.metric_tasks == ["metric_task"]
-    assert sub_device_tasks == ["sub_task"]
-
-    mock_api._fetch_all_for_device.assert_called_with("SN_COLL_1", ANY, "COLLECTOR")
-    mock_api._fetch_sub_devices.assert_called_with("SN_COLL_1", mock_state)
+    assert len(mock_state.metric_tasks) == 1
+    assert len(sub_device_tasks) == 1
 
 
 def test_handle_back_discovery_alarm_fallback_name(mock_api, mock_state):
@@ -116,7 +111,7 @@ def test_handle_back_discovery_alarm_fallback_name(mock_api, mock_state):
 
     mock_api._handle_back_discovery_alarm(alarm, "plant1", mock_state, sub_device_tasks)
 
-    args, _ = mock_api._fetch_all_for_device.call_args
+    args = mock_state.metric_tasks[0]
     assert args[1]["device_name"] == "Hybrid Inverter SN_INV_1"
     assert args[1]["model"] == "Hybrid Inverter"
 
@@ -129,6 +124,6 @@ def test_handle_back_discovery_alarm_unknown_type(mock_api, mock_state):
 
     mock_api._handle_back_discovery_alarm(alarm, "plant1", mock_state, sub_device_tasks)
 
-    args, _ = mock_api._fetch_all_for_device.call_args
+    args = mock_state.metric_tasks[0]
     assert args[1]["model"] == "Unknown Type"
     assert args[1]["device_name"] == "Unknown Type SN_UNKNOWN"

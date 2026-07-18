@@ -145,7 +145,7 @@ async def test_control_error_on_api_failure():
         )
     )
 
-    with pytest.raises(api.ControlError, match="controlMap write failed"):
+    with pytest.raises(api.ControlError, match="request failed"):
         await api.set_mode_charge("SN123", watts=3000)
 
 
@@ -372,7 +372,7 @@ async def test_set_device_control_no_response():
     api._request = AsyncMock(return_value=(200, None))
 
     with pytest.raises(
-        api.ControlError, match="controlMap write failed \\(code=no_response\\):"
+        api.ControlError, match="request failed \\(code=no_response\\):"
     ):
         await api.set_device_control("SN123", {"1062": "1"})
 
@@ -387,7 +387,7 @@ async def test_set_device_control_api_failure():
     )
 
     with pytest.raises(
-        api.ControlError, match="controlMap write failed \\(code=E123\\): API Error"
+        api.ControlError, match="request failed \\(code=E123\\): API Error"
     ):
         await api.set_device_control("SN123", {"1062": "1"})
 

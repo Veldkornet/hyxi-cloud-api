@@ -526,6 +526,23 @@ INTERNAL_ERROR_MAP = {
     "C999999": "Service exception, please contact the service provide",
 }
 
+_TOKEN_REJECTION_CODES = frozenset(
+    (
+        "A000001",
+        "A000002",
+        "A000003",
+        "A000004",
+        "A000005",
+        "A000006",
+        "A000007",
+        "A000008",
+        "A000009",
+        "A000010",
+        "A000011",
+        "C000006",
+    )
+)
+
 
 # Official HYXI Device Type Reference Table
 DEVICE_TYPE_MAP = {
@@ -1212,21 +1229,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             response.raise_for_status()
             res = await response.json()
 
-            if (
-                not is_token_request
-                and not res.get("success")
-                and res.get("code")
-                and (
-                    res.get("code").startswith("A0000") or res.get("code") == "C000006"
-                )
-            ):
-                _LOGGER.debug(
-                    "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
-                    res.get("code"),
-                )
-                self.token = None
-                self.token_expires_at = 0
-                raise TokenRejectedError("Server rejected token")
+            if not is_token_request and not res.get("success") and res.get("code"):
+                api_code = res.get("code")
+                if api_code in _TOKEN_REJECTION_CODES:
+                    _LOGGER.debug(
+                        "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
+                        api_code,
+                    )
+                    self.token = None
+                    self.token_expires_at = 0
+                    raise TokenRejectedError("Server rejected token")
 
             return status, res
 
@@ -1301,6 +1313,28 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             raise error_cls("Authentication failed")
         if not token_status:
             raise error_cls("Could not obtain API token")
+
+    async def _execute_with_auth_retry(
+        self, method: str, path: str, error_cls: type[Exception], **kwargs
+    ) -> dict:
+        """Execute a request with automatic re-authentication if the token is rejected."""
+        await self._ensure_authenticated(error_cls)
+        try:
+            _, res = await self._request(method, path, **kwargs)
+        except TokenRejectedError:
+            _LOGGER.debug(
+                "Token rejected, forcing re-authentication and retrying request to %s...",
+                path,
+            )
+            await self._ensure_authenticated(error_cls)
+            _, res = await self._request(method, path, **kwargs)
+
+        if res is None or not res.get("success"):
+            code = res.get("code", "unknown") if res else "no_response"
+            msg = res.get("msg", "") if res else ""
+            raise error_cls(f"request failed (code={code}): {msg}")
+
+        return res
 
     async def _fetch_device_metrics(self, sn, entry):
         """Helper to fetch detailed metrics for a single device."""
@@ -1539,7 +1573,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             self._update_discovery_cache(sn, entry)
 
-            state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+            state.metric_tasks.append((sn, entry, dev_type))
 
             # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
             if dev_type in _parent_device_types:
@@ -1606,10 +1640,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
                 self._update_discovery_cache(sn, entry)
 
-                # These are real devices, so fetch their metrics/info
-                state.metric_tasks.append(
-                    self._fetch_all_for_device(sn, entry, raw_type)
-                )
+                # These are real devices, so store args for later metric/info fetch
+                state.metric_tasks.append((sn, entry, raw_type))
 
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
@@ -1767,11 +1799,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         if device_fetch_tasks:
             await asyncio.gather(*device_fetch_tasks)
 
-    @staticmethod
-    async def _execute_metric_tasks(plant_alarms, state: FetchState):
+    async def _execute_metric_tasks(self, plant_alarms, state: FetchState):
         """Helper to conditionally execute metrics and map alarms."""
         if state.metric_tasks:
-            await HyxiApiClient._execute_metrics_and_map_alarms(plant_alarms, state)
+            await self._execute_metrics_and_map_alarms(plant_alarms, state)
 
     async def _process_plants_data(
         self, state: FetchState, allow_back_discovery: bool = False
@@ -1808,11 +1839,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         state.discovered_sns.add(sn)
 
         entry, dev_type = HyxiApiClient._build_device_entry(sn, a, state.now)
-        state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+        state.metric_tasks.append((sn, entry, dev_type))
 
         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
         if dev_type in _parent_device_types:
-            sub_device_tasks.append(self._fetch_sub_devices(sn, state))
+            sub_device_tasks.append((sn, state))
 
     async def _process_alarms_and_back_discovery(
         self,
@@ -1841,12 +1872,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     )
 
         if sub_device_tasks:
-            await asyncio.gather(*sub_device_tasks)
+            tasks = [self._fetch_sub_devices(sn, s) for sn, s in sub_device_tasks]
+            await asyncio.gather(*tasks)
 
         return plant_alarms
 
-    @staticmethod
-    async def _execute_metrics_and_map_alarms(plant_alarms, state: FetchState):
+    async def _execute_metrics_and_map_alarms(self, plant_alarms, state: FetchState):
         """Helper to execute metric tasks and map alarms to devices."""
         # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
         alarms_by_sn = defaultdict(list)
@@ -1855,12 +1886,19 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if sn:
                 alarms_by_sn[sn].append(a)
 
-        updated_entries = await asyncio.gather(*state.metric_tasks)
-        for sn, entry in updated_entries:
-            if sn:
-                # Map the relevant active alarms to this specific device
-                entry["alarms"] = alarms_by_sn.get(sn, [])
-                state.results[sn] = entry
+        # Convert argument tuples to coroutines just in time
+        tasks = [
+            self._fetch_all_for_device(sn, entry, dev_type)
+            for sn, entry, dev_type in state.metric_tasks
+        ]
+
+        if tasks:
+            updated_entries = await asyncio.gather(*tasks)
+            for sn, entry in updated_entries:
+                if sn:
+                    # Map the relevant active alarms to this specific device
+                    entry["alarms"] = alarms_by_sn.get(sn, [])
+                    state.results[sn] = entry
 
     async def _execute_fetch_all(
         self, allow_back_discovery: bool = False, force_discovery: bool = False
@@ -1907,9 +1945,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     "hw_version": info.get("hw_version"),
                     "metrics": {"last_seen": state.now},
                 }
-                state.metric_tasks.append(
-                    self._fetch_all_for_device(sn, entry, info["device_type_code"])
-                )
+                state.metric_tasks.append((sn, entry, info["device_type_code"]))
             state.discovered_sns = set(info_cache.keys())
 
         # Fetch alarms (to allow back-discovery if enabled) and metrics
@@ -1985,8 +2021,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             _LOGGER.warning("set_device_control called with empty settings")
             return {}
 
-        await self._ensure_authenticated(self.ControlError)
-
         path = "/api/device/v2/control"
         body = {
             "deviceControlMap": {device_sn: {str(k): v for k, v in control_map.items()}}
@@ -1996,33 +2030,18 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             _mask_id(device_sn),
             body["deviceControlMap"][device_sn],
         )
-        _, res = await self._request("POST", path, json=body)
-        if res is None or not res.get("success"):
-            code = res.get("code", "unknown") if res else "no_response"
-            msg = res.get("msg", "") if res else ""
-            raise self.ControlError(f"controlMap write failed (code={code}): {msg}")
-        _LOGGER.debug(
-            "HYXI CONTROL response for %s: success=%s",
-            _mask_id(device_sn),
-            res.get("success"),
+        return await self._execute_with_auth_retry(
+            "POST", path, self.ControlError, json=body
         )
-        return res
 
     # ── Subscription API ────────────────────────────────────────────────
 
     async def _post_subscription(self, path: str, body: dict) -> dict:
         """Send an authenticated subscription request."""
-        await self._ensure_authenticated(self.SubscriptionError)
-
         _LOGGER.debug("HYXI subscription request to %s", path)
-        _, res = await self._request("POST", path, json=body)
-        if res is None or not res.get("success"):
-            code = res.get("code", "unknown") if res else "no_response"
-            msg = res.get("msg", "") if res else ""
-            raise self.SubscriptionError(
-                f"subscription request failed (code={code}): {msg}"
-            )
-        return res
+        return await self._execute_with_auth_retry(
+            "POST", path, self.SubscriptionError, json=body
+        )
 
     @staticmethod
     def _validate_subscription_device_sns(device_sn_list: list[str]) -> None:
