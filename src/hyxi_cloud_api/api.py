@@ -1603,10 +1603,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
                 self._update_discovery_cache(sn, entry)
 
-                # These are real devices, so fetch their metrics/info
-                state.metric_tasks.append(
-                    self._fetch_all_for_device(sn, entry, raw_type)
-                )
+                # These are real devices, so store args for later metric/info fetch
+                state.metric_tasks.append((sn, entry, raw_type))
 
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
@@ -1764,11 +1762,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         if device_fetch_tasks:
             await asyncio.gather(*device_fetch_tasks)
 
-    @staticmethod
-    async def _execute_metric_tasks(plant_alarms, state: FetchState):
+    async def _execute_metric_tasks(self, plant_alarms, state: FetchState):
         """Helper to conditionally execute metrics and map alarms."""
         if state.metric_tasks:
-            await HyxiApiClient._execute_metrics_and_map_alarms(plant_alarms, state)
+            await self._execute_metrics_and_map_alarms(plant_alarms, state)
 
     async def _process_plants_data(
         self, state: FetchState, allow_back_discovery: bool = False
@@ -1805,11 +1802,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         state.discovered_sns.add(sn)
 
         entry, dev_type = HyxiApiClient._build_device_entry(sn, a, state.now)
-        state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+        state.metric_tasks.append((sn, entry, dev_type))
 
         # 🚀 DEEP BACK-DISCOVERY: If this is a parent, search for ITS children too!
         if dev_type in _parent_device_types:
-            sub_device_tasks.append(self._fetch_sub_devices(sn, state))
+            sub_device_tasks.append((sn, state))
 
     async def _process_alarms_and_back_discovery(
         self,
@@ -1838,12 +1835,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     )
 
         if sub_device_tasks:
-            await asyncio.gather(*sub_device_tasks)
+            tasks = [self._fetch_sub_devices(sn, s) for sn, s in sub_device_tasks]
+            await asyncio.gather(*tasks)
 
         return plant_alarms
 
-    @staticmethod
-    async def _execute_metrics_and_map_alarms(plant_alarms, state: FetchState):
+    async def _execute_metrics_and_map_alarms(self, plant_alarms, state: FetchState):
         """Helper to execute metric tasks and map alarms to devices."""
         # Precompute alarm mapping to optimize from O(N*M) to O(N+M)
         alarms_by_sn = defaultdict(list)
@@ -1852,12 +1849,19 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if sn:
                 alarms_by_sn[sn].append(a)
 
-        updated_entries = await asyncio.gather(*state.metric_tasks)
-        for sn, entry in updated_entries:
-            if sn:
-                # Map the relevant active alarms to this specific device
-                entry["alarms"] = alarms_by_sn.get(sn, [])
-                state.results[sn] = entry
+        # Convert argument tuples to coroutines just in time
+        tasks = [
+            self._fetch_all_for_device(sn, entry, dev_type)
+            for sn, entry, dev_type in state.metric_tasks
+        ]
+
+        if tasks:
+            updated_entries = await asyncio.gather(*tasks)
+            for sn, entry in updated_entries:
+                if sn:
+                    # Map the relevant active alarms to this specific device
+                    entry["alarms"] = alarms_by_sn.get(sn, [])
+                    state.results[sn] = entry
 
     async def _execute_fetch_all(
         self, allow_back_discovery: bool = False, force_discovery: bool = False
@@ -1904,9 +1908,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     "hw_version": info.get("hw_version"),
                     "metrics": {"last_seen": state.now},
                 }
-                state.metric_tasks.append(
-                    self._fetch_all_for_device(sn, entry, info["device_type_code"])
-                )
+                state.metric_tasks.append((sn, entry, info["device_type_code"]))
             state.discovered_sns = set(info_cache.keys())
 
         # Fetch alarms (to allow back-discovery if enabled) and metrics
