@@ -825,21 +825,20 @@ def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-ma
         if "deviceState" in rec:
             flat["deviceState"] = rec["deviceState"]
 
-    # Copy root device keys that might already be flat
-    for k in ("deviceSn", "collectTime", "reportTimestamp"):
-        if k in device and device[k] is not None:
-            val = device[k]
+    # Copy all root-level keys that are primitive types (support new flat format)
+    for k, v in device.items():
+        if not isinstance(v, dict) and not isinstance(v, list) and v is not None:
             if k == "collectTime":
                 try:
-                    num_val = float(val)
+                    num_val = float(v)
                     if num_val > 10000000000:
                         flat[k] = num_val / 1000.0
                     else:
-                        flat[k] = val
+                        flat[k] = v
                 except ValueError, TypeError:
-                    flat[k] = val
+                    flat[k] = v
             else:
-                flat[k] = val
+                flat[k] = v
 
     # 2. system
     if "system" in device and isinstance(device["system"], dict):
