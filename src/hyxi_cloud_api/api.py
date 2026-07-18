@@ -1212,21 +1212,18 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             response.raise_for_status()
             res = await response.json()
 
-            if (
-                not is_token_request
-                and not res.get("success")
-                and res.get("code")
-                and (
-                    res.get("code").startswith("A0000") or res.get("code") == "C000006"
-                )
-            ):
-                _LOGGER.debug(
-                    "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
-                    res.get("code"),
-                )
-                self.token = None
-                self.token_expires_at = 0
-                raise TokenRejectedError("Server rejected token")
+            if not is_token_request and not res.get("success") and res.get("code"):
+                api_code = res.get("code")
+                if (
+                    api_code.startswith("A0000") and api_code != "A000012"
+                ) or api_code == "C000006":
+                    _LOGGER.debug(
+                        "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
+                        api_code,
+                    )
+                    self.token = None
+                    self.token_expires_at = 0
+                    raise TokenRejectedError("Server rejected token")
 
             return status, res
 
@@ -1996,7 +1993,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             _mask_id(device_sn),
             body["deviceControlMap"][device_sn],
         )
-        _, res = await self._request("POST", path, json=body)
+        try:
+            _, res = await self._request("POST", path, json=body)
+        except TokenRejectedError:
+            _LOGGER.debug(
+                "Token rejected, forcing re-authentication and retrying control..."
+            )
+            await self._ensure_authenticated(self.ControlError)
+            _, res = await self._request("POST", path, json=body)
+
         if res is None or not res.get("success"):
             code = res.get("code", "unknown") if res else "no_response"
             msg = res.get("msg", "") if res else ""
@@ -2015,7 +2020,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         await self._ensure_authenticated(self.SubscriptionError)
 
         _LOGGER.debug("HYXI subscription request to %s", path)
-        _, res = await self._request("POST", path, json=body)
+        try:
+            _, res = await self._request("POST", path, json=body)
+        except TokenRejectedError:
+            _LOGGER.debug(
+                "Token rejected, forcing re-authentication and retrying subscription..."
+            )
+            await self._ensure_authenticated(self.SubscriptionError)
+            _, res = await self._request("POST", path, json=body)
+
         if res is None or not res.get("success"):
             code = res.get("code", "unknown") if res else "no_response"
             msg = res.get("msg", "") if res else ""
