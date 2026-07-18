@@ -267,8 +267,8 @@ def test_process_push_data_nested_format():
     assert metrics["gridP"] == -1.5
     assert metrics["gridF"] == 50.02
     assert metrics["gridPfd"] == 0.98
-    assert metrics["gridEIn"] == 1023.4
-    assert metrics["gridEOut"] == 504.2
+    assert metrics["totalEnt"] == 1023.4
+    assert metrics["totalEpt"] == 504.2
     assert metrics["grid_import"] == 1500.0
     assert metrics["grid_export"] == 0.0
 

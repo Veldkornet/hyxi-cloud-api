@@ -717,3 +717,88 @@ async def test_get_all_device_data_unexpected_error():
 
     with pytest.raises(Exception, match="Unexpected Error"):
         await api.get_all_device_data()
+
+
+@pytest.mark.asyncio
+async def test_process_push_data_flat_payload():
+    """Test process_push_data correctly handles flat payloads and normalizes grid keys."""
+    fake_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+    api.devices_cache = {
+        "SN_FLAT": {"device_sn": "SN_FLAT", "metrics": {"oldMetric": "old"}}
+    }
+
+    # Simulate flat payload from webhook
+    payload = {
+        "dataList": [
+            {
+                "deviceSn": "SN_FLAT",
+                "batP": 123,
+                "gridEin": 456,
+                "gridEout": 789,
+                "reportTimestamp": 1000000000000,
+            }
+        ]
+    }
+    existing = {"SN_FLAT": {"oldMetric": "old"}}
+
+    results = api.process_push_data(payload, existing_metrics=existing)
+    assert "SN_FLAT" in results
+    metrics = results["SN_FLAT"]["metrics"]
+    assert metrics["batP"] == 123
+    assert metrics["oldMetric"] == "old"  # preserves existing
+    assert metrics["totalEnt"] == 456  # validates flat key mapping
+    assert metrics["totalEpt"] == 789
+    assert "last_seen" in metrics
+
+
+@pytest.mark.asyncio
+async def test_process_push_data_nested_payload():
+    """Test process_push_data handles legacy nested payloads and normalizes nested grid keys."""
+    fake_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    payload = {
+        "dataList": [
+            {
+                "deviceSn": "SN_NEST",
+                "battery": {"powerW": 123},
+                "grid": {"energyInKwh": 456, "energyOutKwh": 789},
+                "reportTimestamp": 1000000000000,
+            }
+        ]
+    }
+    existing = {"SN_NEST": {"old": "old"}}
+
+    results = api.process_push_data(payload, existing_metrics=existing)
+    assert "SN_NEST" in results
+    metrics = results["SN_NEST"]["metrics"]
+    assert metrics["batP"] == 123
+    assert metrics["totalEnt"] == 456
+    assert metrics["totalEpt"] == 789
+    assert metrics["old"] == "old"
+
+
+@pytest.mark.asyncio
+async def test_process_push_data_timestamp_fallback():
+    """Test process_push_data uses fallback timestamps when invalid."""
+    fake_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    payload = {
+        "dataList": [
+            {
+                "deviceSn": "SN_TIME",
+                "batP": 123,
+                "reportTimestamp": "INVALID",
+                "collectTime": "INVALID_TOO",
+            }
+        ]
+    }
+
+    # Should not raise exception
+    results = api.process_push_data(payload, existing_metrics={"SN_TIME": {}})
+    assert "SN_TIME" in results
+    metrics = results["SN_TIME"]["metrics"]
+    assert "last_seen" in metrics
+    assert metrics["batP"] == 123
