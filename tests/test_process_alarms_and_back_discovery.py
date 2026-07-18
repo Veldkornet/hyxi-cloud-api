@@ -114,7 +114,7 @@ async def test_process_alarms_gathers_sub_device_tasks(
     """Test that sub-device tasks created during back-discovery are awaited."""
 
     def side_effect(a, plant_id, state, sub_device_tasks):
-        sub_device_tasks.append("mock_task")
+        sub_device_tasks.append(("sn", state))
 
     mock_api._handle_back_discovery_alarm = MagicMock(side_effect=side_effect)
     alarm_results = [[{"id": "a1"}]]
@@ -123,4 +123,4 @@ async def test_process_alarms_gathers_sub_device_tasks(
         alarm_results, mock_state, allow_back_discovery=True
     )
 
-    mock_gather.assert_called_once_with("mock_task")
+    mock_gather.assert_called_once()

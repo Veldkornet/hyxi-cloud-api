@@ -16,7 +16,6 @@ if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientEr
     sys.modules["aiohttp"] = m
 mock_aiohttp = sys.modules["aiohttp"]
 
-import asyncio
 
 import pytest
 
@@ -34,17 +33,20 @@ async def test_execute_metrics_and_map_alarms():
 
     state = FetchState(now="2023-10-27")
 
-    async def mock_metric_task(sn, result):
-        return (sn, result)
-
     state.metric_tasks = [
-        asyncio.create_task(mock_metric_task("SN1", {"data": 1})),
-        asyncio.create_task(mock_metric_task("SN2", {"data": 2})),
-        asyncio.create_task(mock_metric_task("SN3", {"data": 3})),  # No alarms
-        asyncio.create_task(mock_metric_task(None, {"data": 4})),  # None SN
+        ("SN1", {"data": 1}, "TYPE"),
+        ("SN2", {"data": 2}, "TYPE"),
+        ("SN3", {"data": 3}, "TYPE"),  # No alarms
+        (None, {"data": 4}, "TYPE"),  # None SN
     ]
 
-    await HyxiApiClient._execute_metrics_and_map_alarms(plant_alarms, state)
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    async def mock_fetch(sn, entry, t):
+        return (sn, entry)
+
+    api._fetch_all_for_device = mock_fetch
+    await api._execute_metrics_and_map_alarms(plant_alarms, state)
 
     assert state.results["SN1"]["data"] == 1
     assert len(state.results["SN1"]["alarms"]) == 2

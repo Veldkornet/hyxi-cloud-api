@@ -34,8 +34,8 @@ async def test_fetch_sub_devices_coverage(caplog):
     # PARENT_SN is masked to ca7b0e8c
     assert "HYXI Found 3 sub-devices under " in caplog.text
     # Verify duplicate/empty check worked (line 1253)
-    assert api._fetch_all_for_device.call_count == 1
-    api._fetch_all_for_device.assert_called_once_with(
+    assert len(state.metric_tasks) == 1
+    assert state.metric_tasks[0] == (
         "NEW_SN",
         {
             "sn": "NEW_SN",

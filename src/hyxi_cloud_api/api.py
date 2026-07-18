@@ -1573,7 +1573,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             self._update_discovery_cache(sn, entry)
 
-            state.metric_tasks.append(self._fetch_all_for_device(sn, entry, dev_type))
+            state.metric_tasks.append((sn, entry, dev_type))
 
             # 🚀 DEEP DISCOVERY: If this is a Collector, DMU, or Inverter, find its children!
             if dev_type in _parent_device_types:

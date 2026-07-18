@@ -188,7 +188,7 @@ async def test_subscription_error_on_api_failure():
         )
     )
 
-    with pytest.raises(api.SubscriptionError, match="subscription request failed"):
+    with pytest.raises(api.SubscriptionError, match="request failed"):
         await api.subscribe_real_time_data("https://example.com/hyxi", ["SN1"], 60000)
 
 

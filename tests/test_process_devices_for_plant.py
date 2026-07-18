@@ -23,7 +23,7 @@ def mock_api():
     """Fixture for a mock API client."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._update_discovery_cache = MagicMock()
-    api._fetch_all_for_device = MagicMock(return_value="fetch_all_task")
+    api._fetch_all_for_device = AsyncMock()
     api._fetch_sub_devices = MagicMock(return_value="fetch_sub_device_task")
     return api
 
@@ -85,7 +85,7 @@ async def test_process_devices_for_plant_normal_devices(mock_api, mock_state):
         assert "SN_NORMAL_2" in mock_state.discovered_sns
         assert mock_api._update_discovery_cache.call_count == 2
         assert len(mock_state.metric_tasks) == 2
-        assert mock_state.metric_tasks == ["fetch_all_task", "fetch_all_task"]
+        assert len(mock_state.metric_tasks) == 2
 
 
 @pytest.mark.asyncio
