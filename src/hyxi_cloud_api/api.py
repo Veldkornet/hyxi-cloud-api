@@ -1211,7 +1211,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if (
                 not is_token_request
                 and not res.get("success")
-                and res.get("code") in ("A000002", "A000005", "C000006")
+                and res.get("code")
+                and (
+                    res.get("code").startswith("A0000") or res.get("code") == "C000006"
+                )
             ):
                 _LOGGER.debug(
                     "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
