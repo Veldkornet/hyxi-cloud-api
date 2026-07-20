@@ -1319,15 +1319,18 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             if result:
                 _LOGGER.debug("HYXI token refresh succeeded")
             return result
-        except Exception as e:
+        except (aiohttp.ClientError, TimeoutError) as e:
             # Distinguish "couldn't even reach the server" from an explicit
             # rejection above: both are falsy for existing callers, but
             # _ensure_authenticated uses the distinction to avoid raising a
             # message that reads like a credential problem for what's
-            # actually a transient network failure.
+            # actually a transient network failure. Anything other than a
+            # transport-layer error is not caught here -- e.g. a malformed
+            # response tripping up _apply_token_response is a real bug and
+            # should surface as one, not get silently relabeled as "the
+            # network is flaky" forever.
             _LOGGER.error("HYXI Token Request Failed (network/connection error): %s", e)
             return None
-        return False
 
     async def _ensure_authenticated(self, error_cls: type[Exception]) -> None:
         """Refresh the API token or raise the provided domain error."""
