@@ -43,5 +43,8 @@ async def test_refresh_token_exception_handling(caplog):
 
     result = await api._refresh_token()
 
-    assert result is False
-    assert "HYXI Token Request Failed: Connection reset" in caplog.text
+    assert result is None
+    assert (
+        "HYXI Token Request Failed (network/connection error): Connection reset"
+        in caplog.text
+    )
