@@ -1219,6 +1219,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         if method.upper() not in ("GET", "POST"):
             raise ValueError(f"Unsupported HTTP method: {method}")
 
+        _LOGGER.debug("HYXI %s %s", method.upper(), path)
+
         request_func = getattr(self.session, method.lower())
         async with request_func(url, headers=headers, **kwargs) as response:
             status = response.status
@@ -1228,6 +1230,14 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
 
             response.raise_for_status()
             res = await response.json()
+
+            _LOGGER.debug(
+                "HYXI %s %s -> status=%s success=%s",
+                method.upper(),
+                path,
+                status,
+                res.get("success"),
+            )
 
             if not is_token_request and not res.get("success") and res.get("code"):
                 api_code = res.get("code")
@@ -1247,6 +1257,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         token_val = data.get("token") or data.get("access_token")
 
         if not token_val:
+            _LOGGER.warning(
+                "HYXI token response missing 'token'/'access_token' field: %s",
+                _sanitize_dict(data),
+            )
             return False
 
         self.token = str(f"Bearer {token_val}")
@@ -1301,16 +1315,30 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     return "auth_failed"
                 return False
 
-            return self._apply_token_response(res.get("data", {}))
-        except Exception as e:
-            _LOGGER.error("HYXI Token Request Failed: %s", e)
-        return False
+            result = self._apply_token_response(res.get("data", {}))
+            if result:
+                _LOGGER.debug("HYXI token refresh succeeded")
+            return result
+        except (aiohttp.ClientError, TimeoutError) as e:
+            # Distinguish "couldn't even reach the server" from an explicit
+            # rejection above: both are falsy for existing callers, but
+            # _ensure_authenticated uses the distinction to avoid raising a
+            # message that reads like a credential problem for what's
+            # actually a transient network failure. Anything other than a
+            # transport-layer error is not caught here -- e.g. a malformed
+            # response tripping up _apply_token_response is a real bug and
+            # should surface as one, not get silently relabeled as "the
+            # network is flaky" forever.
+            _LOGGER.error("HYXI Token Request Failed (network/connection error): %s", e)
+            return None
 
     async def _ensure_authenticated(self, error_cls: type[Exception]) -> None:
         """Refresh the API token or raise the provided domain error."""
         token_status = await self._refresh_token()
         if token_status == "auth_failed":
             raise error_cls("Authentication failed")
+        if token_status is None:
+            raise error_cls("Could not obtain API token: network or connection error")
         if not token_status:
             raise error_cls("Could not obtain API token")
 
@@ -1339,6 +1367,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     async def _fetch_device_metrics(self, sn, entry):
         """Helper to fetch detailed metrics for a single device."""
         q_path = "/api/device/v1/queryDeviceData"
+        _LOGGER.debug("HYXI fetching device metrics for %s", _mask_id(sn))
         try:
             _, res_q = await self._request("GET", q_path, params={"deviceSn": sn})
 
@@ -1379,6 +1408,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     async def query_ems_basic_details(self, ems_sn):
         """Acquire basic data for Energy Storage Systems (ESS)."""
         path = "/api/ems/v1/queryBasicDetails"
+        _LOGGER.debug("HYXI fetching EMS basic details for %s", _mask_id(ems_sn))
         try:
             _, res = await self._request("GET", path, params={"emsSn": ems_sn})
 
@@ -1447,6 +1477,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     async def _fetch_device_info(self, sn, entry):
         """Helper to fetch static device info (firmware, capacity, limits)."""
         i_path = "/api/device/v1/queryDeviceInfo"
+        _LOGGER.debug("HYXI fetching device info for %s", _mask_id(sn))
         try:
             _, res_i = await self._request("GET", i_path, params={"deviceSn": sn})
 
@@ -1590,6 +1621,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict]:
         """Fetch the list of sub-devices from the API."""
         sd_path = "/api/device/v1/getSubDevicePage"
+        _LOGGER.debug("HYXI fetching sub-device list for %s", _mask_id(parent_sn))
         try:
             _, res_sd = await self._request(
                 "POST",
@@ -1653,6 +1685,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
     async def _fetch_alarms_for_plant(self, plant_id):
         """Helper to fetch active alarms for a single plant."""
         a_path = "/api/alarm/v1/plantAlarmPage"
+        _LOGGER.debug("HYXI fetching alarms for plant %s", _mask_id(plant_id))
         try:
             _, res_a = await self._request(
                 "POST",
@@ -1694,6 +1727,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         for attempt in range(1, MAX_RETRIES + 1):
             err: aiohttp.ClientError | TimeoutError | None = None
             try:
+                cycle_start = time.time()
                 data = await self._execute_fetch_all(
                     allow_back_discovery=allow_back_discovery,
                     force_discovery=force_discovery,
@@ -1702,6 +1736,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                     return None  # Hard fail, don't retry bad credentials
                 if data is not None:
                     # ✅ Success
+                    _LOGGER.debug(
+                        "HYXI fetch cycle complete: %d devices in %.2fs (attempt %s/%s)",
+                        len(data),
+                        time.time() - cycle_start,
+                        attempt,
+                        MAX_RETRIES,
+                    )
                     return {"data": data, "attempts": attempt}
 
                 # If we get here, data was None (soft failure). Trigger a retry manually.
@@ -1919,6 +1960,18 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             not force_discovery
             and self._discovery_cache["plants"] is not None
             and (time.time() - self._discovery_cache_time) < self._discovery_cache_ttl
+        )
+        cache_age = (
+            f"{time.time() - self._discovery_cache_time:.0f}s"
+            if self._discovery_cache_time
+            else "n/a"
+        )
+        _LOGGER.debug(
+            "HYXI discovery cache %s (age=%s, ttl=%ds), using %s path",
+            "valid" if use_cache else "expired/forced",
+            cache_age,
+            self._discovery_cache_ttl,
+            "cached" if use_cache else "full discovery",
         )
 
         if use_cache:
@@ -2343,6 +2396,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             # Retrieve info from discovery cache
             device_info = self._discovery_cache.get("device_info", {}).get(sn, {})
             device_type = str(device_info.get("device_type_code") or "")
+            if not device_info:
+                _LOGGER.debug(
+                    "HYXI push: no discovery-cache entry for %s, device_type unknown",
+                    _mask_id(sn),
+                )
 
             raw_metrics = _extract_raw_push_metrics(device)
             last_seen = _resolve_push_timestamp(device, now_utc)
@@ -2363,6 +2421,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
                 "device_type_code": device_info.get("device_type_code", "Unknown"),
             }
 
+        _LOGGER.debug("HYXI push: processed %d devices", len(results))
         return results
 
     def process_alarm_push_data(self, payload: dict) -> dict[str, list[dict]]:
@@ -2434,7 +2493,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
             results.setdefault(sn, []).append(alarm_record)
             _LOGGER.debug(
                 "HYXI Alarm Push: %s — code %s (%s) state=%s",
-                sn,
+                _mask_id(sn),
                 alarm_code,
                 alarm_name,
                 alarm_state,

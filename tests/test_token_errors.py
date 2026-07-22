@@ -29,7 +29,8 @@ from hyxi_cloud_api.api import HyxiApiClient
 
 @pytest.mark.asyncio
 async def test_refresh_token_exception_handling(caplog):
-    """Test that _refresh_token handles exceptions from _request gracefully."""
+    """A transport-layer exception from _request is caught and reported as
+    a network failure (falsy, distinguishable via `is None`)."""
     caplog.set_level(logging.ERROR)
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
@@ -37,11 +38,28 @@ async def test_refresh_token_exception_handling(caplog):
     # Force _LOGGER to use the standard root logger so caplog captures it.
     api_mod._LOGGER = logging.getLogger("hyxi_cloud_api.api")
 
-    # Mock _request to raise an Exception
-    error = Exception("Connection reset")
+    error = mock_aiohttp.ClientError("Connection reset")
     api._request = AsyncMock(side_effect=error)
 
     result = await api._refresh_token()
 
-    assert result is False
-    assert "HYXI Token Request Failed: Connection reset" in caplog.text
+    assert result is None
+    assert (
+        "HYXI Token Request Failed (network/connection error): Connection reset"
+        in caplog.text
+    )
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_unexpected_exception_propagates():
+    """A non-transport exception (e.g. a bug, a malformed response tripping
+    up response parsing) is NOT swallowed as a network error -- it should
+    surface as the real error it is, not get silently relabeled as "the
+    network is flaky" forever."""
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    api._request = AsyncMock(side_effect=ValueError("unexpected parsing bug"))
+
+    with pytest.raises(ValueError, match="unexpected parsing bug"):
+        await api._refresh_token()

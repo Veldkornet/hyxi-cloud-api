@@ -374,7 +374,9 @@ async def test_execute_fetch_all_concurrent():
         (200, {"success": False, "code": "401"}, "auth_failed"),
         (200, {"success": False, "code": 403}, "auth_failed"),
         (200, {"success": False, "code": "500"}, False),
-        (500, {"success": False}, False),
+        # A 500 makes raise_for_status raise, which is a transport-level
+        # failure (not an explicit rejection) -- distinguished as None.
+        (500, {"success": False}, None),
     ],
 )
 async def test_refresh_token_failures(status, payload, expected_result):
@@ -422,7 +424,9 @@ async def test_refresh_token_network_exception():
     api.session.post = MagicMock(side_effect=aiohttp.ClientError("Network error"))
 
     result = await api._refresh_token()
-    assert result is False
+    # Falsy like the old `False`, but distinguishable as a transport-level
+    # failure rather than an explicit rejection from the server.
+    assert result is None
 
 
 # --- TEST 5: Alarm Log Sanitization ---
