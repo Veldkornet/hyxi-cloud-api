@@ -65,6 +65,10 @@ mypy_path = "src"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
+[tool.vulture]
+paths = ["src"]
+min_confidence = 80
+
 [tool.pylint.messages_control]
 disable = ["broad-exception-caught", "too-many-locals", "too-many-return-statements", "too-many-branches", "too-few-public-methods", "protected-access", "unused-argument", "duplicate-code", "import-error", "wrong-import-position", "reimported", "missing-module-docstring", "ungrouped-imports", "redefined-outer-name", "missing-class-docstring"]
 

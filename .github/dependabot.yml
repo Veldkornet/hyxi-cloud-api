@@ -1,7 +1,7 @@
 version: 2
 updates:
-  # Keep Python dependencies (from pyproject.toml) updated
-  - package-ecosystem: "pip"
+  # Keep Python dependencies (pyproject.toml + uv.lock) updated
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
