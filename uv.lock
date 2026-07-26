@@ -220,7 +220,6 @@ wheels = [
 
 [[package]]
 name = "hyxi-cloud-api"
-version = "1.4.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

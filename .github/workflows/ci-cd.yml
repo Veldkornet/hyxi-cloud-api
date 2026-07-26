@@ -63,7 +63,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/hyxi-cloud-api
     permissions:
-      contents: write # To modify pyproject.toml and build
+      contents: write # To modify __init__.py and build
       id-token: write # REQUIRED for Trusted Publishing (OIDC) to PyPI
     steps:
       - name: Harden the runner
@@ -99,11 +99,11 @@ jobs:
           TAG_NAME="${{ github.event.release.tag_name }}"
           CLEAN_VERSION="${TAG_NAME#v}"
 
-          echo "Injecting version $CLEAN_VERSION into pyproject.toml..."
-          sed -i "s/^version = .*/version = \"$CLEAN_VERSION\"/" pyproject.toml
+          echo "Injecting version $CLEAN_VERSION into __init__.py..."
+          sed -i "s/^__version__ = .*/__version__ = \"$CLEAN_VERSION\"/" src/hyxi_cloud_api/__init__.py
 
           echo "--- VERIFYING FILE CONTENTS ---"
-          grep "^version" pyproject.toml
+          grep "^__version__" src/hyxi_cloud_api/__init__.py
           echo "-------------------------------"
 
           pipx run build
