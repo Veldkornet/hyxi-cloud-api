@@ -28,6 +28,7 @@ jobs:
           egress-policy: block
           allowed-endpoints: >
             api.github.com:443
+            api.securityscorecards.dev:443
             files.pythonhosted.org:443
             fulcio.sigstore.dev:443
             ghcr.io:443
