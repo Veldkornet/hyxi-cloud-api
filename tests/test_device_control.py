@@ -246,6 +246,25 @@ async def test_set_micro_power_limit_mocked_control():
 
 
 @pytest.mark.asyncio
+async def test_set_micro_ess_power():
+    """Test set_micro_ess_power sends controlId 1011 with value '1' or '0'."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, {"success": True}))
+
+    await api.set_micro_ess_power("SN123", power_on=True)
+    call_kwargs = api._request.call_args
+    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    assert body["deviceControlMap"]["SN123"]["1011"] == "1"
+
+    api._request.reset_mock()
+    await api.set_micro_ess_power("SN123", power_on=False)
+    call_kwargs = api._request.call_args
+    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    assert body["deviceControlMap"]["SN123"]["1011"] == "0"
+
+
+@pytest.mark.asyncio
 async def test_restart_device_mocked_control():
     """Test restart_device by mocking set_device_control and checking edge cases."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())

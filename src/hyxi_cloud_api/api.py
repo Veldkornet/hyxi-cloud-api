@@ -1105,7 +1105,7 @@ _PEAK_SHAVING_VALUES = {
 }
 
 
-class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
+class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
     """Client for interacting with the HYXI Cloud API."""
 
     DEFAULT_BASE_URL = "https://open.hyxicloud.com"
@@ -2310,6 +2310,24 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes
         For **MICRO_INVERTER** devices.
         """
         return await self.set_device_control(device_sn, {3013: "1"})
+
+    # ── Micro ESS Controls ───────────────────────────────────────────────
+
+    async def set_micro_ess_power(self, device_sn: str, power_on: bool) -> dict:
+        """Turn on or off a Micro ESS (controlId 1011).
+
+        For **MICRO_ESS** devices (e.g. AC-coupled battery units such as
+        HYX-MS3000AC). Unlike the other Energy Storage Control instructions
+        (1020/1021/1062-1065), this control has no PV dependency, so it
+        applies to AC-coupled units with no photovoltaic input.
+
+        Args:
+            device_sn: Device serial number.
+            power_on: True to turn on ("1"), False to turn off ("0").
+        """
+        return await self.set_device_control(
+            device_sn, {1011: "1" if power_on else "0"}
+        )
 
     # ── Alarm Controls ───────────────────────────────────────────────────
 
