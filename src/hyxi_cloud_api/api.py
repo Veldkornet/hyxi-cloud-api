@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 
 try:
     from datetime import UTC, datetime
-except ImportError:
+except ImportError:  # pragma: no cover - unreachable given requires-python >=3.14
     from datetime import datetime, timezone
 
     UTC = timezone.utc  # noqa
@@ -1526,8 +1526,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
                 tasks.append(ems_task)
 
-        # Wait for them to finish
-        if tasks:
+        # Wait for them to finish. `tasks` always has at least the device-info
+        # task appended above, so the false side of this check is unreachable
+        # given the current control flow -- kept as a guard against future
+        # refactors, not something a test can exercise honestly today.
+        if tasks:  # pragma: no branch
             await asyncio.gather(*tasks)
 
         if ems_task:
@@ -1751,7 +1754,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             except (aiohttp.ClientError, TimeoutError) as e:
                 err = e
 
-            if err is not None:
+            # Every path that reaches here has either returned already (hard
+            # auth failure or success) or set `err` above -- the false side
+            # is unreachable given the current control flow, kept as a guard
+            # against future refactors rather than something a test can
+            # exercise honestly today.
+            if err is not None:  # pragma: no branch
                 if attempt < MAX_RETRIES:
                     wait_time = attempt * RETRY_DELAY
                     _LOGGER.debug(
