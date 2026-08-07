@@ -18,6 +18,7 @@ mock_aiohttp = sys.modules["aiohttp"]
 
 """Tests for fetching plants from the API."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -43,6 +44,30 @@ async def test_fetch_plants_success():
     assert len(plants) == 2
     assert plants[0]["plantId"] == "Pl123"
     assert plants[1]["plantId"] == "Pl456"
+
+
+@pytest.mark.asyncio
+async def test_fetch_plants_success_debug_logging(caplog):
+    """Verify that when DEBUG logging is enabled, a non-empty plant list is
+    logged with masked plant IDs."""
+    caplog.set_level(logging.DEBUG)
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {
+                "success": True,
+                "data": {"list": [{"plantId": "Pl123"}, {"plantId": "Pl456"}]},
+            },
+        )
+    )
+
+    plants = await api._fetch_plants()
+    assert len(plants) == 2
+    assert "HYXI Discovered Plants:" in caplog.text
+    # Plant IDs are masked in the log output, not logged in the clear.
+    assert "Pl123" not in caplog.text
+    assert "Pl456" not in caplog.text
 
 
 @pytest.mark.asyncio

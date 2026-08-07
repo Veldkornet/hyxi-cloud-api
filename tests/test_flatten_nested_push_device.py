@@ -57,3 +57,39 @@ def test_flatten_nested_push_device_system_workmode():
     device = {"system": {"workMode": "test_mode"}}
     flat = _flatten_nested_push_device(device)
     assert flat["workMode"] == "test_mode"
+
+
+def test_flatten_nested_push_device_record_parentsn():
+    """Test parentSn in record is copied through to the flat layout."""
+    device = {"record": {"parentSn": "PARENT123"}}
+    flat = _flatten_nested_push_device(device)
+    assert flat["parentSn"] == "PARENT123"
+
+
+def test_flatten_nested_push_device_battery_pbatw():
+    """Test battery.pbatW is mapped to the flat 'pbat' key."""
+    device = {"battery": {"pbatW": 500}}
+    flat = _flatten_nested_push_device(device)
+    assert flat["pbat"] == 500
+
+
+def test_flatten_nested_push_device_battery_charge_energy():
+    """Test battery.chargeEnergyKwh is mapped to the flat 'batCharge' key."""
+    device = {"battery": {"chargeEnergyKwh": 10.5}}
+    flat = _flatten_nested_push_device(device)
+    assert flat["batCharge"] == 10.5
+
+
+def test_flatten_nested_push_device_battery_discharge_energy():
+    """Test battery.dischargeEnergyKwh is mapped to the flat 'batDisCharge' key."""
+    device = {"battery": {"dischargeEnergyKwh": 8.2}}
+    flat = _flatten_nested_push_device(device)
+    assert flat["batDisCharge"] == 8.2
+
+
+def test_flatten_nested_push_device_grid_powerw_non_numeric():
+    """Test ValueError/TypeError is handled when grid.powerW isn't numeric,
+    falling back to the raw value instead of a computed kW figure."""
+    device = {"grid": {"powerW": "not_a_number"}}
+    flat = _flatten_nested_push_device(device)
+    assert flat["gridP"] == "not_a_number"

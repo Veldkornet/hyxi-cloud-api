@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 
 try:
     from datetime import UTC, datetime
-except ImportError:
+except ImportError:  # pragma: no cover - unreachable given requires-python >=3.14
     from datetime import datetime, timezone
 
     UTC = timezone.utc  # noqa

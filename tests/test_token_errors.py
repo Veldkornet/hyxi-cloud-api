@@ -51,6 +51,53 @@ async def test_refresh_token_exception_handling(caplog):
 
 
 @pytest.mark.asyncio
+async def test_refresh_token_success(caplog):
+    """A successful token response is applied and the refresh reports success,
+    logging that the refresh succeeded (the happy path every failure test in
+    this file is implicitly contrasted against)."""
+    caplog.set_level(logging.DEBUG)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    # Force _LOGGER to use the standard root logger so caplog captures it.
+    api_mod._LOGGER = logging.getLogger("hyxi_cloud_api.api")
+
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {"success": True, "data": {"token": "abc123", "expiresIn": 3600}},
+        )
+    )
+
+    result = await api._refresh_token()
+
+    assert result is True
+    assert api.token == "Bearer abc123"
+    assert "HYXI token refresh succeeded" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_success_response_without_token(caplog):
+    """The API can report overall success while the payload itself lacks a
+    token/access_token (a malformed-but-200 response). _apply_token_response
+    returns False in that case, and _refresh_token must propagate that False
+    without logging a spurious 'refresh succeeded' message."""
+    caplog.set_level(logging.DEBUG)
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+
+    api_mod._LOGGER = logging.getLogger("hyxi_cloud_api.api")
+
+    api._request = AsyncMock(return_value=(200, {"success": True, "data": {}}))
+
+    result = await api._refresh_token()
+
+    assert result is False
+    assert api.token is None
+    assert "HYXI token refresh succeeded" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_refresh_token_unexpected_exception_propagates():
     """A non-transport exception (e.g. a bug, a malformed response tripping
     up response parsing) is NOT swallowed as a network error -- it should
