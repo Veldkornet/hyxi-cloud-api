@@ -1,0 +1,49 @@
+name: pre-commit
+
+# Runs the full .pre-commit-config.yaml suite via GitHub Actions itself,
+# rather than relying solely on the hosted pre-commit.ci status. pre-commit.ci
+# does not post a status on PRs it opens itself (its own autoupdate PRs), which
+# left "[pre-commit.ci] pre-commit autoupdate" PRs permanently unable to
+# satisfy a required "pre-commit.ci - pr" status check. This job runs
+# unconditionally for every PR/push, including pre-commit.ci's own, since it's
+# triggered by normal Actions events rather than an external app's webhook
+# logic.
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            files.pythonhosted.org:443
+            github.com:443
+            objects.githubusercontent.com:443
+            proxy.golang.org:443
+            pypi.org:443
+            raw.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            storage.googleapis.com:443
+            sum.golang.org:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+
+      - name: Run pre-commit
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
