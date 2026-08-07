@@ -28,7 +28,7 @@ from hyxi_cloud_api.api import HyxiApiClient
 
 
 @pytest.mark.asyncio
-async def test_refresh_token_exception_handling(caplog):
+async def test_refresh_token_exception_handling(caplog, monkeypatch):
     """A transport-layer exception from _request is caught and reported as
     a network failure (falsy, distinguishable via `is None`)."""
     caplog.set_level(logging.ERROR)
@@ -36,7 +36,9 @@ async def test_refresh_token_exception_handling(caplog):
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
     # Force _LOGGER to use the standard root logger so caplog captures it.
-    api_mod._LOGGER = logging.getLogger("hyxi_cloud_api.api")
+    # monkeypatch restores the original _LOGGER after this test, so the
+    # reassignment can't leak into tests that run afterward.
+    monkeypatch.setattr(api_mod, "_LOGGER", logging.getLogger("hyxi_cloud_api.api"))
 
     error = mock_aiohttp.ClientError("Connection reset")
     api._request = AsyncMock(side_effect=error)
@@ -51,7 +53,7 @@ async def test_refresh_token_exception_handling(caplog):
 
 
 @pytest.mark.asyncio
-async def test_refresh_token_success(caplog):
+async def test_refresh_token_success(caplog, monkeypatch):
     """A successful token response is applied and the refresh reports success,
     logging that the refresh succeeded (the happy path every failure test in
     this file is implicitly contrasted against)."""
@@ -60,7 +62,7 @@ async def test_refresh_token_success(caplog):
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
     # Force _LOGGER to use the standard root logger so caplog captures it.
-    api_mod._LOGGER = logging.getLogger("hyxi_cloud_api.api")
+    monkeypatch.setattr(api_mod, "_LOGGER", logging.getLogger("hyxi_cloud_api.api"))
 
     api._request = AsyncMock(
         return_value=(
@@ -77,7 +79,7 @@ async def test_refresh_token_success(caplog):
 
 
 @pytest.mark.asyncio
-async def test_refresh_token_success_response_without_token(caplog):
+async def test_refresh_token_success_response_without_token(caplog, monkeypatch):
     """The API can report overall success while the payload itself lacks a
     token/access_token (a malformed-but-200 response). _apply_token_response
     returns False in that case, and _refresh_token must propagate that False
@@ -86,7 +88,7 @@ async def test_refresh_token_success_response_without_token(caplog):
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
-    api_mod._LOGGER = logging.getLogger("hyxi_cloud_api.api")
+    monkeypatch.setattr(api_mod, "_LOGGER", logging.getLogger("hyxi_cloud_api.api"))
 
     api._request = AsyncMock(return_value=(200, {"success": True, "data": {}}))
 
