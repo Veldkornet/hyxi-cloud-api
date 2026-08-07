@@ -93,3 +93,63 @@ def test_flatten_nested_push_device_grid_powerw_non_numeric():
     device = {"grid": {"powerW": "not_a_number"}}
     flat = _flatten_nested_push_device(device)
     assert flat["gridP"] == "not_a_number"
+
+
+def test_flatten_nested_push_device_system_no_workmode():
+    """A 'system' section without 'workMode' contributes nothing."""
+    device = {"system": {}}
+    flat = _flatten_nested_push_device(device)
+    assert "workMode" not in flat
+
+
+def test_flatten_nested_push_device_ac_no_fields():
+    """An 'ac' section missing all of its known sub-fields contributes nothing."""
+    device = {"ac": {}}
+    flat = _flatten_nested_push_device(device)
+    assert "f" not in flat
+    assert "acP" not in flat
+    assert "acE" not in flat
+
+
+def test_flatten_nested_push_device_pv_no_fields():
+    """A 'pv' section without 'totalPowerW' and with an empty per-string dict
+    contributes nothing for either the aggregate or the per-string keys."""
+    device = {"pv": {"pv1": {}}}
+    flat = _flatten_nested_push_device(device)
+    assert "ppv" not in flat
+    assert "pv1v" not in flat
+    assert "pv1i" not in flat
+    assert "pv1p" not in flat
+
+
+def test_flatten_nested_push_device_battery_subsections_no_fields():
+    """Empty battery.temperature/limits/cellVoltage sub-dicts contribute nothing."""
+    device = {
+        "battery": {"temperature": {}, "limits": {}, "cellVoltage": {}},
+    }
+    flat = _flatten_nested_push_device(device)
+    assert "batTch" not in flat
+    assert "batTcl" not in flat
+    assert "maxChargePower" not in flat
+    assert "maxDischargePower" not in flat
+    assert "batVcl" not in flat
+    assert "batVch" not in flat
+
+
+def test_flatten_nested_push_device_dcbus_and_temperatures_no_fields():
+    """Empty dcBus/temperatures sections contribute nothing."""
+    device = {"dcBus": {}, "temperatures": {}}
+    flat = _flatten_nested_push_device(device)
+    assert "vbus" not in flat
+    assert "tinv" not in flat
+
+
+def test_flatten_nested_push_device_phases_no_fields():
+    """A 'phases' section with an empty per-phase dict contributes nothing
+    for that phase."""
+    device = {"phases": {"ph1": {}}}
+    flat = _flatten_nested_push_device(device)
+    assert "ph1v" not in flat
+    assert "ph1i" not in flat
+    assert "ph1p" not in flat
+    assert "ph1Loadp" not in flat

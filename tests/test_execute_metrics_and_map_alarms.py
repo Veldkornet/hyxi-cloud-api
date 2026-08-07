@@ -61,3 +61,45 @@ async def test_execute_metrics_and_map_alarms():
     assert len(state.results["SN3"]["alarms"]) == 0
 
     assert None not in state.results
+
+
+@pytest.mark.asyncio
+async def test_execute_metrics_and_map_alarms_alarm_without_device_sn():
+    """A malformed alarm entry with no 'deviceSn' is skipped while building
+    the alarm map, instead of crashing or being attributed to a device."""
+    plant_alarms = [
+        {"alarmId": "ORPHAN"},  # no deviceSn
+        {"deviceSn": "SN1", "alarmId": "A1"},
+    ]
+    state = FetchState(now="2023-10-27")
+    state.metric_tasks = [("SN1", {"data": 1}, "TYPE")]
+
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    async def mock_fetch(sn, entry, t):
+        return (sn, entry)
+
+    api._fetch_all_for_device = mock_fetch
+    await api._execute_metrics_and_map_alarms(plant_alarms, state)
+
+    assert len(state.results["SN1"]["alarms"]) == 1
+    assert state.results["SN1"]["alarms"][0]["alarmId"] == "A1"
+
+
+@pytest.mark.asyncio
+async def test_execute_metrics_and_map_alarms_no_metric_tasks():
+    """With no metric tasks (e.g. a plant that only reported alarms), the
+    method must not call asyncio.gather on an empty list and should simply
+    leave state.results empty."""
+    plant_alarms = [{"deviceSn": "SN1", "alarmId": "A1"}]
+    state = FetchState(now="2023-10-27")
+    state.metric_tasks = []
+
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._fetch_all_for_device = MagicMock(
+        side_effect=AssertionError("should not be called")
+    )
+
+    await api._execute_metrics_and_map_alarms(plant_alarms, state)
+
+    assert not state.results
