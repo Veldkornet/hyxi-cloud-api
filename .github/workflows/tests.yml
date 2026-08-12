@@ -13,6 +13,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # uv reads this on every `uv run`/`uv sync` invocation below, so it's
+      # set once here rather than repeating `--locked` on each `run:` line --
+      # fail fast on lockfile drift instead of silently resolving/installing
+      # an unlocked version.
+      UV_LOCKED: "1"
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -37,7 +43,18 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --extra test --locked
+        # Split in two: third-party dependencies are installed with
+        # --no-build (refuse to build any of them from a source
+        # distribution, which would otherwise execute that package's own
+        # build-backend code) and --no-install-project (skip the local
+        # package for now). The local project is then installed separately,
+        # without --no-build, since it's trusted first-party code that
+        # *always* needs building for an editable install -- unlike a
+        # third-party sdist, there's no supply-chain risk in running our
+        # own build backend on our own checkout.
+        run: |
+          uv sync --extra test --no-build --no-install-project
+          uv sync --extra test
 
       - name: Run Pytest
-        run: uv run --locked pytest tests/ -v
+        run: uv run pytest tests/ -v
