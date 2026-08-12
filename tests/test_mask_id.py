@@ -42,7 +42,9 @@ class TestMaskId:
         """Masking is deterministic: same SN yields same masked value every time.
         This ensures cross-device log correlation is preserved."""
         sn = "HYXABC12345678"
-        assert _mask_id(sn) == _mask_id(sn)
+        first_call = _mask_id(sn)
+        second_call = _mask_id(sn)
+        assert first_call == second_call
 
     def test_different_ids_with_different_suffixes_are_distinguishable(self):
         """Two devices with different SNs should produce different masked values."""

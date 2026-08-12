@@ -13,6 +13,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # uv reads this on every `uv run`/`uv sync` invocation below, so it's
+      # set once here rather than repeating `--locked` on each `run:` line --
+      # fail fast on lockfile drift instead of silently resolving/installing
+      # an unlocked version.
+      UV_LOCKED: "1"
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
@@ -35,9 +41,25 @@ jobs:
         with:
           python-version: '3.14'
           enable-cache: true
+          # cache-python defaults to false -- without it, every run
+          # re-downloads the full CPython interpreter tarball from GitHub's
+          # release CDN, which is a large, single point of flaky-network
+          # failure repeated on every job instead of paid for once.
+          cache-python: true
 
       - name: Install dependencies
-        run: uv sync --extra test --locked
+        # Split in two: third-party dependencies are installed with
+        # --no-build (refuse to build any of them from a source
+        # distribution, which would otherwise execute that package's own
+        # build-backend code) and --no-install-project (skip the local
+        # package for now). The local project is then installed separately,
+        # without --no-build, since it's trusted first-party code that
+        # *always* needs building for an editable install -- unlike a
+        # third-party sdist, there's no supply-chain risk in running our
+        # own build backend on our own checkout.
+        run: |
+          uv sync --extra test --no-build --no-install-project
+          uv sync --extra test
 
       - name: Run Pytest
         run: uv run pytest tests/ -v
