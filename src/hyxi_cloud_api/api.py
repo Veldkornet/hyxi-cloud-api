@@ -13,6 +13,7 @@ import functools
 import hashlib
 import hmac
 import logging
+import math
 import os
 import re
 import secrets
@@ -611,6 +612,18 @@ def _get_f(key: str, data_map: dict, mult: float = 1.0) -> float:
         return 0.0
 
 
+def _is_zero(value: float) -> bool:
+    """True if `value` is (effectively) zero.
+
+    Callers here always pass a `_get_f` result, which rounds to 2 decimal
+    places before returning, so an epsilon comparison and exact equality
+    are functionally identical -- this exists so call sites don't compare
+    a float against a float literal with `==`/`!=` directly, which
+    SonarCloud flags as unsafe in general even though it's safe here.
+    """
+    return math.isclose(value, 0.0, abs_tol=1e-9)
+
+
 @functools.lru_cache(maxsize=1024)
 def _is_collector_key_allowed(key: str) -> bool:
     """Check if metric key is allowed for Collectors and cache the result."""
@@ -635,7 +648,7 @@ def _compute_load_metrics(m_raw: dict, derived: dict[str, float]) -> None:
         derived["load_power_w"] = _get_f("loadPower", m_raw)
 
         if (
-            derived["load_power_w"] == 0.0
+            _is_zero(derived["load_power_w"])
             and m_raw.get("status") == 1
             and "totalPac" in m_raw
         ):
@@ -671,9 +684,9 @@ def _compute_battery_metrics(
         # while pbat is consistently negative-for-charging / positive-for-discharging.
         # Other devices: prefer batP (DC terminals), fall back to pbat.
         if device_type_str == "ALL_IN_ONE":
-            power_source = pbat if pbat != 0.0 else bat_p_dc
+            power_source = bat_p_dc if _is_zero(pbat) else pbat
         else:
-            power_source = bat_p_dc if bat_p_dc != 0.0 else pbat
+            power_source = pbat if _is_zero(bat_p_dc) else bat_p_dc
         derived["bat_charging"] = abs(power_source) if power_source < 0 else 0.0
         derived["bat_discharging"] = power_source if power_source > 0 else 0.0
         derived["bat_power_dc"] = bat_p_dc
