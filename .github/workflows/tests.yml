@@ -40,4 +40,4 @@ jobs:
         run: uv sync --extra test --locked
 
       - name: Run Pytest
-        run: uv run pytest tests/ -v
+        run: uv run --locked pytest tests/ -v
