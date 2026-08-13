@@ -51,9 +51,11 @@ correctness.
   conversion (`try`/`except`, as the codebase already does e.g. around
   metric parsing) rather than a bare `float()`/`int()` that turns one bad
   payload into an unhandled exception.
-- Regional base-URL resolution should stay restricted to the known
-  China/Europe/North America nodes rather than accepting an arbitrary
-  caller-supplied host.
+- `base_url` is an intentionally caller-supplied constructor argument (see
+  README) — not something this library resolves or restricts itself. If a
+  PR ever adds an internal region-selection/resolution helper here, that
+  helper should stick to the known China/Europe/North America nodes; that's
+  different from flagging the existing `base_url` parameter itself.
 
 ## 6. GitHub Actions workflow hardening
 Only applies when a PR touches `.github/workflows/*`:
