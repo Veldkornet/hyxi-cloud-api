@@ -11,11 +11,13 @@ integration. When reviewing a PR, check the following in addition to general
 correctness.
 
 ## 1. Async-only I/O
+
 - All network calls go through the caller-supplied `aiohttp.ClientSession`.
 - No blocking calls (`requests`, `time.sleep()`, blocking file/network I/O)
   anywhere in `src/`.
 
 ## 2. Secrets and PII never hit the logs in the clear
+
 - Access Key / Secret Key (AK/SK) and any other credentials must never appear
   in a log line, even at debug level.
 - Identifiers the library already masks before logging — serial numbers
@@ -28,6 +30,7 @@ correctness.
   parent/child device relationships are traced across log lines using it.
 
 ## 3. Exception style (PEP 758)
+
 - Multiple exceptions in one `except` are comma-separated without
   surrounding parentheses, unless an `as` clause is present:
   `except ValueError, TypeError:` — not `except (ValueError, TypeError):`.
@@ -35,6 +38,7 @@ correctness.
   new code that reintroduces the parenthesized form.
 
 ## 4. Auth signing must not be bypassed
+
 - Requests are signed via `_generate_headers` (HMAC), with
   `_ensure_authenticated` / `_execute_with_auth_retry` handling
   token refresh and retry-on-auth-failure. New or changed request methods
@@ -43,14 +47,18 @@ correctness.
 - Access/refresh tokens are never passed to a logging call, at any level.
 
 ## 5. Robust input handling and timeouts
+
 - Requests go through the internal helper that sets a default `timeout`
   (currently 15s) — flag a new call path that issues a raw `aiohttp` request
   bypassing it, since that can hang indefinitely.
 - API response values are numeric fields that can arrive `None`,
-  non-numeric, `NaN`, or malformed — parse them through a guarded
-  conversion (`try`/`except`, as the codebase already does e.g. around
-  metric parsing) rather than a bare `float()`/`int()` that turns one bad
-  payload into an unhandled exception.
+  non-numeric, malformed, `NaN`, or `Inf` — a guarded `try`/`except` around
+  `float()`/`int()` (as the codebase already does, e.g. `_get_f`) only
+  catches the first two; `float("nan")` and `float("inf")` both succeed
+  without raising. New/changed numeric parsing should also reject
+  non-finite results with `math.isfinite(value)` before they reach a
+  derived metric (e.g. `grid_import`/`grid_export`), not just guard the
+  conversion itself.
 - `base_url` is an intentionally caller-supplied constructor argument (see
   README) — not something this library resolves or restricts itself. If a
   PR ever adds an internal region-selection/resolution helper here, that
@@ -58,7 +66,9 @@ correctness.
   different from flagging the existing `base_url` parameter itself.
 
 ## 6. GitHub Actions workflow hardening
+
 Only applies when a PR touches `.github/workflows/*`:
+
 - New or modified `uses:` steps pin the action to a full 40-character commit
   SHA with a version comment (e.g. `actions/checkout@<sha> # v7.0.1`), not a
   tag or branch.
@@ -68,6 +78,7 @@ Only applies when a PR touches `.github/workflows/*`:
   minimum the job needs.
 
 ## 7. Error surfacing
+
 - Control-command failures raise `HyxiApiClient.ControlError`; subscription
   failures raise `HyxiApiClient.SubscriptionError`. Check that new
   control/subscription methods raise the correct one rather than letting a
@@ -77,16 +88,19 @@ Only applies when a PR touches `.github/workflows/*`:
   handle them.
 
 ## 8. Version single source of truth
+
 - `src/hyxi_cloud_api/__init__.py`'s `__version__` is the only place the
   package version is defined (`pyproject.toml` reads it dynamically). Flag
   a PR that hardcodes or duplicates a version string elsewhere.
 
 ## 9. Typing and lint
+
 - `ruff` clean under this project's ruleset (pycodestyle, pyflakes, isort,
   pyupgrade, bugbear, bandit `S` rules, pep8-naming, pathlib `PTH`).
 - `mypy` clean; the project targets Python 3.14+ typing.
 
 ## 10. Reuse, simplification, dead code
+
 - Flag duplicated logic between similar methods (e.g. the various
   `set_mode_*` / `subscribe_*` methods) that should share a helper instead.
 - Flag properties, helpers, or exception types no longer referenced anywhere
