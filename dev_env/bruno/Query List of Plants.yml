@@ -66,10 +66,10 @@ runtime:
         const signature = crypto.enc.Base64.stringify(hash);
 
         // 7. Set Headers
-        req.setHeader("Timestamp", timestamp);
-        req.setHeader("Nonce", nonce);
-        req.setHeader("Sign", signature);
-        req.setHeader("AccessKey", accessKey);
+        req.setHeader("timestamp", timestamp);
+        req.setHeader("nonce", nonce);
+        req.setHeader("sign", signature);
+        req.setHeader("accessKey", accessKey);
         req.setHeader("Authorization", token);
         req.setHeader("Sign-headers", signHeaderKeys); // Even if empty, it's often required
     - type: after-response

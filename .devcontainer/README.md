@@ -21,8 +21,8 @@ container -- it talks to `open.hyxicloud.com` directly.
   the container afterward. This isn't hypothetical -- it happened during
   testing on `ha-hyxi-cloud`'s dev container, which is why this one has the
   fix from the start.
-- **`postCreate.sh`**: installs `uv` (pinned to a specific version, https-
-  only redirects), runs the same two-pass `uv sync` split as
+- **`postCreate.sh`**: installs `uv` (pinned to a specific version,
+  HTTPS-only redirects), runs the same two-pass `uv sync` split as
   `tests.yml` -- third-party dependencies with `--no-build
   --no-install-project`, then this project itself with building allowed
   (trusted first-party code) -- and installs the repo's `pre-commit` hooks.

@@ -40,7 +40,7 @@ runtime:
         const timestamp = Date.now().toString();
         const nonce = timestamp.toString(16).slice(-8);
 
-        // For GET requests, content hash is the hash of an empty string
+        // For non-token requests, content hash is the hash of an empty string
         const hexContentHash = crypto.SHA512("").toString(crypto.enc.Hex);
 
         // IMPORTANT: Per your Python code, for data calls,
@@ -52,10 +52,10 @@ runtime:
         const signature = crypto.enc.Base64.stringify(hmac);
 
         // Set Headers
-        req.setHeader("AccessKey", accessKey);
-        req.setHeader("Timestamp", timestamp);
-        req.setHeader("Nonce", nonce);
-        req.setHeader("Sign", signature);
+        req.setHeader("accessKey", accessKey);
+        req.setHeader("timestamp", timestamp);
+        req.setHeader("nonce", nonce);
+        req.setHeader("sign", signature);
         req.setHeader("Authorization", token);
 
         console.log(`Sending control command to device: ${getVar("device_sn_EMS")}`);

@@ -72,12 +72,6 @@ runtime:
             if (token) req.setHeader("Authorization", token);
         }
 
-        // Debugging logs
-        console.log("--- Signature Debug ---");
-        console.log("Path:", path);
-        console.log("String to Sign:", stringToSign.replace(/\n/g, '[NL]'));
-        console.log("Sign String:", signString);
-        console.log("Signature:", signature);
     - type: after-response
       code: |-
         // Bruno uses 'res' instead of 'pm.response'

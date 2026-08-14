@@ -73,5 +73,6 @@ truth for the package version (`pyproject.toml` reads it dynamically via
 token) using the release's tag name.
 
 ## ⚖️ License
+
 By contributing, you agree that your contributions will be licensed under
 the project's **MIT License**.

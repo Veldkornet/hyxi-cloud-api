@@ -5,13 +5,36 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-# Pinned rather than the bare .../uv/install.sh (always "latest"): a fixed
-# version means what's installed here is the version this setup was last
-# validated against, not whatever astral happens to be serving the moment
-# someone opens the devcontainer. Bump deliberately, like a lockfile.
+# Download the release archive and verify it against astral's own published
+# checksum, rather than piping install.sh through sh: pinning a version in
+# the install.sh URL (astral.sh/uv/<version>/install.sh) does NOT pin or
+# verify the *installer script's own content* -- only the release binaries
+# it goes on to fetch are checksummed internally. This step checks exactly
+# what it's about to run. Bump UV_VERSION deliberately, like a lockfile.
+UV_VERSION="0.12.3"
+case "$(uname -m)" in
+  x86_64) UV_TARGET="x86_64-unknown-linux-gnu" ;;
+  aarch64) UV_TARGET="aarch64-unknown-linux-gnu" ;;
+  *)
+    echo "error: unsupported architecture $(uname -m) for pinned uv install" >&2
+    exit 1
+    ;;
+esac
+UV_ASSET="uv-${UV_TARGET}.tar.gz"
+UV_RELEASE_URL="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}"
+
+uv_tmpdir="$(mktemp -d)"
+trap 'rm -rf "$uv_tmpdir"' EXIT
 # --proto/--tlsv1.2 restrict curl to https-only redirects -- plain -L would
 # silently follow a redirect to http.
-curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/0.12.3/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf "$UV_RELEASE_URL/$UV_ASSET" -o "$uv_tmpdir/$UV_ASSET"
+curl --proto '=https' --tlsv1.2 -LsSf "$UV_RELEASE_URL/$UV_ASSET.sha256" -o "$uv_tmpdir/$UV_ASSET.sha256"
+(cd "$uv_tmpdir" && sha256sum -c "$UV_ASSET.sha256")
+
+mkdir -p "$HOME/.local/bin"
+tar -xzf "$uv_tmpdir/$UV_ASSET" -C "$uv_tmpdir"
+mv "$uv_tmpdir/uv-$UV_TARGET/uv" "$uv_tmpdir/uv-$UV_TARGET/uvx" "$HOME/.local/bin/"
+
 export PATH="$HOME/.local/bin:$PATH"
 
 # The .venv named volume (see devcontainer.json's "mounts") is created
@@ -34,5 +57,8 @@ sudo chown -R "$(id -u):$(id -g)" .venv
 uv sync --extra test --no-build --no-install-project
 uv sync --extra test
 
-uv tool install pre-commit
-pre-commit install
+# pre-commit is a locked test dependency (pyproject.toml), not `uv tool
+# install`'s unversioned "whatever's latest on PyPI right now" -- `uv run`
+# uses the project's own locked venv instead of uv's separate, unpinned
+# tool store.
+uv run pre-commit install
