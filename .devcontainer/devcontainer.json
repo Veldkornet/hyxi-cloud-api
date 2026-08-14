@@ -1,0 +1,55 @@
+{
+  "name": "hyxi-cloud-api",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.14"
+    }
+  },
+
+  "mounts": [
+    "source=hyxi-cloud-api-venv,target=${containerWorkspaceFolder}/.venv,type=volume"
+  ],
+
+  "postCreateCommand": "bash .devcontainer/postCreate.sh",
+
+  "remoteUser": "vscode",
+  "remoteEnv": {
+    "UV_LOCKED": "1"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-python.pylint",
+        "ms-python.mypy-type-checker",
+        "ryanluker.vscode-coverage-gutters",
+        "github.vscode-pull-request-github",
+        "SonarSource.sonarlint-vscode",
+        "snyk-security.snyk-vulnerability-scanner",
+        "sourcery.sourcery",
+        "CodeRabbit.coderabbit-vscode",
+        "bruno-api-client.bruno"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "files.eol": "\n",
+        "files.trimTrailingWhitespace": true,
+        "editor.tabSize": 4,
+        "editor.formatOnSave": true,
+        "editor.formatOnPaste": false,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        },
+        "[markdown]": {
+          "files.trimTrailingWhitespace": false
+        },
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  }
+}

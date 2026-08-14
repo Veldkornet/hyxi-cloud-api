@@ -7,14 +7,19 @@ but it's usable standalone in any Python 3.14+ project.
 ## 🛠️ Development Setup
 
 1. **Fork and Clone:** create a branch from `main`.
-2. **Install:** `uv sync --extra test` gets you a `.venv` with the runtime
+2. **Environment:** Open the repo in the [dev container](.devcontainer/) (VS
+   Code "Reopen in Container", or GitHub Codespaces) for a ready-to-go
+   Python 3.14 + `uv` + `pre-commit` setup, plus the Bruno extension for the
+   collection below -- see `.devcontainer/README.md`. Not required:
+   `uv sync --extra test` on your own machine works just as well.
+3. **Install:** `uv sync --extra test` gets you a `.venv` with the runtime
    dependencies (`aiohttp`) plus the test extras (`pytest`, `pytest-asyncio`,
    `hypothesis`, `pytest-cov`).
-3. **Pre-commit:** install the hooks (`ruff`, `mypy`, `pylint`, `vulture`,
+4. **Pre-commit:** install the hooks (`ruff`, `mypy`, `pylint`, `vulture`,
    `codespell`, `gitleaks`, `shellcheck`, and a custom
    [PEP 758](https://peps.python.org/pep-0758/) exception-grouping check --
    see `.pre-commit-config.yaml`) with `pre-commit install`.
-4. **Coding Standards:** [Ruff](https://github.com/astral-sh/ruff) for
+5. **Coding Standards:** [Ruff](https://github.com/astral-sh/ruff) for
    linting/formatting; this project targets Python 3.14 and prefers the
    PEP 758 comma-separated exception syntax (`except ValueError, TypeError:`)
    over parenthesized grouping -- the `check-exception-parentheses`

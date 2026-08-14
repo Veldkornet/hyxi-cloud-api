@@ -21,8 +21,11 @@ htmlcov/
 .ruff_cache/
 
 # IDEs
+# Ignore VSCode personal settings, but keep the tasks and the (personal-data-
+# free) extension recommendations
 .vscode/*
 !.vscode/tasks.json
+!.vscode/extensions.json
 .idea/
 .DS_Store
 
