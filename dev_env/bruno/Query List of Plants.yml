@@ -1,0 +1,103 @@
+info:
+  name: Query List of Plants
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{base_url}}/api/plant/v1/page"
+  body:
+    type: json
+    data: |-
+      {
+      "pageSize": 10,
+      "currentPage": 1
+      }
+  auth:
+    type: bearer
+    token: "{{token}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        const crypto = require("crypto-js");
+
+        // 1. Setup variables
+        const timestamp = Date.now().toString();
+        const nonce = Math.random().toString(16).substring(2, 10);
+        const method = "POST";
+        const path = "/api/plant/v1/page";
+        const signHeaderKeys = ""; // As per your Java example
+
+        const getVar = (name) => bru.getEnvVar(name) || bru.getVar(name);
+        const accessKey = getVar("access_key");
+        const secretKey = getVar("secret_key");
+        const token = getVar("token");
+
+        // 2. Handle the "Sign-headers" content logic
+        // The Java code filters the body by keys in signHeaderKeys
+        let body = req.getBody();
+        let content = "";
+
+        if (signHeaderKeys) {
+            const keys = signHeaderKeys.split(":");
+            keys.forEach(key => {
+                if (body && body[key] !== undefined) {
+                    content += key + ":" + body[key];
+                }
+            });
+        }
+
+        // Remove all whitespace as per: content.replaceAll("\\s+", "")
+        const contentWithoutWhitespace = content.replace(/\s+/g, '');
+
+        // 3. DigestUtil.sha512Hex()
+        const hexContentHash = crypto.SHA512(contentWithoutWhitespace).toString(crypto.enc.Hex);
+
+        // 4. Build stringToSign: {uri}\n{method}\n{hexContentHash}\n
+        const stringToSign = `${path}\n${method}\n${hexContentHash}\n`;
+
+        // 5. Build signString: {accessKey}{token}{timestamp}{nonce}{stringToSign}
+        const signString = `${accessKey}${token}${timestamp}${nonce}${stringToSign}`;
+
+        // 6. HMAC-SHA512 and Base64
+        const hash = crypto.HmacSHA512(signString, secretKey);
+        const signature = crypto.enc.Base64.stringify(hash);
+
+        // 7. Set Headers
+        req.setHeader("timestamp", timestamp);
+        req.setHeader("nonce", nonce);
+        req.setHeader("sign", signature);
+        req.setHeader("accessKey", accessKey);
+        req.setHeader("Authorization", token);
+        req.setHeader("Sign-headers", signHeaderKeys); // Even if empty, it's often required
+    - type: after-response
+      code: |-
+        const data = res.getBody();
+
+        // Log the whole response to the Bruno Console (Ctrl+Alt+C) to verify the path
+        console.log("Full Response:", data);
+
+        if (data && data.data && data.data.list && data.data.list.length > 0) {
+            // Check if the field is 'id' or 'plantId'
+            const id = data.data.list[0].plantId;
+            const name = data.data.list[0].plantName;
+
+            if (id) {
+                bru.setVar("active_plant_id", id);
+                bru.setVar("active_plant_name", name)
+                console.log("SUCCESS: active_plant_id set to:", id);
+              console.log("SUCCESS: active_plant_name set to:", name);
+            } else {
+                console.log("ERROR: Found a plant, but 'id' field was missing.");
+            }
+        } else {
+            console.log("ERROR: Response structure did not match data.data.list[0]");
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

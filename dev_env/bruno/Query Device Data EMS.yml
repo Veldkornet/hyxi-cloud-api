@@ -1,0 +1,61 @@
+info:
+  name: Query Device Data EMS
+  type: http
+  seq: 9
+
+http:
+  method: GET
+  url: "{{base_url}}/api/ems/v1/queryBasicDetails?emsSn={{device_sn_EMS}}"
+  params:
+    - name: emsSn
+      value: "{{device_sn_EMS}}"
+      type: query
+  auth:
+    type: bearer
+    token: "{{token}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        const crypto = require('crypto-js');
+
+        const getVar = (name) => bru.getEnvVar(name) || bru.getVar(name);
+        const accessKey = getVar("access_key");
+        const secretKey = getVar("secret_key");
+        const token = getVar("token");
+
+        if (!token) {
+            throw new Error("No token found! Run the 'Get Token' request first.");
+        }
+
+        const path = "/api/ems/v1/queryBasicDetails";
+        const method = "GET";
+        const timestamp = Date.now().toString();
+        const nonce = timestamp.toString(16).slice(-8);
+
+        // For non-token requests, content hash is the hash of an empty string
+        const hexContentHash = crypto.SHA512("").toString(crypto.enc.Hex);
+
+        // IMPORTANT: Per your Python code, for data calls,
+        // the token is injected into the signString calculation
+        const stringToSign = `${path}\n${method}\n${hexContentHash}\n`;
+        const signString = `${accessKey}${token}${timestamp}${nonce}${stringToSign}`;
+
+        const hmac = crypto.HmacSHA512(signString, secretKey);
+        const signature = crypto.enc.Base64.stringify(hmac);
+
+        // Set Headers
+        req.setHeader("accessKey", accessKey);
+        req.setHeader("timestamp", timestamp);
+        req.setHeader("nonce", nonce);
+        req.setHeader("sign", signature);
+        req.setHeader("Authorization", token);
+
+        console.log(`Querying device: ${getVar("device_sn")}`);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

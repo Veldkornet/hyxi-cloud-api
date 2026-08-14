@@ -1,0 +1,93 @@
+info:
+  name: Get Token
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{base_url}}/api/authorization/v1/token"
+  body:
+    type: json
+    data: '{"grantType": 1}'
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        const crypto = require('crypto-js');
+
+        // 1. Fetch Variables (with trim to avoid whitespace corruption)
+        const getVar = (name) => bru.getEnvVar(name) || bru.getVar(name);
+        const accessKey = (getVar("access_key") || "").trim();
+        const secretKey = (getVar("secret_key") || "").trim();
+
+        if (!accessKey || !secretKey) {
+            throw new Error("ERROR: access_key or secret_key is missing in Environment/Vars!");
+        }
+
+        // 2. Setup Request Data
+        const urlStr = req.getUrl();
+
+        // Robustly extract the path by finding where "/api/" starts
+        // This safely handles both "https://..." and "{{baseUrl}}/api/..."
+        const pathIndex = urlStr.indexOf("/api/");
+        const path = pathIndex !== -1 ? urlStr.substring(pathIndex) : urlStr;
+
+        const method = req.getMethod().toUpperCase();
+        const timestamp = Date.now().toString();
+
+        // Generate a true 8-character random hex nonce
+        const nonce = crypto.lib.WordArray.random(4).toString(crypto.enc.Hex);
+
+        // 3. Define the Body
+        const bodyObject = { "grantType": 1 };
+
+        // 4. Calculate Content Hash
+        let contentToHash = "";
+        if (path.includes("token")) {
+            contentToHash = `grantType:${bodyObject.grantType}`;
+        }
+
+        const hexContentHash = crypto.SHA512(contentToHash).toString(crypto.enc.Hex);
+
+        // 5. Construct String to Sign
+        const stringToSign = `${path}\n${method}\n${hexContentHash}\n`;
+
+        // 6. Final HMAC Calculation
+        const signString = `${accessKey}${timestamp}${nonce}${stringToSign}`;
+        const hmac = crypto.HmacSHA512(signString, secretKey);
+        const signature = crypto.enc.Base64.stringify(hmac);
+
+        // 7. Apply to Request using EXACT casing expected by HYXI
+        req.setHeader("accessKey", accessKey);
+        req.setHeader("timestamp", timestamp);
+        req.setHeader("nonce", nonce);
+        req.setHeader("sign", signature);
+        req.setHeader("Content-Type", "application/json");
+
+        if (path.includes("token")) {
+            req.setHeader("sign-headers", "grantType");
+        } else {
+            const token = getVar("token");
+            if (token) req.setHeader("Authorization", token);
+        }
+
+    - type: after-response
+      code: |-
+        // Bruno uses 'res' instead of 'pm.response'
+        const body = res.getBody();
+
+        if (body && body.data && body.data.access_token) {
+            // Save the token for subsequent calls
+            const fullToken = `Bearer ${body.data.access_token}`;
+            bru.setVar("token", fullToken);
+            console.log("Success: Token saved to variables.");
+        } else {
+            console.error("Token missing in response. Response was:", body);
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
