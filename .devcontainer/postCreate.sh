@@ -55,10 +55,14 @@ sudo chown -R "$(id -u):$(id -g)" .venv
 # devcontainer.json's `remoteEnv` (covers lifecycle scripts too, not just
 # terminals), so both passes fail fast on lockfile drift like CI's do.
 uv sync --extra test --no-build --no-install-project
-uv sync --extra test
+uv sync --extra test  # NOSONAR: this pass is specifically the trusted-first-party-build step the comment above describes -- --no-build would defeat its purpose
 
 # pre-commit is a locked test dependency (pyproject.toml), not `uv tool
 # install`'s unversioned "whatever's latest on PyPI right now" -- `uv run`
 # uses the project's own locked venv instead of uv's separate, unpinned
-# tool store.
-uv run pre-commit install
+# tool store. `uv run --no-build` was tried here and doesn't work: its
+# implicit sync re-validates the *whole* environment against the flag,
+# including this project's own editable install, which has no wheel and
+# always needs building -- same root cause as the NOSONAR above, verified
+# by actually hitting the resulting error, not assumed.
+uv run pre-commit install  # NOSONAR: see comment -- --no-build is incompatible with this project's own editable install
