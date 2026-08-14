@@ -1,0 +1,93 @@
+info:
+  name: Query Sub-Device List of Communication Device 2
+  type: http
+  seq: 6
+
+http:
+  method: POST
+  url: "{{base_url}}/api/device/v1/getSubDevicePage"
+  body:
+    type: json
+    data: |-
+      {
+        "parentSn": "{{device_sn_DMU}}",
+        "currentPage": 1,
+        "pageSize": 10
+      }
+  auth:
+    type: bearer
+    token: "{{token}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        const crypto = require("crypto-js");
+
+        // 1. Setup variables
+        const timestamp = Date.now().toString();
+        const nonce = Math.random().toString(16).substring(2, 10);
+        const method = "POST";
+        const path = "/api/device/v1/getSubDevicePage";
+        const signHeaderKeys = ""; // As per your Java example
+
+        const getVar = (name) => bru.getEnvVar(name) || bru.getVar(name);
+        const accessKey = getVar("access_key");
+        const secretKey = getVar("secret_key");
+        let token = getVar("token");
+
+        if (token && !token.startsWith("Bearer ")) {
+            token = "Bearer " + token;
+        }
+
+        // 2. Handle the "Sign-headers" content logic (MATCHING JAVA EXACTLY)
+        let contentStr = ""; // Default to empty string if signHeaderKeys is empty
+
+        // 3. DigestUtil.sha512Hex() of the EMPTY string
+        const hexContentHash = crypto.SHA512(contentStr).toString(crypto.enc.Hex);
+
+        // 4. Build stringToSign: {uri}\n{method}\n{hexContentHash}\n
+        const stringToSign = `${path}\n${method}\n${hexContentHash}\n`;
+
+        // 5. Build signString: {accessKey}{token}{timestamp}{nonce}{stringToSign}
+        const signString = `${accessKey}${token}${timestamp}${nonce}${stringToSign}`;
+
+        // 6. HMAC-SHA512 and Base64
+        const hash = crypto.HmacSHA512(signString, secretKey);
+        const signature = crypto.enc.Base64.stringify(hash);
+
+        // 7. Set Headers
+        req.setHeader("Timestamp", timestamp);
+        req.setHeader("Nonce", nonce);
+        req.setHeader("Sign", signature);
+        req.setHeader("AccessKey", accessKey);
+        req.setHeader("Authorization", token);
+        req.setHeader("Sign-headers", signHeaderKeys);
+        req.setHeader("Content-Type", "application/json;charset=utf-8");
+    - type: after-response
+      code: |-
+        const response = res.getBody();
+
+        if (response.success && response.data && response.data.deviceList) {
+            const devices = response.data.deviceList;
+
+            // Find the device that is a Hybrid Inverter
+            const inverter = devices.find(d => d.deviceType === "HYBRID_INVERTER");
+
+            if (inverter) {
+                bru.setVar("active_device_sn", inverter.deviceSn);
+                console.log("Success! Saved Inverter SN: " + inverter.deviceSn);
+            } else {
+                // Fallback: If no Hybrid Inverter, take the first device
+                bru.setVar("active_device_sn", devices[0].deviceSn);
+                console.log("Warning: No Hybrid found, saved first device SN: " + devices[0].deviceSn);
+            }
+        } else {
+            console.log("Error: Response structure did not contain deviceList.");
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

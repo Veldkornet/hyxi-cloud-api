@@ -1,0 +1,12 @@
+name: HYXi
+variables:
+  - name: base_url
+    value: https://open.hyxicloud.com
+  - secret: true
+    name: access_key
+    description: ""
+  - secret: true
+    name: secret_key
+    description: ""
+  - name: callback_url
+    value: https://webhook.site/YOUR-UNIQUE-ID

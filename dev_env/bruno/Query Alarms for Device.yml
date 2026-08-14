@@ -1,0 +1,76 @@
+info:
+  name: Query Alarms for Device
+  type: http
+  seq: 15
+
+http:
+  method: POST
+  url: "{{base_url}}/api/alarm/v1/deviceAlarmPage"
+  body:
+    type: json
+    data: |
+      {
+        "deviceSn": "{{active_device_sn}}",
+        "pageSize": 20,
+        "currentPage": 1
+      }
+  auth:
+    type: bearer
+    token: "{{token}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        const crypto = require('crypto-js');
+
+        const getVar = (name) => bru.getEnvVar(name) || bru.getVar(name);
+        const accessKey = getVar("access_key");
+        const secretKey = getVar("secret_key");
+        const token = getVar("token");
+
+        if (!token) {
+            throw new Error("No token found! Run the 'Get Token' request first.");
+        }
+
+        const path = "/api/alarm/v1/deviceAlarmPage";
+        const method = "POST";
+        const timestamp = Date.now().toString();
+        const nonce = timestamp.toString(16).slice(-8);
+
+        // For GET requests, content hash is the hash of an empty string
+        const hexContentHash = crypto.SHA512("").toString(crypto.enc.Hex);
+
+        // IMPORTANT: Per your Python code, for data calls,
+        // the token is injected into the signString calculation
+        const stringToSign = `${path}\n${method}\n${hexContentHash}\n`;
+        const signString = `${accessKey}${token}${timestamp}${nonce}${stringToSign}`;
+
+        const hmac = crypto.HmacSHA512(signString, secretKey);
+        const signature = crypto.enc.Base64.stringify(hmac);
+
+        // Set Headers
+        req.setHeader("AccessKey", accessKey);
+        req.setHeader("Timestamp", timestamp);
+        req.setHeader("Nonce", nonce);
+        req.setHeader("Sign", signature);
+        req.setHeader("Authorization", token);
+
+        console.log(`Querying device: ${getVar("device_sn")}`);
+    - type: after-response
+      code: |-
+        const response = res.getBody();
+
+        if (response.success && response.data && response.data.pageData && response.data.pageData.length > 0) {
+            const alarms = response.data.pageData;
+            bru.setVar("active_alarm_id", alarms[0].id);
+            console.log("Saved active_alarm_id: " + alarms[0].id);
+        } else {
+            console.log("No alarms found in response — active_alarm_id not set.");
+        }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

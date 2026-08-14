@@ -1,0 +1,63 @@
+info:
+  name: Cancel Subscription
+  type: http
+  seq: 23
+
+http:
+  method: POST
+  url: "{{base_url}}/api/subscribe/v1/cancel"
+  body:
+    type: json
+    data: |
+      {
+        "subscribeCode": "{{active_subscribe_code}}"
+      }
+  auth:
+    type: bearer
+    token: "{{token}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        const crypto = require('crypto-js');
+
+        const getVar = (name) => bru.getEnvVar(name) || bru.getVar(name);
+        const accessKey = getVar("access_key");
+        const secretKey = getVar("secret_key");
+        const token = getVar("token");
+
+        if (!token) {
+            throw new Error("No token found! Run the 'Get Token' request first.");
+        }
+
+        const path = "/api/subscribe/v1/cancel";
+        const method = "POST";
+        const timestamp = Date.now().toString();
+        const nonce = timestamp.toString(16).slice(-8);
+
+        // For GET requests, content hash is the hash of an empty string
+        const hexContentHash = crypto.SHA512("").toString(crypto.enc.Hex);
+
+        // IMPORTANT: Per your Python code, for data calls,
+        // the token is injected into the signString calculation
+        const stringToSign = `${path}\n${method}\n${hexContentHash}\n`;
+        const signString = `${accessKey}${token}${timestamp}${nonce}${stringToSign}`;
+
+        const hmac = crypto.HmacSHA512(signString, secretKey);
+        const signature = crypto.enc.Base64.stringify(hmac);
+
+        // Set Headers
+        req.setHeader("AccessKey", accessKey);
+        req.setHeader("Timestamp", timestamp);
+        req.setHeader("Nonce", nonce);
+        req.setHeader("Sign", signature);
+        req.setHeader("Authorization", token);
+
+        console.log(`Cancelling subscription: ${getVar("active_subscribe_code")}`);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

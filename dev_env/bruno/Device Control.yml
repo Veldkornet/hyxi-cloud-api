@@ -1,0 +1,67 @@
+info:
+  name: Device Control
+  type: http
+  seq: 19
+
+http:
+  method: POST
+  url: "{{base_url}}/api/device/v2/control"
+  body:
+    type: json
+    data: |
+      {
+        "deviceControlMap": {
+          "{{device_sn_EMS}}": {
+            "1011": "0"
+          }
+        }
+      }
+  auth:
+    type: bearer
+    token: "{{token}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        const crypto = require('crypto-js');
+
+        const getVar = (name) => bru.getEnvVar(name) || bru.getVar(name);
+        const accessKey = getVar("access_key");
+        const secretKey = getVar("secret_key");
+        const token = getVar("token");
+
+        if (!token) {
+            throw new Error("No token found! Run the 'Get Token' request first.");
+        }
+
+        const path = "/api/device/v2/control";
+        const method = "POST";
+        const timestamp = Date.now().toString();
+        const nonce = timestamp.toString(16).slice(-8);
+
+        // For GET requests, content hash is the hash of an empty string
+        const hexContentHash = crypto.SHA512("").toString(crypto.enc.Hex);
+
+        // IMPORTANT: Per your Python code, for data calls,
+        // the token is injected into the signString calculation
+        const stringToSign = `${path}\n${method}\n${hexContentHash}\n`;
+        const signString = `${accessKey}${token}${timestamp}${nonce}${stringToSign}`;
+
+        const hmac = crypto.HmacSHA512(signString, secretKey);
+        const signature = crypto.enc.Base64.stringify(hmac);
+
+        // Set Headers
+        req.setHeader("AccessKey", accessKey);
+        req.setHeader("Timestamp", timestamp);
+        req.setHeader("Nonce", nonce);
+        req.setHeader("Sign", signature);
+        req.setHeader("Authorization", token);
+
+        console.log(`Sending control command to device: ${getVar("device_sn_EMS")}`);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
