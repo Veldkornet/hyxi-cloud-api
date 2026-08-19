@@ -665,7 +665,7 @@ def _compute_load_metrics(m_raw: dict, derived: dict[str, float]) -> None:
             derived["load_power_w"] = _get_f("totalPac", m_raw)
 
 
-def _normalize_micro_ess_gridp(m_raw: dict, device_type: str) -> None:
+def _normalize_micro_ess_gridp(m_raw: dict, device_type: str | None) -> None:
     """Normalize `gridP` from Watts to kW in place for Micro ESS/Halo devices.
 
     Micro ESS/Halo devices (device_type in _MICRO_ESS_DEVICE_TYPES) report
@@ -693,9 +693,11 @@ def _normalize_micro_ess_gridp(m_raw: dict, device_type: str) -> None:
 def _compute_grid_metrics(m_raw: dict, derived: dict[str, float]) -> None:
     """Calculate grid import/export metrics.
 
-    `gridP` is expected in kW here (see _normalize_micro_ess_gridp, called
-    by every ingestion path -- REST poll or real-time push -- before this
-    runs) and gets converted to W for the derived sensors.
+    `gridP` is expected in kW here and gets converted to W for the derived
+    sensors. Every ingestion path normalizes it to kW before this runs:
+    nested push payloads via grid.powerW's own conversion in
+    _flatten_nested_push_device, and everything else (REST poll,
+    flat-format push) via _normalize_micro_ess_gridp.
     """
     grid = None
     if "gridP" in m_raw and m_raw["gridP"] is not None and m_raw["gridP"] != "":
