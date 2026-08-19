@@ -273,6 +273,116 @@ def test_process_push_data_nested_format():
     assert metrics["grid_export"] == 0.0
 
 
+def test_process_push_data_nested_format_ems_device_grid_unaffected():
+    """Nested-format EMS/Micro ESS push payloads must NOT be double-corrected
+    by _normalize_micro_ess_gridp (GitHub issue #654).
+
+    The nested push format's grid.powerW is real Watts and is already
+    converted to kW by _flatten_nested_push_device regardless of device
+    type, so _compute_grid_metrics must keep applying its normal kW->W
+    multiplier here even for an EMS-classified device.
+    """
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    api._discovery_cache["device_info"] = {
+        "HALO123": {
+            "model": "Halo",
+            "device_type_code": "MICRO_STORAGE_ALL_IN_ONE",
+            "device_name": "My Halo",
+        }
+    }
+
+    nested_payload = {
+        "dataList": [
+            {
+                "record": {"deviceSn": "HALO123", "collectTime": 1717764875000},
+                "grid": {"powerW": -811.0},
+            }
+        ]
+    }
+
+    results = api.process_push_data(nested_payload)
+    metrics = results["HALO123"]["metrics"]
+
+    assert metrics["gridP"] == -0.811
+    assert metrics["grid_import"] == 811.0
+    assert metrics["grid_export"] == 0.0
+
+
+def test_process_push_data_flat_format_ems_device_gridp_watts_normalized():
+    """Flat-format EMS/Micro ESS push payloads carry gridP unconverted (no
+    nested "grid" object to catch it), so they need the same Watts->kW
+    normalization as the REST poll path -- otherwise this reproduces the
+    exact GitHub issue #654 bug via push instead of REST.
+    """
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    api._discovery_cache["device_info"] = {
+        "HALO123": {
+            "model": "Halo",
+            "device_type_code": "MICRO_STORAGE_ALL_IN_ONE",
+            "device_name": "My Halo",
+        }
+    }
+
+    flat_payload = {
+        "dataList": [
+            {
+                "deviceSn": "HALO123",
+                "collectTime": 1717764875,
+                "gridP": "811.0",
+                "gridQ": "26.0",
+                "batP": "878",
+            }
+        ]
+    }
+
+    results = api.process_push_data(flat_payload)
+    metrics = results["HALO123"]["metrics"]
+
+    assert metrics["gridP"] == 0.811
+    assert metrics["grid_import"] == 0.0
+    assert metrics["grid_export"] == 811.0
+
+
+def test_process_push_data_nested_grid_without_powerw_still_normalized():
+    """A nested "grid" object without a usable "powerW" (e.g. only
+    frequencyHz) must NOT be mistaken for "gridP was already converted" --
+    a stray flat gridP in the same payload still needs normalizing.
+
+    Regression test for a review finding on the fix for GitHub issue #654:
+    the original check (isinstance(device.get("grid"), dict)) treated any
+    nested grid object as proof of conversion, even when that object never
+    actually populated gridP.
+    """
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    api._discovery_cache["device_info"] = {
+        "HALO123": {
+            "model": "Halo",
+            "device_type_code": "MICRO_STORAGE_ALL_IN_ONE",
+            "device_name": "My Halo",
+        }
+    }
+
+    payload = {
+        "dataList": [
+            {
+                "deviceSn": "HALO123",
+                "collectTime": 1717764875,
+                "gridP": "811.0",
+                "grid": {"frequencyHz": 50.0},  # no "powerW"
+            }
+        ]
+    }
+
+    results = api.process_push_data(payload)
+    metrics = results["HALO123"]["metrics"]
+
+    assert metrics["gridP"] == 0.811
+    assert metrics["grid_export"] == 811.0
+
+
 def test_process_push_data_flat_ms_collect_time():
     """Test process_push_data correctly parses flat telemetry with millisecond collectTime."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())

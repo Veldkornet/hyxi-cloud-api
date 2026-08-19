@@ -1,6 +1,8 @@
 """Tests for the _compute_grid_metrics helper function in api.py."""
 
-from src.hyxi_cloud_api.api import _compute_grid_metrics
+import pytest
+
+from src.hyxi_cloud_api.api import _compute_grid_metrics, _normalize_micro_ess_gridp
 
 
 class TestComputeGridMetrics:
@@ -77,3 +79,53 @@ class TestComputeGridMetrics:
         assert "gridP" not in derived  # gridP was in m_raw, not computed/derived
         assert derived["grid_import"] == 0.0
         assert derived["grid_export"] == 1500.0
+
+
+class TestNormalizeMicroEssGridp:
+    """Tests for _normalize_micro_ess_gridp (GitHub issue #654).
+
+    Micro ESS/Halo devices report gridP in Watts wherever the raw API value
+    passes through unconverted; _compute_grid_metrics always expects gridP
+    in kW, so this normalizes it in place before that happens.
+    """
+
+    @pytest.mark.parametrize(
+        "device_type", ["15", "16", "EMS", "MICRO_STORAGE_ALL_IN_ONE"]
+    )
+    def test_normalizes_watts_to_kw_for_micro_ess_family(self, device_type):
+        """Test that every code in _MICRO_ESS_DEVICE_TYPES gets the fixup."""
+        m_raw = {"gridP": "811.0"}
+        _normalize_micro_ess_gridp(m_raw, device_type)
+        assert m_raw["gridP"] == 0.811
+
+    def test_leaves_non_micro_ess_device_untouched(self):
+        """Test that non-Micro-ESS device types are left as-is."""
+        m_raw = {"gridP": "1.5"}
+        _normalize_micro_ess_gridp(m_raw, "HYBRID_INVERTER")
+        assert m_raw["gridP"] == "1.5"
+
+    def test_leaves_energy_storage_battery_untouched(self):
+        """ENERGY_STORAGE_BATTERY shares _EMS_DEVICE_TYPES with the Micro ESS
+        family for unrelated purposes, but has no evidence of this quirk.
+        """
+        m_raw = {"gridP": "1.5"}
+        _normalize_micro_ess_gridp(m_raw, "ENERGY_STORAGE_BATTERY")
+        assert m_raw["gridP"] == "1.5"
+
+    def test_missing_gridp_is_a_noop(self):
+        """Test that a missing gridP key doesn't raise or add one."""
+        m_raw: dict = {}
+        _normalize_micro_ess_gridp(m_raw, "15")
+        assert "gridP" not in m_raw
+
+    def test_unparsable_gridp_left_untouched(self):
+        """Test that an unparsable gridP value is left as-is."""
+        m_raw = {"gridP": "not-a-number"}
+        _normalize_micro_ess_gridp(m_raw, "15")
+        assert m_raw["gridP"] == "not-a-number"
+
+    def test_none_device_type_is_a_noop(self):
+        """Test that a None device_type is treated as non-Micro-ESS."""
+        m_raw = {"gridP": "811.0"}
+        _normalize_micro_ess_gridp(m_raw, None)
+        assert m_raw["gridP"] == "811.0"

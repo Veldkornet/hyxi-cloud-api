@@ -84,6 +84,16 @@ _EMS_DEVICE_TYPES = frozenset(
         "16",
     )
 )
+# The Micro ESS/Halo family specifically -- a subset of _EMS_DEVICE_TYPES.
+# _EMS_DEVICE_TYPES also includes "ENERGY_STORAGE_BATTERY", a distinct
+# standalone-battery-pack category (maps to a different friendly device
+# type than Micro ESS in the ha-hyxi-cloud integration) with no evidence
+# it shares the gridP-in-Watts quirk below -- keep it out of this narrower
+# set so the fixup doesn't get applied speculatively to an unverified
+# device category. Derived rather than hand-copied so the two sets can't
+# silently drift apart if a new EMS type code is added to one and not the
+# other later.
+_MICRO_ESS_DEVICE_TYPES = _EMS_DEVICE_TYPES - {"ENERGY_STORAGE_BATTERY"}
 _COLLECTOR_FILTER_KEYWORDS = (
     "bat",
     "pv",
@@ -655,8 +665,38 @@ def _compute_load_metrics(m_raw: dict, derived: dict[str, float]) -> None:
             derived["load_power_w"] = _get_f("totalPac", m_raw)
 
 
+def _normalize_micro_ess_gridp(m_raw: dict, device_type: str) -> None:
+    """Normalize `gridP` from Watts to kW in place for Micro ESS/Halo devices.
+
+    Micro ESS/Halo devices (device_type in _MICRO_ESS_DEVICE_TYPES) report
+    `gridP` already in Watts on any path that passes the raw API value
+    through unconverted -- the REST /api/device/v1/queryDeviceData poll,
+    and flat-format real-time push payloads -- unlike every other device
+    type, and unlike the nested push format's explicitly self-describing
+    `grid.powerW` field (already converted to kW unconditionally by
+    _flatten_nested_push_device, regardless of device type). Callers must
+    run this before merging `m_raw` into stored metrics or deriving
+    grid_import/grid_export from it via _compute_grid_metrics, which
+    expects `gridP` in kW.
+
+    See GitHub issue #654 in ha-hyxi-cloud, where a Halo's gridP=811.0
+    (matching the magnitude of gridQ/gridAp/batP in the same payload) was
+    getting inflated to 811000.0 by the kW->W multiplier below.
+    """
+    if str(device_type or "") in _MICRO_ESS_DEVICE_TYPES and "gridP" in m_raw:
+        try:
+            m_raw["gridP"] = float(m_raw["gridP"]) / 1000.0
+        except ValueError, TypeError:
+            pass
+
+
 def _compute_grid_metrics(m_raw: dict, derived: dict[str, float]) -> None:
-    """Calculate grid import/export metrics."""
+    """Calculate grid import/export metrics.
+
+    `gridP` is expected in kW here (see _normalize_micro_ess_gridp, called
+    by every ingestion path -- REST poll or real-time push -- before this
+    runs) and gets converted to W for the derived sensors.
+    """
     grid = None
     if "gridP" in m_raw and m_raw["gridP"] is not None and m_raw["gridP"] != "":
         grid = _get_f("gridP", m_raw, 1000.0)
@@ -1387,10 +1427,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             if res_q.get("success"):
                 data_list = res_q.get("data", [])
                 m_raw = _parse_data_list(data_list)
+                device_type = entry.get("device_type_code", "")
+                _normalize_micro_ess_gridp(m_raw, device_type)
 
                 # 🚀 Sanitization: If this is a Collector, ignore battery/power metrics that shouldn't be here.
                 # This prevents "Collector" entities in Home Assistant from showing ghost battery stats.
-                if entry.get("device_type_code") == "COLLECTOR":
+                if device_type == "COLLECTOR":
                     entry["metrics"].update(_filter_collector_metrics(m_raw))
                 else:
                     entry["metrics"].update(m_raw)
@@ -1403,9 +1445,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                     or "gridF" in m_raw
                 ):
                     entry["metrics"].update(
-                        _compute_derived_metrics(
-                            m_raw, entry.get("device_type_code", "")
-                        )
+                        _compute_derived_metrics(m_raw, device_type)
                     )
             else:
                 _LOGGER.warning(
@@ -2387,7 +2427,17 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
     @staticmethod
     def compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
-        """Calculate derived metrics (grid import/export, bat charging/discharging, etc.) from raw metrics."""
+        """Calculate derived metrics (grid import/export, bat charging/discharging, etc.) from raw metrics.
+
+        Precondition: for Micro ESS/Halo device types, `m_raw["gridP"]` must
+        already be in kW (see _normalize_micro_ess_gridp). Both of this
+        SDK's own ingestion paths (_fetch_device_metrics, process_push_data)
+        guarantee that before storing metrics, so re-deriving from
+        already-stored/merged metrics -- e.g. a caller recomputing derived
+        sensors after merging cached and freshly-fetched metrics -- is safe.
+        Calling this directly on freshly-parsed raw API data that bypassed
+        both ingestion paths is not.
+        """
         return _compute_derived_metrics(m_raw, device_type)
 
     def process_push_data(
@@ -2426,6 +2476,19 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             if not isinstance(device, dict):
                 continue
 
+            # A nested grid.powerW has already been converted to kW by
+            # _flatten_nested_push_device below, regardless of device type.
+            # Mirror its own condition for running that conversion exactly
+            # (not just "a grid dict is present") -- a grid object without
+            # a usable powerW (e.g. only frequencyHz) wouldn't trigger it,
+            # leaving any gridP that slipped through unconverted and still
+            # needing _normalize_micro_ess_gridp below.
+            raw_grid = device.get("grid")
+            grid_power_converted = (
+                isinstance(raw_grid, dict)
+                and "powerW" in raw_grid
+                and raw_grid["powerW"] is not None
+            )
             device = _flatten_nested_push_device(device)
 
             sn = device.get("deviceSn")
@@ -2440,6 +2503,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                     "HYXI push: no discovery-cache entry for %s, device_type unknown",
                     _mask_id(sn),
                 )
+
+            if not grid_power_converted:
+                _normalize_micro_ess_gridp(device, device_type)
 
             raw_metrics = _extract_raw_push_metrics(device)
             last_seen = _resolve_push_timestamp(device, now_utc)
