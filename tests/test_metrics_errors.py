@@ -283,3 +283,107 @@ async def test_fetch_device_metrics_parsing_error(caplog, monkeypatch):
 
     assert "Error fetching metrics for " in caplog.text
     assert "Mock parsing error" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_metrics_ems_gridp_watts_normalized_to_kw():
+    """EMS/Micro ESS devices (e.g. Halo) report gridP in Watts, not kW.
+
+    Regression test for GitHub issue #654: a Halo's queryDeviceData response
+    included gridP=811.0 (Watts, matching gridQ/gridAp/batP in the same
+    payload), but _compute_grid_metrics assumes gridP is in kW and derived
+    grid_export=811000.0 instead of 811.0. _fetch_device_metrics must
+    normalize gridP to kW for EMS device types before it reaches derived
+    metrics computation (and before it's merged into entry["metrics"], so
+    any later recompute -- e.g. the HA coordinator's merge-time
+    compute_derived_metrics() call -- sees the same convention).
+    """
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {
+                "success": True,
+                "data": [
+                    {"dataKey": "gridP", "dataValue": "811.0"},
+                    {"dataKey": "gridQ", "dataValue": "26.0"},
+                    {"dataKey": "batP", "dataValue": "878"},
+                ],
+            },
+        )
+    )
+
+    entry = {"metrics": {}, "device_type_code": "15"}  # Micro ESS
+    await api._fetch_device_metrics("10602251600016", entry)
+
+    assert entry["metrics"]["gridP"] == 0.811
+    assert entry["metrics"]["grid_export"] == 811.0
+    assert entry["metrics"]["grid_import"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_metrics_non_ems_gridp_left_as_kw():
+    """Non-EMS device types are unaffected -- gridP stays in kW as-is."""
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {"success": True, "data": [{"dataKey": "gridP", "dataValue": "1.5"}]},
+        )
+    )
+
+    entry = {"metrics": {}, "device_type_code": "INVERTER"}
+    await api._fetch_device_metrics("10602251600016", entry)
+
+    assert entry["metrics"]["gridP"] == "1.5"
+    assert entry["metrics"]["grid_export"] == 1500.0
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_metrics_energy_storage_battery_gridp_left_as_kw():
+    """ENERGY_STORAGE_BATTERY is grouped with EMS types for unrelated
+    battery-fallback/EMS-probe purposes (_EMS_DEVICE_TYPES), but it's a
+    distinct standalone-battery-pack category with no evidence of the
+    Micro ESS/Halo gridP-in-Watts quirk -- it must stay out of the
+    narrower _MICRO_ESS_DEVICE_TYPES fixup set.
+    """
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {"success": True, "data": [{"dataKey": "gridP", "dataValue": "1.5"}]},
+        )
+    )
+
+    entry = {"metrics": {}, "device_type_code": "ENERGY_STORAGE_BATTERY"}
+    await api._fetch_device_metrics("10602251600016", entry)
+
+    assert entry["metrics"]["gridP"] == "1.5"
+    assert entry["metrics"]["grid_export"] == 1500.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("device_type_code", ["16", "EMS", "MICRO_STORAGE_ALL_IN_ONE"])
+async def test_fetch_device_metrics_micro_ess_family_gridp_normalized(
+    device_type_code,
+):
+    """Every code in _MICRO_ESS_DEVICE_TYPES gets the Watts->kW fixup, not
+    just the "15" used in test_fetch_device_metrics_ems_gridp_watts_normalized_to_kw.
+    """
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {"success": True, "data": [{"dataKey": "gridP", "dataValue": "811.0"}]},
+        )
+    )
+
+    entry = {"metrics": {}, "device_type_code": device_type_code}
+    await api._fetch_device_metrics("10602251600016", entry)
+
+    assert entry["metrics"]["gridP"] == 0.811
+    assert entry["metrics"]["grid_export"] == 811.0
