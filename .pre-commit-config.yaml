@@ -52,6 +52,6 @@ repos:
     hooks:
       - id: check-exception-parentheses
         name: "Check for parenthesized exceptions (use: except Exc1, Exc2:)"
-        entry: 'except\s*\([^)]+,\s*[^)]+\)\s*:'
+        entry: 'except\*?\s*\([^)]+,\s*[^)]+\)\s*:'
         language: pygrep
         types: [python]
