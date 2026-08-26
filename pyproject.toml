@@ -70,6 +70,19 @@ mypy_path = "src"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
+[tool.coverage.run]
+source = ["src/hyxi_cloud_api"]
+
+[tool.coverage.report]
+show_missing = true
+# NOTE: fail_under is intentionally NOT set here. The 100% floor is
+# enforced by .github/workflows/tests.yml's "Check coverage" step, via
+# `coverage report --fail-under=100`, run once after pytest writes the
+# coverage data -- this is a floor, not a target -- if it ever fails, the
+# fix is new tests for whatever went uncovered, not lowering the threshold.
+# Run the same `pytest --cov` invocation from that workflow locally before
+# `coverage report --fail-under=100` to check this ahead of pushing.
+
 [tool.vulture]
 paths = ["src"]
 min_confidence = 80
