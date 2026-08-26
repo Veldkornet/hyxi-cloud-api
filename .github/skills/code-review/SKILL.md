@@ -34,8 +34,8 @@ correctness.
 - Multiple exceptions in one `except` are comma-separated without
   surrounding parentheses, unless an `as` clause is present:
   `except ValueError, TypeError:` — not `except (ValueError, TypeError):`.
-  This is enforced by Sourcery (`enforce-pep-758-exception-grouping`); flag
-  new code that reintroduces the parenthesized form.
+  This is enforced by the `check-exception-parentheses` pre-commit hook;
+  flag new code that reintroduces the parenthesized form.
 
 ## 4. Auth signing must not be bypassed
 
