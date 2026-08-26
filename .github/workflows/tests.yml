@@ -62,4 +62,9 @@ jobs:
           uv sync --extra test
 
       - name: Run Pytest
-        run: uv run pytest tests/ -v
+        run: uv run pytest tests/ -v -p no:warnings --cov --cov-report=
+
+      - name: Check coverage
+        # This is a floor, not a target -- if it ever fails, the fix is new
+        # tests for whatever went uncovered, not lowering the threshold.
+        run: uv run coverage report -m --fail-under=100
