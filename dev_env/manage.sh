@@ -39,8 +39,8 @@ case "$ACTION" in
     # Safety Check: Use --force to skip
     git update-index --refresh -q > /dev/null 2>&1
     if [[ "$2" != "--force" ]] && ! git diff-index --quiet HEAD --; then
-        echo "❌ ERROR: You have uncommitted changes! Commit them or stash them first."
-        echo "💡 Use './manage.sh reset-dev --force' to nuke all local changes and mirror main."
+        echo "❌ ERROR: You have uncommitted changes! Commit them or stash them first." >&2
+        echo "💡 Use './manage.sh reset-dev --force' to nuke all local changes and mirror main." >&2
         exit 1
     fi
 

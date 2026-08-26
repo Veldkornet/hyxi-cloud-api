@@ -1,6 +1,5 @@
 """Hypothesis fuzz tests for API component parsing logic."""
 
-import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -24,18 +23,17 @@ def test_metric_parsing_never_crashes(data):
     # 2. Create a dummy entry structure like the one in your _execute_fetch_all
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
 
-    # 3. Simulate what happens in _fetch_device_metrics
+    # 3. Simulate what happens in _fetch_device_metrics. Left to fail
+    # naturally on a crash -- Hypothesis catches it, shrinks to a minimal
+    # failing `data`, and reports both in the failure output.
     # Your code does: m_raw = {item.get("dataKey"): item.get("dataValue") for item in data ...}
-    try:
-        if isinstance(data, list):
-            m_raw = {
-                item.get("dataKey"): item.get("dataValue")
-                for item in data
-                if isinstance(item, dict) and item.get("dataKey")
-            }
+    if isinstance(data, list):
+        m_raw = {
+            item.get("dataKey"): item.get("dataValue")
+            for item in data
+            if isinstance(item, dict) and item.get("dataKey")
+        }
 
-            # Use the real function so fuzz tests always cover the current implementation.
-            # This ensures batP / pbat priority logic is also exercised.
-            entry["metrics"].update(_compute_derived_metrics(m_raw))
-    except Exception as e:
-        pytest.fail(f"Parser crashed with {type(e).__name__}: {e}")
+        # Use the real function so fuzz tests always cover the current implementation.
+        # This ensures batP / pbat priority logic is also exercised.
+        entry["metrics"].update(_compute_derived_metrics(m_raw))
