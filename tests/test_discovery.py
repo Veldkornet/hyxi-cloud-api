@@ -292,8 +292,7 @@ async def test_fetch_sub_devices_exception():
         assert len(state.discovered_sns) == 0
 
         # Verify the logger caught the exception
-        mock_logger.error.assert_called_once()
-        # args, _ = mock_logger.error.call_args
+        mock_logger.exception.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -359,6 +358,6 @@ async def test_fetch_sub_devices_outer_exception():
         assert len(state.discovered_sns) == 0
 
         # Verify the logger caught the exception
-        mock_logger.error.assert_called_once()
-        args, _ = mock_logger.error.call_args
+        mock_logger.exception.assert_called_once()
+        args, _ = mock_logger.exception.call_args
         assert "Error fetching sub-devices for" in args[0]

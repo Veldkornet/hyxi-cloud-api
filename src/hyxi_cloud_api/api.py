@@ -717,70 +717,93 @@ def _compute_battery_metrics(
     m_raw: dict, derived: dict[str, float], device_type: str
 ) -> None:
     """Calculate battery charge/discharge metrics."""
+    _compute_battery_power(m_raw, derived, device_type)
+    _unify_cumulative_energy_keys(
+        m_raw,
+        derived,
+        total_key="totalEchg",
+        alt_key="batCharge",
+        total_alias_key="bat_charge_total",
+    )
+    _unify_cumulative_energy_keys(
+        m_raw,
+        derived,
+        total_key="totalEdchg",
+        alt_key="batDisCharge",
+        total_alias_key="bat_discharge_total",
+    )
+
+
+def _compute_battery_power(
+    m_raw: dict, derived: dict[str, float], device_type: str
+) -> None:
+    """Derive instantaneous battery charge/discharge power from batP/pbat.
+
+    ALL_IN_ONE: prefer pbat — batP can have an inverted sign convention,
+    while pbat is consistently negative-for-charging / positive-for-
+    discharging. Other devices: prefer batP (DC terminals), fall back to
+    pbat.
+    """
     bat_p_dc = _get_f("batP", m_raw)
     pbat = _get_f("pbat", m_raw)
     device_type_str = str(device_type or "")
 
-    if "batP" in m_raw or "pbat" in m_raw or device_type_str in _EMS_DEVICE_TYPES:
-        # ALL_IN_ONE: prefer pbat — batP can have an inverted sign convention,
-        # while pbat is consistently negative-for-charging / positive-for-discharging.
-        # Other devices: prefer batP (DC terminals), fall back to pbat.
-        if device_type_str == "ALL_IN_ONE":
-            power_source = bat_p_dc if _is_zero(pbat) else pbat
-        else:
-            power_source = pbat if _is_zero(bat_p_dc) else bat_p_dc
-        derived["bat_charging"] = abs(power_source) if power_source < 0 else 0.0
-        derived["bat_discharging"] = power_source if power_source > 0 else 0.0
-        derived["bat_power_dc"] = bat_p_dc
+    if not ("batP" in m_raw or "pbat" in m_raw or device_type_str in _EMS_DEVICE_TYPES):
+        return
 
-    def _is_valid_metric(k: str) -> bool:
-        v = m_raw.get(k)
-        if v is None:
-            return False
-        if isinstance(v, str):
-            v_cleaned = v.strip().lower()
-            return bool(v_cleaned and v_cleaned not in ("null", "none", "na", "--"))
-        return True
+    if device_type_str == "ALL_IN_ONE":
+        power_source = bat_p_dc if _is_zero(pbat) else pbat
+    else:
+        power_source = pbat if _is_zero(bat_p_dc) else bat_p_dc
+    derived["bat_charging"] = abs(power_source) if power_source < 0 else 0.0
+    derived["bat_discharging"] = power_source if power_source > 0 else 0.0
+    derived["bat_power_dc"] = bat_p_dc
 
-    # Unify cumulative battery charge energy telemetry keys to resolve polling/push mismatch
-    total_echg_val = (
-        _get_f("totalEchg", m_raw) if _is_valid_metric("totalEchg") else None
-    )
-    bat_charge_val = (
-        _get_f("batCharge", m_raw) if _is_valid_metric("batCharge") else None
-    )
 
-    if total_echg_val is not None:
-        derived["totalEchg"] = total_echg_val
-        derived["bat_charge_total"] = total_echg_val
-        if bat_charge_val is None:
-            derived["batCharge"] = total_echg_val
+def _is_valid_metric(k: str, m_raw: dict) -> bool:
+    """True if `m_raw[k]` is present and not one of the API's null-ish
+    sentinel string values ("null", "none", "na", "--").
+    """
+    v = m_raw.get(k)
+    if v is None:
+        return False
+    if isinstance(v, str):
+        v_cleaned = v.strip().lower()
+        return bool(v_cleaned and v_cleaned not in ("null", "none", "na", "--"))
+    return True
 
-    if bat_charge_val is not None:
-        derived["batCharge"] = bat_charge_val
-        if total_echg_val is None:
-            derived["totalEchg"] = bat_charge_val
-            derived["bat_charge_total"] = bat_charge_val
 
-    # Unify cumulative battery discharge energy telemetry keys to resolve polling/push mismatch
-    total_edchg_val = (
-        _get_f("totalEdchg", m_raw) if _is_valid_metric("totalEdchg") else None
-    )
-    bat_discharge_val = (
-        _get_f("batDisCharge", m_raw) if _is_valid_metric("batDisCharge") else None
-    )
+def _unify_cumulative_energy_keys(
+    m_raw: dict,
+    derived: dict[str, float],
+    *,
+    total_key: str,
+    alt_key: str,
+    total_alias_key: str,
+) -> None:
+    """Unify a cumulative energy telemetry key HYXI reports under two
+    different names depending on transport (e.g. "totalEchg" via polling,
+    "batCharge" via push), so a consumer only ever needs to read one name.
 
-    if total_edchg_val is not None:
-        derived["totalEdchg"] = total_edchg_val
-        derived["bat_discharge_total"] = total_edchg_val
-        if bat_discharge_val is None:
-            derived["batDisCharge"] = total_edchg_val
+    `total_alias_key` is the SDK-facing alias for `total_key` (e.g.
+    "bat_charge_total"), always derived from `total_key`. When only one
+    of `total_key`/`alt_key` is present, its value fills in the other
+    too; when both are present, each keeps its own reported value.
+    """
+    total_val = _get_f(total_key, m_raw) if _is_valid_metric(total_key, m_raw) else None
+    alt_val = _get_f(alt_key, m_raw) if _is_valid_metric(alt_key, m_raw) else None
 
-    if bat_discharge_val is not None:
-        derived["batDisCharge"] = bat_discharge_val
-        if total_edchg_val is None:
-            derived["totalEdchg"] = bat_discharge_val
-            derived["bat_discharge_total"] = bat_discharge_val
+    if total_val is not None:
+        derived[total_key] = total_val
+        derived[total_alias_key] = total_val
+        if alt_val is None:
+            derived[alt_key] = total_val
+
+    if alt_val is not None:
+        derived[alt_key] = alt_val
+        if total_val is None:
+            derived[total_key] = alt_val
+            derived[total_alias_key] = alt_val
 
 
 def _compute_pv_metrics(m_raw: dict, derived: dict[str, float]) -> None:
@@ -882,183 +905,248 @@ def _merge_push_metrics(
     return merged_metrics
 
 
-def _flatten_nested_push_device(device: dict) -> dict:  # pylint: disable=too-many-statements
+def _flatten_nested_push_device(device: dict) -> dict:
     """Flatten a nested push device payload into the flat layout expected by the SDK."""
     flat: dict = {}
+    _flatten_record_section(device, flat)
+    _copy_primitive_root_keys(device, flat)
+    _flatten_system_section(device, flat)
+    _flatten_ac_section(device, flat)
+    _flatten_pv_section(device, flat)
+    _flatten_battery_section(device, flat)
+    _flatten_dc_bus_section(device, flat)
+    _flatten_temperatures_section(device, flat)
+    _flatten_phases_section(device, flat)
+    _flatten_grid_section(device, flat)
+    _copy_remaining_root_keys(device, flat)
+    return flat
 
-    # 1. record
-    if "record" in device and isinstance(device["record"], dict):
-        rec = device["record"]
-        if "deviceSn" in rec:
-            flat["deviceSn"] = rec["deviceSn"]
-        if "collectTime" in rec:
-            try:
-                flat["collectTime"] = float(rec["collectTime"]) / 1000.0
-            except ValueError, TypeError:
-                flat["collectTime"] = rec["collectTime"]
-        if "parentSn" in rec:
-            flat["parentSn"] = rec["parentSn"]
-        if "deviceState" in rec:
-            flat["deviceState"] = rec["deviceState"]
 
-    # Map discrepancies between Flat Push payload and Flat Pull payload
-    _key_map = {
-        "gridEin": "totalEnt",
-        "gridEIn": "totalEnt",
-        "gridEout": "totalEpt",
-        "gridEOut": "totalEpt",
-    }
+# Map discrepancies between Flat Push payload and Flat Pull payload
+_PUSH_KEY_MAP = {
+    "gridEin": "totalEnt",
+    "gridEIn": "totalEnt",
+    "gridEout": "totalEpt",
+    "gridEOut": "totalEpt",
+}
 
-    # Copy all root-level keys that are primitive types (support new flat format)
+
+def _flatten_record_section(device: dict, flat: dict) -> None:
+    """deviceSn, collectTime (ms epoch -> s), parentSn, deviceState."""
+    if "record" not in device or not isinstance(device["record"], dict):
+        return
+    rec = device["record"]
+    if "deviceSn" in rec:
+        flat["deviceSn"] = rec["deviceSn"]
+    if "collectTime" in rec:
+        try:
+            flat["collectTime"] = float(rec["collectTime"]) / 1000.0
+        except ValueError, TypeError:
+            flat["collectTime"] = rec["collectTime"]
+    if "parentSn" in rec:
+        flat["parentSn"] = rec["parentSn"]
+    if "deviceState" in rec:
+        flat["deviceState"] = rec["deviceState"]
+
+
+def _normalize_root_collect_time(v):
+    """Convert a root-level collectTime to seconds if it looks like an ms epoch, otherwise return it unchanged."""
+    try:
+        num_val = float(v)
+    except ValueError, TypeError:
+        return v
+    return num_val / 1000.0 if num_val > 10000000000 else v
+
+
+def _copy_primitive_root_keys(device: dict, flat: dict) -> None:
+    """Copy all root-level keys that are primitive types (support new flat format)."""
     for k, v in device.items():
         if not isinstance(v, dict) and not isinstance(v, list) and v is not None:
             # Normalize push metric names to match pull metric names
-            mapped_k = _key_map.get(k, k)
+            mapped_k = _PUSH_KEY_MAP.get(k, k)
+            flat[mapped_k] = (
+                _normalize_root_collect_time(v) if mapped_k == "collectTime" else v
+            )
 
-            if mapped_k == "collectTime":
-                try:
-                    num_val = float(v)
-                    if num_val > 10000000000:
-                        flat[mapped_k] = num_val / 1000.0
-                    else:
-                        flat[mapped_k] = v
-                except ValueError, TypeError:
-                    flat[mapped_k] = v
-            else:
-                flat[mapped_k] = v
 
-    # 2. system
-    if "system" in device and isinstance(device["system"], dict):
-        sys_info = device["system"]
-        if "workMode" in sys_info:
-            flat["workMode"] = sys_info["workMode"]
+def _flatten_system_section(device: dict, flat: dict) -> None:
+    """workMode."""
+    if "system" not in device or not isinstance(device["system"], dict):
+        return
+    sys_info = device["system"]
+    if "workMode" in sys_info:
+        flat["workMode"] = sys_info["workMode"]
 
-    # 3. ac
-    if "ac" in device and isinstance(device["ac"], dict):
-        ac_info = device["ac"]
-        if "frequencyHz" in ac_info:
-            flat["f"] = ac_info["frequencyHz"]
-        if "powerW" in ac_info:
-            flat["acP"] = ac_info["powerW"]
-        if "energyKwh" in ac_info:
-            flat["acE"] = ac_info["energyKwh"]
 
-    # 4. pv
-    if "pv" in device and isinstance(device["pv"], dict):
-        pv_info = device["pv"]
-        if "totalPowerW" in pv_info:
-            flat["ppv"] = pv_info["totalPowerW"]
-        for i in range(1, 5):
-            pv_key = f"pv{i}"
-            if pv_key in pv_info and isinstance(pv_info[pv_key], dict):
-                pvi = pv_info[pv_key]
-                if "voltageV" in pvi:
-                    flat[f"pv{i}v"] = pvi["voltageV"]
-                if "currentA" in pvi:
-                    flat[f"pv{i}i"] = pvi["currentA"]
-                if "powerW" in pvi:
-                    flat[f"pv{i}p"] = pvi["powerW"]
+def _flatten_ac_section(device: dict, flat: dict) -> None:
+    """f, acP, acE."""
+    if "ac" not in device or not isinstance(device["ac"], dict):
+        return
+    ac_info = device["ac"]
+    if "frequencyHz" in ac_info:
+        flat["f"] = ac_info["frequencyHz"]
+    if "powerW" in ac_info:
+        flat["acP"] = ac_info["powerW"]
+    if "energyKwh" in ac_info:
+        flat["acE"] = ac_info["energyKwh"]
 
-    # 5. battery
-    if "battery" in device and isinstance(device["battery"], dict):
-        bat = device["battery"]
-        if "serialNumber" in bat:
-            flat["batSn"] = bat["serialNumber"]
-        if "capacityKwh" in bat:
-            flat["batCap"] = bat["capacityKwh"]
-        if "socPercent" in bat:
-            flat["batSoc"] = bat["socPercent"]
-        if "sohPercent" in bat:
-            flat["batSoh"] = bat["sohPercent"]
-        if "powerW" in bat:
-            flat["batP"] = bat["powerW"]
-        if "pbatW" in bat:
-            flat["pbat"] = bat["pbatW"]
-        if "voltageV" in bat:
-            flat["batV"] = bat["voltageV"]
-        if "currentA" in bat:
-            flat["batI"] = bat["currentA"]
-        if "chargeEnergyKwh" in bat:
-            flat["batCharge"] = bat["chargeEnergyKwh"]
-        if "dischargeEnergyKwh" in bat:
-            flat["batDisCharge"] = bat["dischargeEnergyKwh"]
 
-        # battery.temperature
-        if "temperature" in bat and isinstance(bat["temperature"], dict):
-            btemp = bat["temperature"]
-            if "chargeTempC" in btemp:
-                flat["batTch"] = btemp["chargeTempC"]
-            if "cellLowTempC" in btemp:
-                flat["batTcl"] = btemp["cellLowTempC"]
+def _flatten_pv_string(pvi: dict, i: int, flat: dict) -> None:
+    """voltageV/currentA/powerW for one pv1..pv4 string."""
+    if "voltageV" in pvi:
+        flat[f"pv{i}v"] = pvi["voltageV"]
+    if "currentA" in pvi:
+        flat[f"pv{i}i"] = pvi["currentA"]
+    if "powerW" in pvi:
+        flat[f"pv{i}p"] = pvi["powerW"]
 
-        # battery.limits
-        if "limits" in bat and isinstance(bat["limits"], dict):
-            blim = bat["limits"]
-            if "maxChargePowerW" in blim:
-                flat["maxChargePower"] = blim["maxChargePowerW"]
-            if "maxDischargePowerW" in blim:
-                flat["maxDischargePower"] = blim["maxDischargePowerW"]
 
-        # battery.cellVoltage
-        if "cellVoltage" in bat and isinstance(bat["cellVoltage"], dict):
-            bvol = bat["cellVoltage"]
-            if "cellVoltageLowV" in bvol:
-                flat["batVcl"] = bvol["cellVoltageLowV"]
-            if "cellVoltageHighV" in bvol:
-                flat["batVch"] = bvol["cellVoltageHighV"]
+def _flatten_pv_section(device: dict, flat: dict) -> None:
+    """ppv, plus per-string pv1v/pv1i/pv1p .. pv4v/pv4i/pv4p."""
+    if "pv" not in device or not isinstance(device["pv"], dict):
+        return
+    pv_info = device["pv"]
+    if "totalPowerW" in pv_info:
+        flat["ppv"] = pv_info["totalPowerW"]
+    for i in range(1, 5):
+        pv_key = f"pv{i}"
+        if pv_key in pv_info and isinstance(pv_info[pv_key], dict):
+            _flatten_pv_string(pv_info[pv_key], i, flat)
 
-    # 6. dcBus
-    if "dcBus" in device and isinstance(device["dcBus"], dict):
-        dbus = device["dcBus"]
-        if "vbus" in dbus:
-            flat["vbus"] = dbus["vbus"]
 
-    # 7. temperatures
-    if "temperatures" in device and isinstance(device["temperatures"], dict):
-        temps = device["temperatures"]
-        if "inverterTempC" in temps:
-            flat["tinv"] = temps["inverterTempC"]
+def _flatten_battery_section(device: dict, flat: dict) -> None:
+    """batSn, batCap, batSoc, batSoh, batP, pbat, batV, batI, batCharge,
+    batDisCharge, plus the temperature/limits/cellVoltage sub-sections.
+    """
+    if "battery" not in device or not isinstance(device["battery"], dict):
+        return
+    bat = device["battery"]
+    if "serialNumber" in bat:
+        flat["batSn"] = bat["serialNumber"]
+    if "capacityKwh" in bat:
+        flat["batCap"] = bat["capacityKwh"]
+    if "socPercent" in bat:
+        flat["batSoc"] = bat["socPercent"]
+    if "sohPercent" in bat:
+        flat["batSoh"] = bat["sohPercent"]
+    if "powerW" in bat:
+        flat["batP"] = bat["powerW"]
+    if "pbatW" in bat:
+        flat["pbat"] = bat["pbatW"]
+    if "voltageV" in bat:
+        flat["batV"] = bat["voltageV"]
+    if "currentA" in bat:
+        flat["batI"] = bat["currentA"]
+    if "chargeEnergyKwh" in bat:
+        flat["batCharge"] = bat["chargeEnergyKwh"]
+    if "dischargeEnergyKwh" in bat:
+        flat["batDisCharge"] = bat["dischargeEnergyKwh"]
 
-    # 8. phases
-    if "phases" in device and isinstance(device["phases"], dict):
-        phs = device["phases"]
-        for i in range(1, 4):
-            ph_key = f"ph{i}"
-            if ph_key in phs and isinstance(phs[ph_key], dict):
-                phi = phs[ph_key]
-                if "voltageV" in phi:
-                    flat[f"ph{i}v"] = phi["voltageV"]
-                if "currentA" in phi:
-                    flat[f"ph{i}i"] = phi["currentA"]
-                if "powerW" in phi:
-                    flat[f"ph{i}p"] = phi["powerW"]
-                if "epsPowerW" in phi:
-                    flat[f"ph{i}Loadp"] = phi["epsPowerW"]
+    _flatten_battery_temperature(bat, flat)
+    _flatten_battery_limits(bat, flat)
+    _flatten_battery_cell_voltage(bat, flat)
 
-    # 9. grid
-    if "grid" in device and isinstance(device["grid"], dict):
-        grd = device["grid"]
-        if "powerW" in grd and grd["powerW"] is not None:
-            try:
-                flat["gridP"] = float(grd["powerW"]) / 1000.0
-            except ValueError, TypeError:
-                flat["gridP"] = grd["powerW"]
-        if "frequencyHz" in grd:
-            flat["gridF"] = grd["frequencyHz"]
-        if "powerFactor" in grd:
-            flat["gridPfd"] = grd["powerFactor"]
-        if "energyInKwh" in grd:
-            flat["totalEnt"] = grd["energyInKwh"]
-        if "energyOutKwh" in grd:
-            flat["totalEpt"] = grd["energyOutKwh"]
 
-    # Copy any other keys at the root that aren't dictionaries
+def _flatten_battery_temperature(bat: dict, flat: dict) -> None:
+    """batTch, batTcl."""
+    if "temperature" not in bat or not isinstance(bat["temperature"], dict):
+        return
+    btemp = bat["temperature"]
+    if "chargeTempC" in btemp:
+        flat["batTch"] = btemp["chargeTempC"]
+    if "cellLowTempC" in btemp:
+        flat["batTcl"] = btemp["cellLowTempC"]
+
+
+def _flatten_battery_limits(bat: dict, flat: dict) -> None:
+    """maxChargePower, maxDischargePower."""
+    if "limits" not in bat or not isinstance(bat["limits"], dict):
+        return
+    blim = bat["limits"]
+    if "maxChargePowerW" in blim:
+        flat["maxChargePower"] = blim["maxChargePowerW"]
+    if "maxDischargePowerW" in blim:
+        flat["maxDischargePower"] = blim["maxDischargePowerW"]
+
+
+def _flatten_battery_cell_voltage(bat: dict, flat: dict) -> None:
+    """batVcl, batVch."""
+    if "cellVoltage" not in bat or not isinstance(bat["cellVoltage"], dict):
+        return
+    bvol = bat["cellVoltage"]
+    if "cellVoltageLowV" in bvol:
+        flat["batVcl"] = bvol["cellVoltageLowV"]
+    if "cellVoltageHighV" in bvol:
+        flat["batVch"] = bvol["cellVoltageHighV"]
+
+
+def _flatten_dc_bus_section(device: dict, flat: dict) -> None:
+    """vbus."""
+    if "dcBus" not in device or not isinstance(device["dcBus"], dict):
+        return
+    dbus = device["dcBus"]
+    if "vbus" in dbus:
+        flat["vbus"] = dbus["vbus"]
+
+
+def _flatten_temperatures_section(device: dict, flat: dict) -> None:
+    """tinv."""
+    if "temperatures" not in device or not isinstance(device["temperatures"], dict):
+        return
+    temps = device["temperatures"]
+    if "inverterTempC" in temps:
+        flat["tinv"] = temps["inverterTempC"]
+
+
+def _flatten_phase(phi: dict, i: int, flat: dict) -> None:
+    """voltageV/currentA/powerW/epsPowerW for one ph1..ph3 phase."""
+    if "voltageV" in phi:
+        flat[f"ph{i}v"] = phi["voltageV"]
+    if "currentA" in phi:
+        flat[f"ph{i}i"] = phi["currentA"]
+    if "powerW" in phi:
+        flat[f"ph{i}p"] = phi["powerW"]
+    if "epsPowerW" in phi:
+        flat[f"ph{i}Loadp"] = phi["epsPowerW"]
+
+
+def _flatten_phases_section(device: dict, flat: dict) -> None:
+    """Per-phase ph1v/ph1i/ph1p/ph1Loadp .. ph3v/ph3i/ph3p/ph3Loadp."""
+    if "phases" not in device or not isinstance(device["phases"], dict):
+        return
+    phs = device["phases"]
+    for i in range(1, 4):
+        ph_key = f"ph{i}"
+        if ph_key in phs and isinstance(phs[ph_key], dict):
+            _flatten_phase(phs[ph_key], i, flat)
+
+
+def _flatten_grid_section(device: dict, flat: dict) -> None:
+    """gridP (W -> kW), gridF, gridPfd, totalEnt, totalEpt."""
+    if "grid" not in device or not isinstance(device["grid"], dict):
+        return
+    grd = device["grid"]
+    if "powerW" in grd and grd["powerW"] is not None:
+        try:
+            flat["gridP"] = float(grd["powerW"]) / 1000.0
+        except ValueError, TypeError:
+            flat["gridP"] = grd["powerW"]
+    if "frequencyHz" in grd:
+        flat["gridF"] = grd["frequencyHz"]
+    if "powerFactor" in grd:
+        flat["gridPfd"] = grd["powerFactor"]
+    if "energyInKwh" in grd:
+        flat["totalEnt"] = grd["energyInKwh"]
+    if "energyOutKwh" in grd:
+        flat["totalEpt"] = grd["energyOutKwh"]
+
+
+def _copy_remaining_root_keys(device: dict, flat: dict) -> None:
+    """Copy any other keys at the root that aren't dictionaries."""
     for k, v in device.items():
         if k not in flat and not isinstance(v, dict):
-            mapped_k = _key_map.get(k, k)
+            mapped_k = _PUSH_KEY_MAP.get(k, k)
             flat[mapped_k] = v
-
-    return flat
 
 
 # Deployment-configured secret for log masking. If not provided,
@@ -1149,6 +1237,30 @@ def _sanitize_list(raw_list: list) -> list[Any]:
         else:
             result.append(item)
     return result
+
+
+def _sanitize_response_error(
+    e: aiohttp.ClientResponseError,
+) -> aiohttp.ClientResponseError:
+    """Return a copy of a ClientResponseError with the query string stripped
+    from its URL.
+
+    aiohttp embeds the full request URL, including query params, in the
+    exception's own string representation -- for this API, that means
+    deviceSn/plantId would otherwise reach the log in plain text (bypassing
+    _mask_id) any time an HTTP call fails and the exception gets logged.
+    """
+    sanitized_url = e.request_info.real_url.with_query(None)
+    sanitized_request_info = e.request_info._replace(
+        url=sanitized_url, real_url=sanitized_url
+    )
+    return aiohttp.ClientResponseError(
+        sanitized_request_info,
+        e.history,
+        status=e.status,
+        message=getattr(e, "message", ""),
+        headers=getattr(e, "headers", None),
+    )
 
 
 _PEAK_SHAVING_VALUES = {
@@ -1283,7 +1395,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             if is_token_request and status in (401, 403):
                 return status, {}
 
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except aiohttp.ClientResponseError as e:
+                raise _sanitize_response_error(e) from None
             res = await response.json()
 
             _LOGGER.debug(
@@ -1384,7 +1499,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             # response tripping up _apply_token_response is a real bug and
             # should surface as one, not get silently relabeled as "the
             # network is flaky" forever.
-            _LOGGER.error("HYXI Token Request Failed (network/connection error): %s", e)
+            _LOGGER.exception(
+                "HYXI Token Request Failed (network/connection error): %s", e
+            )
             return None
 
     async def _ensure_authenticated(self, error_cls: type[Exception]) -> None:
@@ -1458,7 +1575,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.error("Error fetching metrics for %s: %s", _mask_id(sn), e)
+            _LOGGER.exception("Error fetching metrics for %s: %s", _mask_id(sn), e)
 
     async def query_ems_basic_details(self, ems_sn):
         """Acquire basic data for Energy Storage Systems (ESS)."""
@@ -1479,7 +1596,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "HYXI EMS Basic Data Request Failed for %s: %s", _mask_id(ems_sn), e
             )
         return {}
@@ -1565,7 +1682,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.error("Error fetching device info for %s: %s", _mask_id(sn), e)
+            _LOGGER.exception("Error fetching device info for %s: %s", _mask_id(sn), e)
 
     async def _fetch_all_for_device(self, sn, entry, dev_type):
         """Fires off concurrent tasks for Data and Info, merging the results."""
@@ -1617,13 +1734,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             return None
 
         data_val = res_d.get("data", {})
-        devices = (
-            data_val
-            if isinstance(data_val, list)
-            else data_val.get("deviceList", [])
-            if isinstance(data_val, dict)
-            else []
-        )
+        if isinstance(data_val, list):
+            devices = data_val
+        elif isinstance(data_val, dict):
+            devices = data_val.get("deviceList", [])
+        else:
+            devices = []
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
@@ -1645,7 +1761,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
 
@@ -1700,7 +1816,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Error fetching sub-device list for %s: %s", _mask_id(parent_sn), e
             )
             return []
@@ -1736,7 +1852,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e
             )
 
@@ -1772,7 +1888,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except TokenRejectedError:  # pylint: disable=try-except-raise  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Error fetching alarms for plant %s: %s", _mask_id(plant_id), e
             )
             return []

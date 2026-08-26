@@ -1,10 +1,12 @@
 """Tests for security sanitization and path management."""
 
+import importlib
 import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.hyxi_cloud_api import api as api_module
 from src.hyxi_cloud_api.api import HyxiApiClient, _mask_id, _sanitize_dict
 
 # Mock aiohttp before importing the API client
@@ -116,3 +118,50 @@ async def test_fetch_device_info_fixed():
     # URL should NOT contain the raw unencoded SN with '#'
     assert args[0] == "https://api.com/api/device/v1/queryDeviceInfo"
     assert kwargs["params"] == {"deviceSn": sn}
+
+
+@pytest.fixture
+def real_aiohttp():
+    """The genuine aiohttp module, bypassing this suite's mock in sys.modules."""
+    backup = sys.modules.pop("aiohttp", None)
+    module = importlib.import_module("aiohttp")
+    sys.modules.pop("aiohttp", None)
+    sys.modules["aiohttp"] = backup or module
+    return module
+
+
+def test_sanitize_response_error_strips_query_params(monkeypatch, real_aiohttp):
+    """_sanitize_response_error must genuinely strip deviceSn/plantId from the
+    URL, using aiohttp's real RequestInfo/ClientResponseError classes.
+
+    The rest of this suite mocks aiohttp with a bare-bones stand-in, so it
+    can't catch a masking bug in code that depends on real aiohttp's own
+    URL/exception behaviour -- swap in the genuine module for this one test.
+    """
+    # pylint: disable=import-outside-toplevel
+    from aiohttp.client_reqrep import RequestInfo
+    from multidict import CIMultiDict, CIMultiDictProxy
+    from yarl import URL
+
+    # pylint: enable=import-outside-toplevel
+
+    monkeypatch.setattr(api_module, "aiohttp", real_aiohttp)
+
+    url = URL(
+        "https://api.com/api/device/v1/queryDeviceData"
+        "?deviceSn=SECRETSN&plantId=SECRETPLANT"
+    )
+    request_info = RequestInfo(
+        url=url, method="GET", headers=CIMultiDictProxy(CIMultiDict()), real_url=url
+    )
+    original = real_aiohttp.ClientResponseError(
+        request_info, (), status=401, message="Unauthorized", headers=None
+    )
+
+    sanitized = api_module._sanitize_response_error(original)
+
+    assert "SECRETSN" not in str(sanitized)
+    assert "SECRETPLANT" not in str(sanitized)
+    assert "queryDeviceData" in str(sanitized)
+    assert sanitized.status == 401
+    assert sanitized.message == "Unauthorized"
