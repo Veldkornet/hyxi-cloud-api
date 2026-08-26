@@ -10,7 +10,7 @@ authors = [
 ]
 description = "An async API client for HYXi Cloud."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "aiohttp>=3.13.5",
 ]
