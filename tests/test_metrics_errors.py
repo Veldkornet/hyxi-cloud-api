@@ -126,46 +126,6 @@ async def test_fetch_device_metrics_api_error(caplog):
 
 
 @pytest.mark.asyncio
-async def test_fetch_ems_basic_data_no_data(caplog):
-    """Test that _fetch_all_for_device handles empty EMS response gracefully."""
-    caplog.set_level(logging.DEBUG)
-    mock_session = MagicMock()
-    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
-
-    # Mock query_ems_basic_details to return {} (no data — the actual return contract)
-    api.query_ems_basic_details = AsyncMock(return_value={})
-    api._fetch_device_info = AsyncMock()
-    api._fetch_device_metrics = AsyncMock()
-
-    entry = {"metrics": {}, "device_type_code": "EMS"}
-    await api._fetch_all_for_device("10602251600016", entry, "EMS")
-
-    assert "HYXI EMS telemetry probe returned no data for " in caplog.text
-    # No EMS data should be merged into metrics.
-    assert "new_metric" not in entry["metrics"]
-
-
-@pytest.mark.asyncio
-async def test_fetch_ems_basic_data_error(caplog):
-    """Test that _fetch_all_for_device handles errors from query_ems_basic_details."""
-    caplog.set_level(logging.DEBUG)
-    mock_session = MagicMock()
-    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
-
-    # Raise inside _request so query_ems_basic_details catches it and returns {}
-    api._request = AsyncMock(side_effect=Exception("EMS data fetch failed"))
-    api._fetch_device_info = AsyncMock()
-    api._fetch_device_metrics = AsyncMock()
-
-    entry = {"metrics": {}, "device_type_code": "EMS"}
-    await api._fetch_all_for_device("10602251600016", entry, "EMS")
-
-    # No EMS data should be merged into metrics.
-    assert "batSoc" not in entry["metrics"]
-    assert "HYXI EMS telemetry probe returned no data for " in caplog.text
-
-
-@pytest.mark.asyncio
 async def test_query_ems_basic_details_error(caplog):
     """Test that query_ems_basic_details handles exceptions gracefully."""
     caplog.set_level(logging.ERROR)

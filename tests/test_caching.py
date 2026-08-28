@@ -37,7 +37,6 @@ async def test_discovery_caching_logic():
     # 4. Alarms for Plant
     # 5. Info for Inverter
     # 6. Metrics for Inverter
-    # 7. EMS Probe
 
     with patch.object(client, "_request") as mock_req:
         mock_req.side_effect = [
@@ -47,7 +46,6 @@ async def test_discovery_caching_logic():
             (200, alarms_resp),
             (200, info_resp),
             (200, metrics_resp),
-            (200, {}),  # EMS
         ]
 
         # First call: Full Discovery
@@ -65,7 +63,6 @@ async def test_discovery_caching_logic():
             (200, alarms_resp),
             (200, info_resp),
             (200, metrics_resp),
-            (200, {}),  # EMS
         ]
 
         res2 = await client.get_all_device_data()
@@ -87,7 +84,6 @@ async def test_discovery_caching_logic():
             (200, alarms_resp),
             (200, info_resp),
             (200, metrics_resp),
-            (200, {}),  # EMS
         ]
         await client.get_all_device_data(force_discovery=True)
         assert mock_req.call_count == 6
