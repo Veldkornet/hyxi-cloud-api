@@ -12,7 +12,7 @@
 
 An asynchronous Python client for interacting with the HYXI Cloud API.
 
-This library was primarily built to power the [HYXI Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.14+ project to fetch telemetry data from HYXI solar inverters and battery systems.
+This library was primarily built to power the [HYXI Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.14 project to fetch telemetry data from HYXI solar inverters and battery systems.
 
 ## 📦 Installation
 
@@ -132,8 +132,8 @@ async def subscription_example(client):
 Subscription failures raise `HyxiApiClient.SubscriptionError`.
 
 ## 🛠️ Requirements
-* Python 3.14 or newer
-* `aiohttp` >= 3.13.3
+* Python 3.14 (not yet 3.15 — the upper bound lifts once 3.15 is covered by CI)
+* `aiohttp` >= 3.13.5
 
 ## 🔐 Privacy & Debug Logging
 
