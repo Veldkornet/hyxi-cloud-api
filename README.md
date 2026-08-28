@@ -1,11 +1,14 @@
 # hyxi-cloud-api
 
-[![Security Shield](https://img.shields.io/badge/Security-Shield--Audited-green?logo=github&style=flat-square)](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/security.yml)
-[![PyPI version](https://badge.fury.io/py/hyxi-cloud-api.svg)](https://badge.fury.io/py/hyxi-cloud-api)
-[![CI/CD Pipeline](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml)
-[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/Veldkornet/hyxi-cloud-api/main.svg)](https://results.pre-commit.ci/latest/github/Veldkornet/hyxi-cloud-api/main)
-[![Python Versions](https://img.shields.io/pypi/pyversions/hyxi-cloud-api.svg)](https://pypi.org/project/hyxi-cloud-api/)
-[![OpenSSF Baseline](https://www.bestpractices.dev/projects/12101/baseline)](https://www.bestpractices.dev/projects/12101)
+[![PyPI][pypi-shield]][pypi]
+[![Python][python-shield]][pypi]
+[![Downloads][downloads-shield]][pypi]
+[![License][license-shield]](LICENSE)
+
+[![Tests][tests-shield]][tests]
+[![Coverage][coverage-shield]][tests]
+[![Security][security-shield]][security]
+[![OpenSSF Scorecard][scorecard-shield]][scorecard]
 
 An asynchronous Python client for interacting with the HYXI Cloud API.
 
@@ -147,3 +150,17 @@ Masking is deterministic, so parent/child device relationships remain traceable 
 
 ## ⚠️ Disclaimer
 This is an unofficial, community-driven project. It is not affiliated with, endorsed by, or connected to HYXiPower in any official capacity. Use this software at your own risk.
+
+<!-- Badges -->
+[pypi-shield]: https://img.shields.io/pypi/v/hyxi-cloud-api?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI&color=41BDF5
+[pypi]: https://pypi.org/project/hyxi-cloud-api/
+[python-shield]: https://img.shields.io/pypi/pyversions/hyxi-cloud-api?style=for-the-badge&logo=python&logoColor=white
+[downloads-shield]: https://img.shields.io/pepy/dt/hyxi-cloud-api?style=for-the-badge&logo=pypi&logoColor=white&label=Downloads&color=41BDF5
+[license-shield]: https://img.shields.io/github/license/Veldkornet/hyxi-cloud-api?style=for-the-badge&color=6E7681
+[tests-shield]: https://img.shields.io/github/actions/workflow/status/Veldkornet/hyxi-cloud-api/tests.yml?branch=main&style=for-the-badge&logo=github&logoColor=white&label=Tests
+[tests]: https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/tests.yml
+[coverage-shield]: https://img.shields.io/badge/Coverage-100%25-31C653?style=for-the-badge&logo=pytest&logoColor=white
+[security-shield]: https://img.shields.io/github/actions/workflow/status/Veldkornet/hyxi-cloud-api/security.yml?branch=main&style=for-the-badge&logo=github&logoColor=white&label=Security
+[security]: https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/security.yml
+[scorecard-shield]: https://img.shields.io/ossf-scorecard/github.com/Veldkornet/hyxi-cloud-api?style=for-the-badge&label=OpenSSF&logo=securityscorecard&logoColor=white
+[scorecard]: https://scorecard.dev/viewer/?uri=github.com/Veldkornet/hyxi-cloud-api
