@@ -1,3 +1,5 @@
+![HYXI Cloud API](https://raw.githubusercontent.com/Veldkornet/hyxi-cloud-api/main/assets/readme-header.png)
+
 # hyxi-cloud-api
 
 [![PyPI][pypi-shield]][pypi]
@@ -9,6 +11,8 @@
 [![Coverage][coverage-shield]][tests]
 [![Security][security-shield]][security]
 [![OpenSSF Scorecard][scorecard-shield]][scorecard]
+
+---
 
 An asynchronous Python client for interacting with the HYXI Cloud API.
 
