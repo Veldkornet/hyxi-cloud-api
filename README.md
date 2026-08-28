@@ -151,6 +151,11 @@ Masking is deterministic, so parent/child device relationships remain traceable 
 ## ⚠️ Disclaimer
 This is an unofficial, community-driven project. It is not affiliated with, endorsed by, or connected to HYXiPower in any official capacity. Use this software at your own risk.
 
+## Support
+If this library is useful to you and you'd like to support its development:
+
+[![Buy Me a Coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=veldkornet&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/veldkornet)
+
 <!-- Badges -->
 [pypi-shield]: https://img.shields.io/pypi/v/hyxi-cloud-api?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI&color=41BDF5
 [pypi]: https://pypi.org/project/hyxi-cloud-api/
