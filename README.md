@@ -1,15 +1,18 @@
 # hyxi-cloud-api
 
-[![Security Shield](https://img.shields.io/badge/Security-Shield--Audited-green?logo=github&style=flat-square)](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/security.yml)
-[![PyPI version](https://badge.fury.io/py/hyxi-cloud-api.svg)](https://badge.fury.io/py/hyxi-cloud-api)
-[![CI/CD Pipeline](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/ci-cd.yml)
-[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/Veldkornet/hyxi-cloud-api/main.svg)](https://results.pre-commit.ci/latest/github/Veldkornet/hyxi-cloud-api/main)
-[![Python Versions](https://img.shields.io/pypi/pyversions/hyxi-cloud-api.svg)](https://pypi.org/project/hyxi-cloud-api/)
-[![OpenSSF Baseline](https://www.bestpractices.dev/projects/12101/baseline)](https://www.bestpractices.dev/projects/12101)
+[![PyPI][pypi-shield]][pypi]
+[![Python][python-shield]][pypi]
+[![Downloads][downloads-shield]][pypi]
+[![License][license-shield]](LICENSE)
+
+[![Tests][tests-shield]][tests]
+[![Coverage][coverage-shield]][tests]
+[![Security][security-shield]][security]
+[![OpenSSF Scorecard][scorecard-shield]][scorecard]
 
 An asynchronous Python client for interacting with the HYXI Cloud API.
 
-This library was primarily built to power the [HYXI Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.14+ project to fetch telemetry data from HYXI solar inverters and battery systems.
+This library was primarily built to power the [HYXI Cloud Home Assistant Integration](https://github.com/Veldkornet/ha-hyxi-cloud), but it can be used in any Python 3.14 project to fetch telemetry data from HYXI solar inverters and battery systems.
 
 ## 📦 Installation
 
@@ -129,8 +132,8 @@ async def subscription_example(client):
 Subscription failures raise `HyxiApiClient.SubscriptionError`.
 
 ## 🛠️ Requirements
-* Python 3.14 or newer
-* `aiohttp` >= 3.13.3
+* Python 3.14 (not yet 3.15 — the upper bound lifts once 3.15 is covered by CI)
+* `aiohttp` >= 3.13.5
 
 ## 🔐 Privacy & Debug Logging
 
@@ -147,3 +150,22 @@ Masking is deterministic, so parent/child device relationships remain traceable 
 
 ## ⚠️ Disclaimer
 This is an unofficial, community-driven project. It is not affiliated with, endorsed by, or connected to HYXiPower in any official capacity. Use this software at your own risk.
+
+## Support
+If this library is useful to you and you'd like to support its development:
+
+[![Buy Me a Coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=veldkornet&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/veldkornet)
+
+<!-- Badges -->
+[pypi-shield]: https://img.shields.io/pypi/v/hyxi-cloud-api?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI&color=41BDF5
+[pypi]: https://pypi.org/project/hyxi-cloud-api/
+[python-shield]: https://img.shields.io/pypi/pyversions/hyxi-cloud-api?style=for-the-badge&logo=python&logoColor=white
+[downloads-shield]: https://img.shields.io/pepy/dt/hyxi-cloud-api?style=for-the-badge&logo=pypi&logoColor=white&label=Downloads&color=41BDF5
+[license-shield]: https://img.shields.io/github/license/Veldkornet/hyxi-cloud-api?style=for-the-badge&color=6E7681
+[tests-shield]: https://img.shields.io/github/actions/workflow/status/Veldkornet/hyxi-cloud-api/tests.yml?branch=main&style=for-the-badge&logo=github&logoColor=white&label=Tests
+[tests]: https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/tests.yml
+[coverage-shield]: https://img.shields.io/badge/Coverage-100%25-31C653?style=for-the-badge&logo=pytest&logoColor=white
+[security-shield]: https://img.shields.io/github/actions/workflow/status/Veldkornet/hyxi-cloud-api/security.yml?branch=main&style=for-the-badge&logo=github&logoColor=white&label=Security
+[security]: https://github.com/Veldkornet/hyxi-cloud-api/actions/workflows/security.yml
+[scorecard-shield]: https://img.shields.io/ossf-scorecard/github.com/Veldkornet/hyxi-cloud-api?style=for-the-badge&label=OpenSSF&logo=securityscorecard&logoColor=white
+[scorecard]: https://scorecard.dev/viewer/?uri=github.com/Veldkornet/hyxi-cloud-api
