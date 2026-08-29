@@ -690,6 +690,41 @@ def _normalize_micro_ess_gridp(m_raw: dict, device_type: str | None) -> None:
             pass
 
 
+def _normalize_cell_voltages(m_raw: dict) -> None:
+    """Normalize `batVch`/`batVcl` to volts (as floats) in place.
+
+    `batVch`/`batVcl` are single-cell max/min voltages; a Li-ion cell sits
+    around 2.0-4.4 V. Some firmwares report them in millivolts (a
+    HYX-H10K-HT sends `batVch=3203.0`, meaning 3.203 V) while others already
+    send volts (a HALO sends `batVch=3.308`). A parsed value in the
+    millivolt band for a cell (>10, <10000) is scaled down; anything else --
+    already-volts, or an out-of-range value such as a 65535 "no data"
+    sentinel -- keeps its magnitude. The pack-level `batV` is a different
+    field and is left alone.
+    """
+    for key in ("batVch", "batVcl"):
+        if key in m_raw:
+            try:
+                value = float(m_raw[key])
+            except ValueError, TypeError:
+                continue
+            m_raw[key] = value / 1000.0 if 10 < value < 10000 else value
+
+
+def _normalize_raw_metrics(
+    m_raw: dict, device_type: str | None, *, skip_gridp: bool = False
+) -> None:
+    """Apply every in-place unit fixup a freshly-parsed metrics map needs.
+
+    Callers run this before merging `m_raw` into stored metrics or deriving
+    from it. `skip_gridp` is for the nested-push path, where `grid.powerW`
+    is already converted to kW by `_flatten_nested_push_device`.
+    """
+    if not skip_gridp:
+        _normalize_micro_ess_gridp(m_raw, device_type)
+    _normalize_cell_voltages(m_raw)
+
+
 def _compute_grid_metrics(m_raw: dict, derived: dict[str, float]) -> None:
     """Calculate grid import/export metrics.
 
@@ -1169,11 +1204,12 @@ def set_log_salt(salt: str | bytes) -> None:
 def _mask_id(value: str) -> str:
     """Mask an identifier (SN, plant ID, etc.) for logs.
 
-    Masks identifiers securely using a one-way SHA-256 hash. The first 8
-    characters of the hex digest are returned to allow deterministic
-    cross-device log correlation without exposing the original value or its length.
-
-    Example: '10602251600016' -> 'e3b0c442'
+    Returns the first 8 hex characters of a salted HMAC-SHA256 digest of
+    `value` (e.g. a 14-digit serial becomes an 8-char token) -- stable
+    within a run so the same identifier correlates across log lines,
+    without exposing the original value or its length. The salt is
+    per-process (or `HYXI_LOG_SALT` when set), so the mapping is not
+    reproducible across runs.
     """
     if not value or value == "None":
         return "****"
@@ -1547,7 +1583,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 data_list = res_q.get("data", [])
                 m_raw = _parse_data_list(data_list)
                 device_type = entry.get("device_type_code", "")
-                _normalize_micro_ess_gridp(m_raw, device_type)
+                _normalize_raw_metrics(m_raw, device_type)
 
                 # 🚀 Sanitization: If this is a Collector, ignore battery/power metrics that shouldn't be here.
                 # This prevents "Collector" entities in Home Assistant from showing ghost battery stats.
@@ -2590,7 +2626,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             # (not just "a grid dict is present") -- a grid object without
             # a usable powerW (e.g. only frequencyHz) wouldn't trigger it,
             # leaving any gridP that slipped through unconverted and still
-            # needing _normalize_micro_ess_gridp below.
+            # needing the gridP fixup in _normalize_raw_metrics below.
             raw_grid = device.get("grid")
             grid_power_converted = (
                 isinstance(raw_grid, dict)
@@ -2612,8 +2648,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                     _mask_id(sn),
                 )
 
-            if not grid_power_converted:
-                _normalize_micro_ess_gridp(device, device_type)
+            _normalize_raw_metrics(device, device_type, skip_gridp=grid_power_converted)
 
             raw_metrics = _extract_raw_push_metrics(device)
             last_seen = _resolve_push_timestamp(device, now_utc)

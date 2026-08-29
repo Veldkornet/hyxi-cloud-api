@@ -39,7 +39,7 @@ async def test_fetch_device_info_network_error(caplog):
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     # Use a longer SN so it's not fully masked to ****
-    await api._fetch_device_info("10602251600016", entry)
+    await api._fetch_device_info("10600000000001", entry)
 
     assert "Error fetching device info for " in caplog.text
     assert "Connection reset" in caplog.text
@@ -69,7 +69,7 @@ async def test_fetch_device_info_invalid_json(caplog):
     mock_session.get.return_value = mock_response
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
-    await api._fetch_device_info("10602251600016", entry)
+    await api._fetch_device_info("10600000000001", entry)
 
     assert "Error fetching device info for " in caplog.text
     assert "sw_version" not in entry
@@ -96,7 +96,7 @@ async def test_fetch_device_info_api_error(caplog):
     mock_session.get.return_value = mock_response
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
-    await api._fetch_device_info("10602251600016", entry)
+    await api._fetch_device_info("10600000000001", entry)
 
     assert "HYXI INFO API Rejected for " in caplog.text
     assert "success" in caplog.text  # _sanitize_dict logs full response dict
@@ -115,7 +115,7 @@ async def test_fetch_device_info_client_error_handling(caplog):
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     # Use a longer SN so it's not fully masked to ****
-    await api._fetch_device_info("10602251600016", entry)
+    await api._fetch_device_info("10600000000001", entry)
 
     # Verify that the exception is caught and logged
     assert "Error fetching device info for" in caplog.text
@@ -145,5 +145,5 @@ async def test_fetch_device_info_invalid_data_type():
     mock_session.get.return_value = mock_response
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
-    await api._fetch_device_info("10602251600016", entry)
+    await api._fetch_device_info("10600000000001", entry)
     assert "sw_version" not in entry

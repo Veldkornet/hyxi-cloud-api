@@ -383,6 +383,37 @@ def test_process_push_data_nested_grid_without_powerw_still_normalized():
     assert metrics["grid_export"] == 811.0
 
 
+def test_process_push_data_cell_voltages_normalized_from_millivolts():
+    """A flat push payload with batVch/batVcl in millivolts is scaled to
+    volts, the same as the REST poll path.
+    """
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    api._discovery_cache["device_info"] = {
+        "INV123": {
+            "model": "HYX-H10K-HT",
+            "device_type_code": "HYBRID_INVERTER",
+            "device_name": "My Inverter",
+        }
+    }
+
+    payload = {
+        "dataList": [
+            {
+                "deviceSn": "INV123",
+                "collectTime": 1717764875,
+                "batVch": "3203.0",
+                "batVcl": "3.19",
+            }
+        ]
+    }
+
+    metrics = api.process_push_data(payload)["INV123"]["metrics"]
+
+    assert metrics["batVch"] == 3.203
+    assert metrics["batVcl"] == 3.19
+
+
 def test_process_push_data_flat_ms_collect_time():
     """Test process_push_data correctly parses flat telemetry with millisecond collectTime."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
