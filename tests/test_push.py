@@ -414,6 +414,37 @@ def test_process_push_data_cell_voltages_normalized_from_millivolts():
     assert metrics["batVcl"] == 3.19
 
 
+def test_process_push_data_cell_temperatures_normalized_from_tenths():
+    """A flat push payload with batTch/batTcl in tenths of a degree is
+    scaled to degrees, the same as the REST poll path.
+    """
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    api._discovery_cache["device_info"] = {
+        "HALO123": {
+            "model": "Halo",
+            "device_type_code": "MICRO_STORAGE_ALL_IN_ONE",
+            "device_name": "My Halo",
+        }
+    }
+
+    payload = {
+        "dataList": [
+            {
+                "deviceSn": "HALO123",
+                "collectTime": 1717764875,
+                "batTch": "383.0",
+                "batTcl": "336.0",
+            }
+        ]
+    }
+
+    metrics = api.process_push_data(payload)["HALO123"]["metrics"]
+
+    assert metrics["batTch"] == 38.3
+    assert metrics["batTcl"] == 33.6
+
+
 def test_process_push_data_flat_ms_collect_time():
     """Test process_push_data correctly parses flat telemetry with millisecond collectTime."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())

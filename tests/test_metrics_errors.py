@@ -374,3 +374,30 @@ async def test_fetch_device_metrics_cell_voltages_normalized_from_millivolts():
 
     assert entry["metrics"]["batVch"] == 3.203
     assert entry["metrics"]["batVcl"] == 3.19
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_metrics_cell_temperatures_normalized_from_tenths():
+    """queryDeviceData batTch/batTcl in tenths of a degree are scaled to
+    degrees before they land in entry["metrics"] (a HALO reports tenths).
+    """
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {
+                "success": True,
+                "data": [
+                    {"dataKey": "batTch", "dataValue": "383.0"},
+                    {"dataKey": "batTcl", "dataValue": "336.0"},
+                ],
+            },
+        )
+    )
+
+    entry = {"metrics": {}, "device_type_code": "MICRO_STORAGE_ALL_IN_ONE"}
+    await api._fetch_device_metrics("10600000000001", entry)
+
+    assert entry["metrics"]["batTch"] == 38.3
+    assert entry["metrics"]["batTcl"] == 33.6

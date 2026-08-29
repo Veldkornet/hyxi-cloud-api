@@ -711,6 +711,29 @@ def _normalize_cell_voltages(m_raw: dict) -> None:
             m_raw[key] = value / 1000.0 if 10 < value < 10000 else value
 
 
+def _normalize_cell_temperatures(m_raw: dict, device_type: str | None) -> None:
+    """Normalize `batTch`/`batTcl` to degrees Celsius in place for the Micro
+    ESS/Halo family.
+
+    `batTch`/`batTcl` are single-cell max/min temperatures. Micro ESS/Halo
+    devices report them in tenths of a degree (a HALO sends `batTch=383.0`,
+    meaning 38.3 C) while every other device type sends whole degrees (a
+    HYX-H10K-HT sends `batTch=25.0`). Scoped by device type rather than by
+    magnitude -- unlike the voltage sibling, a tenths value and a whole
+    value overlap (70 could be 7.0 C or 70 C), so there is no reliable
+    magnitude test. `acSideTemper`/`dcSideTemper`/`tinv` are separate fields
+    and are left alone.
+    """
+    if str(device_type or "") not in _MICRO_ESS_DEVICE_TYPES:
+        return
+    for key in ("batTch", "batTcl"):
+        if key in m_raw:
+            try:
+                m_raw[key] = float(m_raw[key]) / 10.0
+            except ValueError, TypeError:
+                pass
+
+
 def _normalize_raw_metrics(
     m_raw: dict, device_type: str | None, *, skip_gridp: bool = False
 ) -> None:
@@ -723,6 +746,7 @@ def _normalize_raw_metrics(
     if not skip_gridp:
         _normalize_micro_ess_gridp(m_raw, device_type)
     _normalize_cell_voltages(m_raw)
+    _normalize_cell_temperatures(m_raw, device_type)
 
 
 def _compute_grid_metrics(m_raw: dict, derived: dict[str, float]) -> None:
