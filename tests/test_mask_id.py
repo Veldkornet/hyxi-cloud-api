@@ -58,36 +58,36 @@ class TestSanitizeDict:
 
     def test_device_sn_is_masked(self):
         """Device serial numbers in raw API payloads must be masked."""
-        raw = {"deviceSn": "10602251600016", "ratedPower": "10000"}
+        raw = {"deviceSn": "10600000000001", "ratedPower": "10000"}
         result = _sanitize_dict(raw)
-        assert result["deviceSn"] != "10602251600016"
+        assert result["deviceSn"] != "10600000000001"
         assert len(result["deviceSn"]) == 8
         assert result["ratedPower"] == "10000"  # Non-sensitive key unchanged
 
     def test_parent_sn_is_masked(self):
         """Parent device serial numbers must be masked (they link devices to each other)."""
-        raw = {"parentSn": "60701251900927", "model": "HYX-H10K-HT"}
+        raw = {"parentSn": "60700000000001", "model": "HYX-H10K-HT"}
         result = _sanitize_dict(raw)
-        assert result["parentSn"] != "60701251900927"
+        assert result["parentSn"] != "60700000000001"
         assert len(result["parentSn"]) == 8
 
     def test_bat_sn_is_masked(self):
         """Battery serial numbers must be masked."""
-        raw = {"batSn": "15023250300001", "batSoc": "91"}
+        raw = {"batSn": "15000000000001", "batSoc": "91"}
         result = _sanitize_dict(raw)
-        assert result["batSn"] != "15023250300001"
+        assert result["batSn"] != "15000000000001"
         assert len(result["batSn"]) == 8
 
     def test_plant_id_is_masked(self):
         """Plant IDs must be masked as they identify a user's cloud account."""
-        raw = {"plantId": "Pl1970106681857806336", "plantName": "My Plant"}
+        raw = {"plantId": "Pl0000000000000000001", "plantName": "My Plant"}
         result = _sanitize_dict(raw)
-        assert result["plantId"] != "Pl1970106681857806336"
+        assert result["plantId"] != "Pl0000000000000000001"
         assert len(result["plantId"]) == 8
 
     def test_plant_address_is_fully_redacted(self):
         """Home address must be completely hidden, not partially masked."""
-        raw = {"plantAddress": "2, Bonenakker, Zoetermeer, Netherlands"}
+        raw = {"plantAddress": "1 Example Street, Anytown, Country"}
         result = _sanitize_dict(raw)
         assert result["plantAddress"] == "[REDACTED]"
 
@@ -111,9 +111,9 @@ class TestSanitizeDict:
 
     def test_original_dict_is_not_mutated(self):
         """_sanitize_dict must return a copy, never modifying the original."""
-        raw = {"deviceSn": "10602251600016", "ratedPower": "10000"}
+        raw = {"deviceSn": "10600000000001", "ratedPower": "10000"}
         _ = _sanitize_dict(raw)
-        assert raw["deviceSn"] == "10602251600016"
+        assert raw["deviceSn"] == "10600000000001"
 
     def test_empty_sensitive_value_stays_empty(self):
         """An empty string for a sensitive key should not be masked (nothing to hide)."""

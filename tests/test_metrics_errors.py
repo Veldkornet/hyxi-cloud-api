@@ -39,7 +39,7 @@ async def test_fetch_device_metrics_request_error(caplog):
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     # Use a longer SN so it's not fully masked to ****
-    await api._fetch_device_metrics("10602251600016", entry)
+    await api._fetch_device_metrics("10600000000001", entry)
 
     assert "Error fetching metrics for " in caplog.text
     assert "Mock client error" in caplog.text
@@ -59,7 +59,7 @@ async def test_fetch_device_metrics_network_error(caplog):
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
     # Use a longer SN so it's not fully masked to ****
-    await api._fetch_device_metrics("10602251600016", entry)
+    await api._fetch_device_metrics("10600000000001", entry)
 
     assert "Error fetching metrics for " in caplog.text
     assert "Connection reset" in caplog.text
@@ -90,7 +90,7 @@ async def test_fetch_device_metrics_invalid_json(caplog):
     mock_session.get.return_value = mock_response
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
-    await api._fetch_device_metrics("10602251600016", entry)
+    await api._fetch_device_metrics("10600000000001", entry)
 
     assert "Error fetching metrics for " in caplog.text
     assert not entry["metrics"]
@@ -118,7 +118,7 @@ async def test_fetch_device_metrics_api_error(caplog):
     mock_session.get.return_value = mock_response
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
-    await api._fetch_device_metrics("10602251600016", entry)
+    await api._fetch_device_metrics("10600000000001", entry)
 
     assert "HYXI API metrics rejected for " in caplog.text
     assert "success" in caplog.text  # _sanitize_dict logs full response dict
@@ -135,7 +135,7 @@ async def test_query_ems_basic_details_error(caplog):
     # Mock _request to raise an Exception to cover the error path in query_ems_basic_details
     api._request = AsyncMock(side_effect=Exception("EMS query failed"))
 
-    result = await api.query_ems_basic_details("10602251600016")
+    result = await api.query_ems_basic_details("10600000000001")
 
     assert result == {}
 
@@ -153,7 +153,7 @@ async def test_query_ems_basic_details_network_error(caplog):
     # Mock _request to raise a ClientError to cover the network error path
     api._request = AsyncMock(side_effect=aiohttp.ClientError("Connection reset"))
 
-    result = await api.query_ems_basic_details("10602251600016")
+    result = await api.query_ems_basic_details("10600000000001")
 
     assert result == {}
 
@@ -176,7 +176,7 @@ async def test_query_ems_basic_details_non_zero_code(caplog):
         return_value=(200, {"code": "1001", "msg": "Device not enrolled"})
     )
 
-    result = await api.query_ems_basic_details("10602251600016")
+    result = await api.query_ems_basic_details("10600000000001")
 
     assert result == {}
     assert "HYXI EMS Basic Data Request Rejected for " in caplog.text
@@ -192,7 +192,7 @@ async def test_query_ems_basic_details_malformed_response(caplog):
     # Mock _request to return (200, None) to trigger AttributeError in query_ems_basic_details
     api._request = AsyncMock(return_value=(200, None))
 
-    result = await api.query_ems_basic_details("10602251600016")
+    result = await api.query_ems_basic_details("10600000000001")
 
     assert result == {}
     assert "HYXI EMS Basic Data Request Failed for " in caplog.text
@@ -212,7 +212,7 @@ async def test_query_ems_basic_details_parse_error(caplog):
     with patch(
         "hyxi_cloud_api.api._parse_ems_kv", side_effect=Exception("Parsing error")
     ):
-        result = await api.query_ems_basic_details("10602251600016")
+        result = await api.query_ems_basic_details("10600000000001")
 
     assert result == {}
     assert "HYXI EMS Basic Data Request Failed for" in caplog.text
@@ -239,7 +239,7 @@ async def test_fetch_device_metrics_parsing_error(caplog, monkeypatch):
     monkeypatch.setattr(api_module, "_parse_data_list", mock_parse)
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
-    await api._fetch_device_metrics("10602251600016", entry)
+    await api._fetch_device_metrics("10600000000001", entry)
 
     assert "Error fetching metrics for " in caplog.text
     assert "Mock parsing error" in caplog.text
@@ -275,7 +275,7 @@ async def test_fetch_device_metrics_ems_gridp_watts_normalized_to_kw():
     )
 
     entry = {"metrics": {}, "device_type_code": "15"}  # Micro ESS
-    await api._fetch_device_metrics("10602251600016", entry)
+    await api._fetch_device_metrics("10600000000001", entry)
 
     assert entry["metrics"]["gridP"] == 0.811
     assert entry["metrics"]["grid_export"] == 811.0
@@ -295,7 +295,7 @@ async def test_fetch_device_metrics_non_ems_gridp_left_as_kw():
     )
 
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
-    await api._fetch_device_metrics("10602251600016", entry)
+    await api._fetch_device_metrics("10600000000001", entry)
 
     assert entry["metrics"]["gridP"] == "1.5"
     assert entry["metrics"]["grid_export"] == 1500.0
@@ -319,7 +319,7 @@ async def test_fetch_device_metrics_energy_storage_battery_gridp_left_as_kw():
     )
 
     entry = {"metrics": {}, "device_type_code": "ENERGY_STORAGE_BATTERY"}
-    await api._fetch_device_metrics("10602251600016", entry)
+    await api._fetch_device_metrics("10600000000001", entry)
 
     assert entry["metrics"]["gridP"] == "1.5"
     assert entry["metrics"]["grid_export"] == 1500.0
@@ -343,7 +343,34 @@ async def test_fetch_device_metrics_micro_ess_family_gridp_normalized(
     )
 
     entry = {"metrics": {}, "device_type_code": device_type_code}
-    await api._fetch_device_metrics("10602251600016", entry)
+    await api._fetch_device_metrics("10600000000001", entry)
 
     assert entry["metrics"]["gridP"] == 0.811
     assert entry["metrics"]["grid_export"] == 811.0
+
+
+@pytest.mark.asyncio
+async def test_fetch_device_metrics_cell_voltages_normalized_from_millivolts():
+    """queryDeviceData batVch/batVcl in millivolts are scaled to volts before
+    they land in entry["metrics"] (some firmwares report mV, others volts).
+    """
+    mock_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
+    api._request = AsyncMock(
+        return_value=(
+            200,
+            {
+                "success": True,
+                "data": [
+                    {"dataKey": "batVch", "dataValue": "3203.0"},
+                    {"dataKey": "batVcl", "dataValue": "3.19"},
+                ],
+            },
+        )
+    )
+
+    entry = {"metrics": {}, "device_type_code": "HYBRID_INVERTER"}
+    await api._fetch_device_metrics("10600000000001", entry)
+
+    assert entry["metrics"]["batVch"] == 3.203
+    assert entry["metrics"]["batVcl"] == 3.19

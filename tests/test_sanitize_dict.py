@@ -100,7 +100,7 @@ def test_sanitize_dict_other_keys():
 
 def test_sanitize_dict_no_mutation():
     """Test that _sanitize_dict does not mutate the original dictionary."""
-    raw = {"deviceSn": "10602251600016", "other": "val"}
+    raw = {"deviceSn": "10600000000001", "other": "val"}
     original = raw.copy()
     result = _sanitize_dict(raw)
     assert raw == original

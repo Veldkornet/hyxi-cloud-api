@@ -31,7 +31,7 @@ async def test_fetch_device_metrics_propagates_token_rejection(api_client):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
 
     with pytest.raises(TokenRejectedError):
-        await api_client._fetch_device_metrics("10602251600016", entry)
+        await api_client._fetch_device_metrics("10600000000001", entry)
 
 
 @pytest.mark.asyncio
@@ -40,7 +40,7 @@ async def test_query_ems_basic_details_propagates_token_rejection(api_client):
     api_client._request = AsyncMock(side_effect=TokenRejectedError("rejected"))
 
     with pytest.raises(TokenRejectedError):
-        await api_client.query_ems_basic_details("10602251600016")
+        await api_client.query_ems_basic_details("10600000000001")
 
 
 @pytest.mark.asyncio
@@ -50,7 +50,7 @@ async def test_fetch_device_info_propagates_token_rejection(api_client):
     entry = {"metrics": {}, "device_type_code": "INVERTER"}
 
     with pytest.raises(TokenRejectedError):
-        await api_client._fetch_device_info("10602251600016", entry)
+        await api_client._fetch_device_info("10600000000001", entry)
 
 
 @pytest.mark.asyncio

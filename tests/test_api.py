@@ -281,7 +281,7 @@ async def test_fetch_all_for_device_never_probes_ems_endpoint():
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
 
-    ems_sn = "10602251600016"
+    ems_sn = "10600000000001"
     entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
 
     await api._fetch_all_for_device(ems_sn, entry, "EMS")
@@ -419,11 +419,11 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
             "data": {
                 "pageData": [
                     {
-                        "deviceSn": "10602251600016",
+                        "deviceSn": "10600000000001",
                         "alarmName": "Fault 1",
                         "plantId": "12345678",
                     },
-                    {"deviceSn": "60701251900927", "alarmName": "Fault 2"},
+                    {"deviceSn": "60700000000001", "alarmName": "Fault 2"},
                 ]
             },
         }
@@ -437,7 +437,7 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
     alarms = await api._fetch_alarms_for_plant("12345678")
 
     assert len(alarms) == 2
-    assert alarms[0]["deviceSn"] == "10602251600016"  # Ensure return value is intact
+    assert alarms[0]["deviceSn"] == "10600000000001"  # Ensure return value is intact
 
     # This function previously tested sanitization of the return values
     # from raw alarm logs. We no longer log "HYXI Raw ALARMS" so we don't
