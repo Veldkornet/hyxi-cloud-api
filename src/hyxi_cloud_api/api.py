@@ -1685,18 +1685,17 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             _LOGGER.exception("Error fetching device info for %s: %s", _mask_id(sn), e)
 
     async def _fetch_all_for_device(self, sn, entry, dev_type):
-        """Fires off concurrent tasks for Data and Info, merging the results."""
+        """Fires off concurrent tasks for device info and telemetry, merging the results.
+
+        Every non-communication-unit device, Micro ESS/Halo included, sources
+        its telemetry from ``_fetch_device_metrics``
+        (``/api/device/v1/queryDeviceData``).
+        """
         tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
         is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")
 
-        ems_task = None
         if not is_comm_unit:
             tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
-
-            actual_type = entry.get("device_type_code", dev_type)
-            if actual_type in _EMS_DEVICE_TYPES:
-                ems_task = asyncio.create_task(self.query_ems_basic_details(sn))
-                tasks.append(ems_task)
 
         # Wait for them to finish. `tasks` always has at least the device-info
         # task appended above, so the false side of this check is unreachable
@@ -1704,15 +1703,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         # refactors, not something a test can exercise honestly today.
         if tasks:  # pragma: no branch
             await asyncio.gather(*tasks)
-
-        if ems_task:
-            m_raw = ems_task.result()
-            if m_raw:
-                entry["metrics"].update(m_raw)
-            else:
-                _LOGGER.debug(
-                    "HYXI EMS telemetry probe returned no data for %s", _mask_id(sn)
-                )
 
         return sn, entry
 

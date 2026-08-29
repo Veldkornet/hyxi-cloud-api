@@ -268,10 +268,13 @@ async def test_query_ems_basic_details_success():
 
 
 @pytest.mark.asyncio
-async def test_fetch_ems_basic_data_success(caplog):
-    """Test _fetch_all_for_device when basic details are returned."""
-    caplog.set_level(logging.DEBUG)
+async def test_fetch_all_for_device_never_probes_ems_endpoint():
+    """_fetch_all_for_device must not call the /api/ems/ probe for any device.
 
+    Micro ESS/Halo (device_type_code "EMS") gets everything from
+    queryDeviceData; query_ems_basic_details stays a public method but is
+    never auto-probed here.
+    """
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
     api.query_ems_basic_details = AsyncMock(return_value={"new_metric": "new_value"})
@@ -283,40 +286,8 @@ async def test_fetch_ems_basic_data_success(caplog):
 
     await api._fetch_all_for_device(ems_sn, entry, "EMS")
 
-    # Assert query_ems_basic_details was called
-    api.query_ems_basic_details.assert_called_once_with(ems_sn)
-
-    # Assert entry['metrics'] contains the merged EMS data (subset check — VPP
-    # keys are always written too, so we don't assert the exact full dict).
-    assert entry["metrics"]["existing_metric"] == "value"
-    assert entry["metrics"]["new_metric"] == "new_value"
-
-
-@pytest.mark.asyncio
-async def test_fetch_ems_basic_data_no_data(caplog):
-    """Test _fetch_all_for_device when no basic details are returned."""
-    caplog.set_level(logging.DEBUG)
-
-    mock_session = MagicMock()
-    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
-    api.query_ems_basic_details = AsyncMock(return_value={})
-    api._fetch_device_info = AsyncMock()
-    api._fetch_device_metrics = AsyncMock()
-
-    ems_sn = "EMS123"
-    entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
-
-    await api._fetch_all_for_device(ems_sn, entry, "EMS")
-
-    # Assert query_ems_basic_details was called
-    api.query_ems_basic_details.assert_called_once_with("EMS123")
-
-    # Assert the original metric is still present (VPP keys are added but
-    # existing_metric must be untouched).
-    assert entry["metrics"]["existing_metric"] == "value"
-
-    # Assert the correct debug log was emitted
-    assert "HYXI EMS telemetry probe returned no data for " in caplog.text
+    api.query_ems_basic_details.assert_not_called()
+    assert entry["metrics"] == {"existing_metric": "value"}
 
 
 # --- TEST 5: Concurrent Execution of Fetch All ---
@@ -477,13 +448,12 @@ async def test_fetch_alarms_for_plant_sanitization(caplog):
 async def test_fetch_all_for_device_collector():
     """Test _fetch_all_for_device when dev_type is COLLECTOR.
 
-    Collector/DMU units skip metrics and EMS probing — only device info is fetched.
+    Collector/DMU units skip metrics probing — only device info is fetched.
     """
     api = HyxiApiClient("key", "secret", "url", session=MagicMock())
 
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
-    api.query_ems_basic_details = AsyncMock()
 
     sn = "SN_123"
     entry = {"initial": "state"}
@@ -496,7 +466,6 @@ async def test_fetch_all_for_device_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_not_called()
-    api.query_ems_basic_details.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -504,16 +473,12 @@ async def test_fetch_all_for_device_non_collector():
     """Test _fetch_all_for_device when dev_type is not COLLECTOR.
 
     Non-collector devices (e.g. INVERTER) trigger device info and metrics
-    telemetry probing concurrently. query_ems_basic_details must be mocked to
-    prevent unawaited coroutine RuntimeWarnings from the real HTTP path.
+    telemetry probing concurrently.
     """
     api = HyxiApiClient("key", "secret", "url", session=MagicMock())
 
     api._fetch_device_info = AsyncMock()
     api._fetch_device_metrics = AsyncMock()
-    # Must mock query_ems_basic_details: _fetch_all_for_device fires it as an
-    # asyncio.create_task. Without this mock the real coroutine leaks unawaited.
-    api.query_ems_basic_details = AsyncMock(return_value={})
 
     sn = "SN_456"
     entry = {"metrics": {}, "initial": "state2"}
@@ -526,22 +491,6 @@ async def test_fetch_all_for_device_non_collector():
 
     api._fetch_device_info.assert_called_once_with(sn, entry)
     api._fetch_device_metrics.assert_called_once_with(sn, entry)
-    api.query_ems_basic_details.assert_not_called()
-
-    # Reset mocks before verifying EMS-capable device behaviour
-    api._fetch_device_info.reset_mock()
-    api._fetch_device_metrics.reset_mock()
-    api.query_ems_basic_details.reset_mock()
-
-    # EMS-capable non-collector devices should still trigger the EMS probe
-    ems_sn = "EMS123"
-    ems_entry = {"device_type_code": "EMS", "metrics": {"existing_metric": "value"}}
-
-    await api._fetch_all_for_device(ems_sn, ems_entry, "EMS")
-
-    api._fetch_device_info.assert_called_once_with(ems_sn, ems_entry)
-    api._fetch_device_metrics.assert_called_once_with(ems_sn, ems_entry)
-    api.query_ems_basic_details.assert_called_once_with(ems_sn)
 
 
 # --- TEST 6: Empty Data Response (The "Halo ESS" Scenario) ---
@@ -687,7 +636,6 @@ async def test_execute_fetch_all_force_discovery_integration():
             (200, alarms_resp),
             (200, info_resp),
             (200, metrics_resp),
-            (200, {}),  # EMS Probe
         ]
 
         # Use wraps to spy on internal methods while preserving their original logic
