@@ -38,6 +38,7 @@ import asyncio
 import aiohttp
 from hyxi_cloud_api import HyxiApiClient
 
+
 async def main():
     # Replace with your actual HYXi Cloud credentials
     ACCESS_KEY = "your_access_key"
@@ -50,7 +51,7 @@ async def main():
             access_key=ACCESS_KEY,
             secret_key=SECRET_KEY,
             base_url=BASE_URL,
-            session=session
+            session=session,
         )
 
         # 2. Fetch device data
@@ -60,6 +61,7 @@ async def main():
             print(device_data)
         except Exception as e:
             print(f"Error communicating with HYXi Cloud: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
