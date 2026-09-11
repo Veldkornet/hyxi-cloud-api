@@ -69,6 +69,21 @@ async def test_set_mode_self_consume():
 
 
 @pytest.mark.asyncio
+async def test_set_mode_self_consume_with_charging():
+    """Test set_mode_self_consume_with_charging sends controlId 1066."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(return_value=(200, {"success": True}))
+
+    result = await api.set_mode_self_consume_with_charging("SN123")
+
+    assert result["success"] is True
+    call_kwargs = api._request.call_args
+    body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+    assert body["deviceControlMap"]["SN123"]["1066"] == ""
+
+
+@pytest.mark.asyncio
 async def test_set_peak_shaving():
     """Test set_peak_shaving sends controlId 1021 with mapped value."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
@@ -421,4 +436,44 @@ async def test_set_device_control_empty_settings():
     result = await api.set_device_control("SN123", {})
 
     assert result == {}
+    api._request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_query_control_result_success():
+    """Test query_control_result sends the traceId and returns the response.
+
+    Auth-failure and API-failure paths aren't retested per-method here --
+    they're generic behavior of the shared `_execute_with_auth_retry` helper,
+    already covered by tests/test_execute_with_auth_retry.py and once more
+    (via set_mode_idle/set_mode_charge) by test_control_error_on_* above.
+    """
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._refresh_token = AsyncMock(return_value=True)
+    api._request = AsyncMock(
+        return_value=(200, {"success": True, "data": {"result": "3"}})
+    )
+
+    result = await api.query_control_result("TRACE123")
+
+    assert result["data"]["result"] == "3"
+    api._request.assert_called_once()
+    call_args, call_kwargs = api._request.call_args
+    assert call_args[0] == "POST"
+    assert call_args[1] == "/api/device/v1/obtain"
+    assert call_kwargs.get("json") == {"traceId": "TRACE123"}
+
+
+@pytest.mark.asyncio
+async def test_query_control_result_empty_trace_id():
+    """Test query_control_result rejects an empty/blank trace_id locally."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock()
+
+    with pytest.raises(ValueError, match="trace_id must be a non-empty string"):
+        await api.query_control_result("")
+
+    with pytest.raises(ValueError, match="trace_id must be a non-empty string"):
+        await api.query_control_result("   ")
+
     api._request.assert_not_called()

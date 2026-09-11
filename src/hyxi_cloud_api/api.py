@@ -2316,6 +2316,26 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             "POST", path, self.ControlError, json=body
         )
 
+    async def query_control_result(self, trace_id: str) -> dict:
+        """Query the execution result of a previously issued control instruction.
+
+        Endpoint: POST /api/device/v1/obtain
+        Body: {"traceId": "<trace_id>"}
+
+        trace_id is the `traceId` returned in `data` by `set_device_control`.
+        The response's ``data["result"]`` is one of: "2" (issuing), "3"
+        (success/completed), "6" (failure).
+        """
+        if not trace_id or not trace_id.strip():
+            raise ValueError("trace_id must be a non-empty string")
+
+        path = "/api/device/v1/obtain"
+        body = {"traceId": trace_id}
+        _LOGGER.debug("HYXI CONTROL_RESULT request for traceId %s", _mask_id(trace_id))
+        return await self._execute_with_auth_retry(
+            "POST", path, self.ControlError, json=body
+        )
+
     # ── Subscription API ────────────────────────────────────────────────
 
     async def _post_subscription(self, path: str, body: dict) -> dict:
@@ -2480,6 +2500,19 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         """
         return await self.set_device_control(device_sn, {1065: ""})
 
+    async def set_mode_self_consume_with_charging(self, device_sn: str) -> dict:
+        """Set inverter to Self-consumption mode with PV battery charging (controlId 1066).
+
+        For **Three-Phase** devices (e.g. HYBRID_INVERTER).
+        PV powers the load first; surplus PV charges the battery. Once the
+        battery is full, excess power is exported to the grid.
+        PV power flow priority: Load > Bat > Grid.
+
+        Unlike `set_mode_self_consume` (controlId 1065), this charges the
+        battery from PV before exporting.
+        """
+        return await self.set_device_control(device_sn, {1066: ""})
+
     async def set_peak_shaving(self, device_sn: str, action: str) -> dict:
         """Set Peak Shaving control (controlId 1021).
 
@@ -2547,7 +2580,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         For **MICRO_ESS** devices (e.g. AC-coupled battery units such as
         HYX-MS3000AC). Unlike the other Energy Storage Control instructions
-        (1020/1021/1062-1065), this control has no PV dependency, so it
+        (1020/1021/1062-1066), this control has no PV dependency, so it
         applies to AC-coupled units with no photovoltaic input.
 
         Args:
