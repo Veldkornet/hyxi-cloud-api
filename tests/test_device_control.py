@@ -476,4 +476,10 @@ async def test_query_control_result_empty_trace_id():
     with pytest.raises(ValueError, match="trace_id must be a non-empty string"):
         await api.query_control_result("   ")
 
+    with pytest.raises(ValueError, match="trace_id must be a non-empty string"):
+        await api.query_control_result(None)
+
+    with pytest.raises(ValueError, match="trace_id must be a non-empty string"):
+        await api.query_control_result(12345)
+
     api._request.assert_not_called()

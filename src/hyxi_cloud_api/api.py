@@ -2326,7 +2326,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         The response's ``data["result"]`` is one of: "2" (issuing), "3"
         (success/completed), "6" (failure).
         """
-        if not trace_id or not trace_id.strip():
+        if not isinstance(trace_id, str) or not trace_id.strip():
             raise ValueError("trace_id must be a non-empty string")
 
         path = "/api/device/v1/obtain"
