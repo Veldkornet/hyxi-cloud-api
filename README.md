@@ -84,6 +84,7 @@ You can control inverter operating modes directly through the API. This requires
 async def control_example(client, device_sn):
     # Set operating mode
     await client.set_mode_self_consume(device_sn)
+    await client.set_mode_self_consume_with_charging(device_sn)
     await client.set_mode_charge(device_sn, watts=3000)
     await client.set_mode_discharge(device_sn, watts=2500)
     await client.set_mode_idle(device_sn)
@@ -102,6 +103,16 @@ try:
     await client.set_mode_charge(device_sn, watts=3000)
 except client.ControlError as e:
     print(f"Control command failed: {e}")
+```
+
+Control commands are fire-and-forget; poll `query_control_result` with the `traceId` from the response to confirm the device actually applied it:
+
+```python
+response = await client.set_mode_charge(device_sn, watts=3000)
+trace_id = response["data"][0]["traceId"]
+
+result = await client.query_control_result(trace_id)
+# result["data"]["result"]: "2" (issuing), "3" (success), "6" (failure)
 ```
 
 ## 🔔 Subscriptions
