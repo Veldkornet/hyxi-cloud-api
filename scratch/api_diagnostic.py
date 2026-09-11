@@ -108,10 +108,10 @@ async def main():
 
                 # 5. Fetch Raw Device Telemetry
                 print(
-                    "  [2] [GET /api/device/v1/queryDeviceData] Querying raw telemetry..."
+                    "  [2] [GET /api/device/v2/queryDeviceData] Querying raw telemetry..."
                 )
                 _, tele_res = await client._request(
-                    "GET", "/api/device/v1/queryDeviceData", params={"deviceSn": sn}
+                    "GET", "/api/device/v2/queryDeviceData", params={"deviceSn": sn}
                 )
                 print(f"  Response:\n{json.dumps(tele_res, indent=4)}")
 

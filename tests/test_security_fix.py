@@ -87,7 +87,7 @@ async def test_fetch_device_metrics_fixed():
 
     args, kwargs = fake_session.get.call_args
     # URL should NOT contain the raw unencoded SN with '&'
-    assert args[0] == "https://api.com/api/device/v1/queryDeviceData"
+    assert args[0] == "https://api.com/api/device/v2/queryDeviceData"
     assert kwargs["params"] == {"deviceSn": sn}
 
 
@@ -148,7 +148,7 @@ def test_sanitize_response_error_strips_query_params(monkeypatch, real_aiohttp):
     monkeypatch.setattr(api_module, "aiohttp", real_aiohttp)
 
     url = URL(
-        "https://api.com/api/device/v1/queryDeviceData"
+        "https://api.com/api/device/v2/queryDeviceData"
         "?deviceSn=SECRETSN&plantId=SECRETPLANT"
     )
     request_info = RequestInfo(
