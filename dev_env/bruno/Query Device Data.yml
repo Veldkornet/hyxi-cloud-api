@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: "{{base_url}}/api/device/v1/queryDeviceData?deviceSn={{active_device_sn}}"
+  url: "{{base_url}}/api/device/v2/queryDeviceData?deviceSn={{active_device_sn}}"
   params:
     - name: deviceSn
       value: "{{active_device_sn}}"
@@ -29,7 +29,7 @@ runtime:
             throw new Error("No token found! Run the 'Get Token' request first.");
         }
 
-        const path = "/api/device/v1/queryDeviceData";
+        const path = "/api/device/v2/queryDeviceData";
         const method = "GET";
         const timestamp = Date.now().toString();
         const nonce = timestamp.toString(16).slice(-8);

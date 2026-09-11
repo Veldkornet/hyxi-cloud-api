@@ -670,7 +670,7 @@ def _normalize_micro_ess_gridp(m_raw: dict, device_type: str | None) -> None:
 
     Micro ESS/Halo devices (device_type in _MICRO_ESS_DEVICE_TYPES) report
     `gridP` already in Watts on any path that passes the raw API value
-    through unconverted -- the REST /api/device/v1/queryDeviceData poll,
+    through unconverted -- the REST /api/device/v2/queryDeviceData poll,
     and flat-format real-time push payloads -- unlike every other device
     type, and unlike the nested push format's explicitly self-describing
     `grid.powerW` field (already converted to kW unconditionally by
@@ -1598,7 +1598,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
     async def _fetch_device_metrics(self, sn, entry):
         """Helper to fetch detailed metrics for a single device."""
-        q_path = "/api/device/v1/queryDeviceData"
+        q_path = "/api/device/v2/queryDeviceData"
         _LOGGER.debug("HYXI fetching device metrics for %s", _mask_id(sn))
         try:
             _, res_q = await self._request("GET", q_path, params={"deviceSn": sn})
@@ -1749,7 +1749,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         Every non-communication-unit device, Micro ESS/Halo included, sources
         its telemetry from ``_fetch_device_metrics``
-        (``/api/device/v1/queryDeviceData``).
+        (``/api/device/v2/queryDeviceData``).
         """
         tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
         is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")

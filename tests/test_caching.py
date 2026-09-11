@@ -73,7 +73,7 @@ async def test_discovery_caching_logic():
         calls = mock_req.call_args_list
         assert calls[0][0][1] == "/api/alarm/v1/plantAlarmPage"
         assert calls[1][0][1] == "/api/device/v1/queryDeviceInfo"
-        assert calls[2][0][1] == "/api/device/v1/queryDeviceData"
+        assert calls[2][0][1] == "/api/device/v2/queryDeviceData"
 
         # Third call: Force discovery
         mock_req.reset_mock()
