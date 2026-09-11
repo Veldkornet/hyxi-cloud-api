@@ -2,8 +2,8 @@
 HYXI Cloud API Diagnostic Utility
 =================================
 Calls all status/telemetry endpoints on the live HYXI API and dumps the raw
-JSON responses to diagnose device parameters, VPP status, EMS parameters,
-and alarm states.
+JSON responses to diagnose device parameters, EMS parameters, and alarm
+states.
 
 Usage:
     export HYXI_ACCESS_KEY="your_access_key"
@@ -134,20 +134,6 @@ async def main():
                     "GET", "/api/ems/v1/queryBasicDetails", params={"emsSn": sn}
                 )
                 print(f"  Response:\n{json.dumps(ems_res, indent=4)}")
-
-                # 8. Fetch VPP Settings
-                print(
-                    "  [5] [POST /hyx-plant/deviceInstruct/v1/getVppModeSetting] Querying VPP settings..."
-                )
-                try:
-                    _, vpp_res = await client._request(
-                        "POST",
-                        "/hyx-plant/deviceInstruct/v1/getVppModeSetting",
-                        json={"sn": sn},
-                    )
-                    print(f"  Response:\n{json.dumps(vpp_res, indent=4)}")
-                except Exception as e:
-                    print(f"  ⚠️ Request failed: {e}")
 
     print("\n✅ Diagnostic complete.")
 
