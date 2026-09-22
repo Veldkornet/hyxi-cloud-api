@@ -99,7 +99,7 @@ async def _arm_dispatch_first(client: HyxiApiClient, device_sn: str) -> None:
     await asyncio.sleep(_ARM_SETTLE_DELAY_S)
 
 
-async def main() -> None:
+async def main() -> None:  # pylint: disable=too-many-statements
     """Issue one control command and poll its result until resolved or timed out."""
     if not ACCESS_KEY or not SECRET_KEY or not DEVICE_SN:
         print(
@@ -109,9 +109,17 @@ async def main() -> None:
         return
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "idle"
-    max_minutes = float(sys.argv[2]) if len(sys.argv) > 2 else 20.0
     if mode not in ("idle", "self_consume"):
         print(f"Unsupported mode {mode!r}; use idle or self_consume.")
+        return
+
+    try:
+        max_minutes = float(sys.argv[2]) if len(sys.argv) > 2 else 20.0
+    except ValueError:
+        print(f"max_minutes must be a number, got {sys.argv[2]!r}.")
+        return
+    if not 0 < max_minutes < float("inf"):
+        print(f"max_minutes must be a finite, positive number, got {max_minutes!r}.")
         return
 
     async with aiohttp.ClientSession() as session:
@@ -173,6 +181,12 @@ async def main() -> None:
             elapsed = time.monotonic() - t0
             try:
                 result_response = await client.query_control_result(trace_id)
+            except HyxiApiClient.ControlError as err:
+                print(
+                    f"\n❌ query_control_result rejected outright after "
+                    f"{elapsed:.1f}s: {err}"
+                )
+                return
             except Exception as err:  # pylint: disable=broad-exception-caught
                 print(f"[t+{elapsed:6.1f}s] query_control_result error: {err}")
             else:
