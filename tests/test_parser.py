@@ -287,6 +287,108 @@ def test_compute_derived_metrics_zero_edges():
 
 
 @pytest.mark.asyncio
+async def test_api_parsing_renames_phase_ac_keys():
+    """A REST-polled hybrid inverter must populate ph{1,2,3}v/i/p.
+
+    /api/device/v2/queryDeviceData reports per-phase AC voltage/current/
+    power as ph{n}Ac{v,i,p}, not the ph{n}{v,i,p} keys every sensor and the
+    push-format parser use. This is a real capture from a HYX-H10K-HT
+    (ha-hyxi-cloud issue: phase sensors going blank via REST poll while the
+    push subscription kept working) -- reproduced verbatim, not a
+    hand-picked subset, so a future upstream key rename shows up here too.
+    """
+    fake_json = {
+        "code": "0",
+        "msg": "Success",
+        "requestId": "473b09f5c82f494dbfb3154baec0e5e8",
+        "data": [
+            {"dataKey": "ph2Acp", "dataValue": "-101.0"},
+            {"dataKey": "ph2Acv", "dataValue": "232.3"},
+            {"dataKey": "pbat", "dataValue": "-212.0"},
+            {"dataKey": "totalEchg", "dataValue": "6628.4"},
+            {"dataKey": "totalEpt", "dataValue": "3664.8"},
+            {"dataKey": "batIdm", "dataValue": "30.0"},
+            {"dataKey": "ph1Loadp", "dataValue": "303.0"},
+            {"dataKey": "ph2Aci", "dataValue": "0.88"},
+            {"dataKey": "ph3Acp", "dataValue": "0.0"},
+            {"dataKey": "ph3Acv", "dataValue": "228.4"},
+            {"dataKey": "gridP", "dataValue": "-0.3"},
+            {"dataKey": "gridSts", "dataValue": "1"},
+            {"dataKey": "parentSn", "dataValue": "60701251900927"},
+            {"dataKey": "pv2p", "dataValue": "0.0"},
+            {"dataKey": "batCharge", "dataValue": "16.4"},
+            {"dataKey": "ph3Loadp", "dataValue": "0.0"},
+            {"dataKey": "deviceState", "dataValue": "1"},
+            {"dataKey": "ph3Aci", "dataValue": "0.3"},
+            {"dataKey": "pv2v", "dataValue": "119.6"},
+            {"dataKey": "batVch", "dataValue": "3341.0"},
+            {"dataKey": "totalEdchg", "dataValue": "5908.5"},
+            {"dataKey": "batSn", "dataValue": "15023250300001"},
+            {"dataKey": "batTch", "dataValue": "30.0"},
+            {"dataKey": "workMode", "dataValue": "13"},
+            {"dataKey": "totalE", "dataValue": "0.0"},
+            {"dataKey": "pv2i", "dataValue": "0.0"},
+            {"dataKey": "tinv", "dataValue": "45"},
+            {"dataKey": "batVcl", "dataValue": "3.34"},
+            {"dataKey": "deviceSn", "dataValue": "10602251600016"},
+            {"dataKey": "batTcl", "dataValue": "25.0"},
+            {"dataKey": "batV", "dataValue": "534.0"},
+            {"dataKey": "totalEnt", "dataValue": "11404.1"},
+            {"dataKey": "pv1p", "dataValue": "0.0"},
+            {"dataKey": "pv1v", "dataValue": "119.5"},
+            {"dataKey": "collectTime", "dataValue": "1790089110"},
+            {"dataKey": "ph1Aci", "dataValue": "2.13"},
+            {"dataKey": "acE", "dataValue": "0.0"},
+            {"dataKey": "f", "dataValue": "49.99"},
+            {"dataKey": "pv1i", "dataValue": "0.0"},
+            {"dataKey": "batDisCharge", "dataValue": "14.0"},
+            {"dataKey": "acP", "dataValue": "-112.0"},
+            {"dataKey": "batSoh", "dataValue": "95"},
+            {"dataKey": "invSts", "dataValue": "1"},
+            {"dataKey": "ph2Loadp", "dataValue": "-100.0"},
+            {"dataKey": "q", "dataValue": "-586.0"},
+            {"dataKey": "faultSts", "dataValue": "1"},
+            {"dataKey": "ph1Acv", "dataValue": "230.0"},
+            {"dataKey": "batP", "dataValue": "0.0"},
+            {"dataKey": "batSoc", "dataValue": "90"},
+            {"dataKey": "ppv", "dataValue": "0.0"},
+            {"dataKey": "batIcm", "dataValue": "24.7"},
+            {"dataKey": "batI", "dataValue": "0.0"},
+            {"dataKey": "ph1Acp", "dataValue": "-11.0"},
+            {"dataKey": "vbus", "dataValue": "751.7"},
+        ],
+        "success": True,
+    }
+
+    mock_response = MagicMock()
+    mock_response.json = AsyncMock(return_value=fake_json)
+    mock_response.raise_for_status = MagicMock()
+
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+
+    api = HyxiApiClient(
+        access_key="test_ak",
+        secret_key="test_sk",
+        base_url="https://test.com",
+        session=mock_session,
+    )
+
+    entry = {"metrics": {}, "device_type_code": "1"}  # Hybrid Inverter
+    await api._fetch_device_metrics("SN123", entry)
+
+    # Renamed: the Ac-infixed REST key becomes the plain sensor key. Full
+    # coverage of every phase/leak/Loadp-passthrough case lives in
+    # test_normalize_phase_ac_keys.py -- this only proves the rename is
+    # actually wired into the live _fetch_device_metrics call.
+    assert entry["metrics"]["ph1v"] == "230.0"
+    assert entry["metrics"]["ph1i"] == "2.13"
+    assert entry["metrics"]["ph1p"] == "-11.0"
+    assert "ph1Acv" not in entry["metrics"]
+    assert entry["metrics"]["ph1Loadp"] == "303.0"
+
+
+@pytest.mark.asyncio
 async def test_api_parsing_micro_ess_fallbacks():
     """Verify that Micro ESS specific keys (pvPower, gridF) are parsed and correctly trigger derived fallbacks."""
     fake_json = {
