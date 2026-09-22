@@ -55,6 +55,7 @@ import time
 import aiohttp
 
 from hyxi_cloud_api import HyxiApiClient
+from hyxi_cloud_api.api import _mask_id  # pylint: disable=protected-access
 
 ACCESS_KEY = os.environ.get("HYXI_ACCESS_KEY", "")
 SECRET_KEY = os.environ.get("HYXI_SECRET_KEY", "")
@@ -66,11 +67,15 @@ ARM_DISPATCH_FIRST = os.environ.get("HYXI_ARM_DISPATCH_FIRST", "").lower() in (
     "yes",
 )
 
-_ARM_SETTLE_DELAY_S = 3.0  # give the enable a moment to land before the mode write
-
 _FAST_POLL_WINDOW_S = 120.0  # poll tightly for the first 2 minutes...
 _FAST_POLL_INTERVAL_S = 10.0
 _SLOW_POLL_INTERVAL_S = 60.0  # ...then back off, in case this takes a while.
+
+# How long to wait for the arm write's own traceId to confirm before giving
+# up on confirmation and proceeding with the mode write anyway -- reuses the
+# fast-poll window rather than the (much longer) main --max_minutes budget,
+# since this is a means to an end, not the thing being measured.
+_ARM_CONFIRM_TIMEOUT_MINUTES = _FAST_POLL_WINDOW_S / 60.0
 
 
 def _next_poll_delay(elapsed_s: float) -> float:
@@ -85,18 +90,110 @@ def _next_poll_delay(elapsed_s: float) -> float:
     )
 
 
+def _extract_trace_id(response: dict) -> str | None:
+    """Extract and normalize a traceId from a control-write response's
+    `data` list, or None if there isn't a usable one.
+
+    Every genuine HYXI traceId is purely numeric; a non-numeric value
+    (e.g. the literal string "SKIPPED", observed live against a device
+    under active third-party/energy-provider control) means HYXI never
+    generated a trackable result for this write, and query_control_result
+    would just return data: None forever. The extracted value is
+    normalized to a stripped string -- query_control_result rejects
+    anything else outright, and HYXI has been seen to return traceId as
+    a bare JSON number rather than a string.
+    """
+    data = response.get("data")
+    trace_id = None
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        trace_id = data[0].get("traceId")
+    if trace_id is None:
+        return None
+    trace_id = str(trace_id).strip()
+    return trace_id if trace_id.isdigit() else None
+
+
+async def _poll_control_result(
+    client: HyxiApiClient, trace_id: str, max_minutes: float, label: str = ""
+) -> str | None:
+    """Poll query_control_result(trace_id) to a terminal state ("3"
+    success / "6" failure), printing a timestamped log line per attempt.
+
+    Returns the terminal result, or None if max_minutes elapses first or
+    the endpoint rejects the trace ID outright.
+    """
+    prefix = f"{label} " if label else ""
+    t0 = time.monotonic()
+    deadline = t0 + max_minutes * 60
+
+    while True:
+        elapsed = time.monotonic() - t0
+        try:
+            result_response = await client.query_control_result(trace_id)
+        except HyxiApiClient.ControlError as err:
+            print(
+                f"\n❌ {prefix}query_control_result rejected outright after "
+                f"{elapsed:.1f}s: {err}"
+            )
+            return None
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            print(f"[{prefix}t+{elapsed:6.1f}s] query_control_result error: {err}")
+        else:
+            result_data = result_response.get("data") or {}
+            result = result_data.get("result")
+            print(
+                f"[{prefix}t+{elapsed:6.1f}s] result={result!r} raw={result_response}"
+            )
+            if result in ("3", "6"):
+                return result
+
+        if time.monotonic() >= deadline:
+            return None
+
+        await asyncio.sleep(_next_poll_delay(elapsed))
+
+
 async def _arm_dispatch_first(client: HyxiApiClient, device_sn: str) -> None:
-    """Send controlId 1020 (Frequency Control Enable) and wait for it to
-    settle, per the HYXI_ARM_DISPATCH_FIRST hypothesis (see module docstring).
+    """Send controlId 1020 (Frequency Control Enable) and confirm it
+    actually completed before returning, per the HYXI_ARM_DISPATCH_FIRST
+    hypothesis (see module docstring).
+
+    A fixed sleep here (the original approach) would let the mode write
+    fire against a still-arming or failed-to-arm device, making the
+    experiment unable to tell whether arming is actually what mattered.
+    Confirmation is best-effort, though: the mode write proceeds
+    regardless of the outcome (rejected, failed, or unconfirmed), same as
+    before -- this is a diagnostic for a hypothesis, not a gate.
     """
     print("🔓 Sending Frequency Control Enable (controlId 1020) to arm dispatch...")
     try:
         arm_response = await client.set_frequency_control(device_sn, True)
-        print(f"Arm response: {arm_response}")
     except HyxiApiClient.ControlError as err:
         print(f"⚠️  Arm step rejected outright: {err} (continuing anyway)")
-    print(f"⏳ Waiting {_ARM_SETTLE_DELAY_S:.0f}s before the mode write...")
-    await asyncio.sleep(_ARM_SETTLE_DELAY_S)
+        return
+
+    print(f"Arm response: {arm_response}")
+    trace_id = _extract_trace_id(arm_response)
+    if trace_id is None:
+        print(
+            "⚠️  Arm response has no trackable traceId -- proceeding "
+            "without confirmation."
+        )
+        return
+
+    print(f"⏳ Confirming arm (traceId {trace_id}) before the mode write...")
+    result = await _poll_control_result(
+        client, trace_id, _ARM_CONFIRM_TIMEOUT_MINUTES, label="ARM"
+    )
+    if result == "3":
+        print("✅ Arm confirmed.")
+    elif result == "6":
+        print("⚠️  Arm confirmed as FAILED -- proceeding with the mode write anyway.")
+    else:
+        print(
+            f"⚠️  Arm unconfirmed after {_ARM_CONFIRM_TIMEOUT_MINUTES:.0f} min "
+            "-- proceeding with the mode write anyway."
+        )
 
 
 async def main() -> None:  # pylint: disable=too-many-statements
@@ -131,7 +228,7 @@ async def main() -> None:  # pylint: disable=too-many-statements
             print(f"❌ Authentication failed (status={ok!r}).")
             return
 
-        masked_sn = f"...{DEVICE_SN[-6:]}" if len(DEVICE_SN) > 6 else DEVICE_SN
+        masked_sn = _mask_id(DEVICE_SN)
 
         if ARM_DISPATCH_FIRST:
             await _arm_dispatch_first(client, DEVICE_SN)
@@ -147,16 +244,10 @@ async def main() -> None:  # pylint: disable=too-many-statements
             return
         print(f"Control response: {response}")
 
-        data = response.get("data")
-        trace_id = None
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            trace_id = data[0].get("traceId")
-        if not trace_id:
-            print("❌ No traceId in the response -- can't poll a result. Aborting.")
-            return
-        if not str(trace_id).strip().isdigit():
+        trace_id = _extract_trace_id(response)
+        if trace_id is None:
             print(
-                f"⚠️  traceId is {trace_id!r} -- not a real, numeric trace ID. "
+                "❌ No usable traceId in the response -- can't poll a result. "
                 "Every genuine HYXI traceId is purely numeric; a non-numeric "
                 'value (e.g. the literal string "SKIPPED", observed live '
                 "against a device under active third-party/energy-provider "
@@ -175,40 +266,19 @@ async def main() -> None:  # pylint: disable=too-many-statements
         )
 
         t0 = time.monotonic()
-        deadline = t0 + max_minutes * 60
-
-        while True:
-            elapsed = time.monotonic() - t0
-            try:
-                result_response = await client.query_control_result(trace_id)
-            except HyxiApiClient.ControlError as err:
-                print(
-                    f"\n❌ query_control_result rejected outright after "
-                    f"{elapsed:.1f}s: {err}"
-                )
-                return
-            except Exception as err:  # pylint: disable=broad-exception-caught
-                print(f"[t+{elapsed:6.1f}s] query_control_result error: {err}")
-            else:
-                result_data = result_response.get("data") or {}
-                result = result_data.get("result")
-                print(f"[t+{elapsed:6.1f}s] result={result!r} raw={result_response}")
-                if result in ("3", "6"):
-                    outcome = "SUCCESS" if result == "3" else "FAILURE"
-                    print(
-                        f"\n✅ Resolved as {outcome} after {elapsed:.1f}s "
-                        f"({elapsed / 60:.2f} min)."
-                    )
-                    return
-
-            if time.monotonic() >= deadline:
-                print(
-                    f"\n⏹️  Gave up after {max_minutes:.0f} minutes without a "
-                    "terminal result."
-                )
-                return
-
-            await asyncio.sleep(_next_poll_delay(elapsed))
+        result = await _poll_control_result(client, trace_id, max_minutes)
+        elapsed = time.monotonic() - t0
+        if result in ("3", "6"):
+            outcome = "SUCCESS" if result == "3" else "FAILURE"
+            print(
+                f"\n✅ Resolved as {outcome} after {elapsed:.1f}s "
+                f"({elapsed / 60:.2f} min)."
+            )
+        else:
+            print(
+                f"\n⏹️  Gave up after {max_minutes:.0f} minutes without a "
+                "terminal result."
+            )
 
 
 if __name__ == "__main__":
