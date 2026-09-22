@@ -734,6 +734,31 @@ def _normalize_cell_temperatures(m_raw: dict, device_type: str | None) -> None:
                 pass
 
 
+# Map discrepancies between the REST queryDeviceData payload and every other
+# consumer's naming -- the REST-side counterpart to _PUSH_KEY_MAP below.
+_PHASE_AC_KEY_MAP = {
+    f"ph{i}Ac{suffix}": f"ph{i}{suffix}" for i in (1, 2, 3) for suffix in "vip"
+}
+
+
+def _normalize_phase_ac_keys(m_raw: dict) -> None:
+    """Rename `ph{1,2,3}Ac{v,i,p}` REST keys to the plain `ph{1,2,3}{v,i,p}`
+    keys every consumer expects, in place.
+
+    `/api/device/v2/queryDeviceData` reports per-phase AC voltage/current/
+    power as `ph1Acv`/`ph1Aci`/`ph1Acp` (and ph2/ph3 equivalents), but the
+    real-time push payload's nested `phases.ph{n}` format -- and every
+    ph{n}v/ph{n}i/ph{n}p sensor in ha-hyxi-cloud -- uses the un-infixed
+    names. Without this rename, a device polled only over REST (no push
+    subscription reaching it) never populates its phase voltage/current/
+    power sensors, even though the data is right there under the Ac-infixed
+    key. `ph{n}Loadp` is untouched -- HYXI never renamed it.
+    """
+    for src, dst in _PHASE_AC_KEY_MAP.items():
+        if src in m_raw:
+            m_raw.setdefault(dst, m_raw.pop(src))
+
+
 def _normalize_raw_metrics(
     m_raw: dict, device_type: str | None, *, skip_gridp: bool = False
 ) -> None:
@@ -743,6 +768,7 @@ def _normalize_raw_metrics(
     from it. `skip_gridp` is for the nested-push path, where `grid.powerW`
     is already converted to kW by `_flatten_nested_push_device`.
     """
+    _normalize_phase_ac_keys(m_raw)
     if not skip_gridp:
         _normalize_micro_ess_gridp(m_raw, device_type)
     _normalize_cell_voltages(m_raw)
