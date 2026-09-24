@@ -55,8 +55,6 @@ runtime:
         req.setHeader("nonce", nonce);
         req.setHeader("sign", signature);
         req.setHeader("Authorization", token);
-
-        console.log(`Querying device: ${getVar("device_sn")}`);
     - type: after-response
       code: |-
         const response = res.getBody();
