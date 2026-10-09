@@ -29,20 +29,56 @@ def test_update_discovery_cache_corrupted_state_is_a_noop():
 
 
 def test_update_discovery_cache_keeps_enriched_fields():
-    """Re-discovering a device updates its basic fields without discarding
-    data learned from queryDeviceInfo (versions, battery info)."""
+    """Re-discovering a device of the same type refreshes its listed fields
+    without discarding data learned from queryDeviceInfo: the detailed model,
+    versions and battery info."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._discovery_cache["device_info"] = {
-        "SN1": {"model": "Old", "device_type_code": "X", "hw_version": "H1"}
+        "SN1": {
+            "model": "Hybrid Inverter",
+            "detailed_model": "HYX-H10K-HT",
+            "device_type_code": "HYBRID_INVERTER",
+            "device_name": "Old name",
+            "info_metrics": {"hw_version": "H1"},
+        }
     }
 
     api._update_discovery_cache(
-        "SN1", {"model": "H5K-HT", "device_type_code": "HYBRID_INVERTER"}
+        "SN1", {"model": "Hybrid Inverter", "device_type_code": "HYBRID_INVERTER"}
     )
 
     assert api._discovery_cache["device_info"]["SN1"] == {
-        "model": "H5K-HT",
+        "model": "Hybrid Inverter",
+        "detailed_model": "HYX-H10K-HT",
         "device_type_code": "HYBRID_INVERTER",
         "device_name": None,
-        "hw_version": "H1",
+        "info_metrics": {"hw_version": "H1"},
     }
+
+
+def test_update_discovery_cache_drops_detailed_model_when_type_changes():
+    """A device whose listed type changes loses the detailed model learned
+    for its old type, so a stale one does not stick."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._discovery_cache["device_info"] = {
+        "SN1": {
+            "model": "Unknown",
+            "detailed_model": "OLD-MODEL",
+            "device_type_code": "UNKNOWN",
+        }
+    }
+
+    api._update_discovery_cache(
+        "SN1", {"model": "Hybrid Inverter", "device_type_code": "HYBRID_INVERTER"}
+    )
+
+    assert "detailed_model" not in api._discovery_cache["device_info"]["SN1"]
+
+
+def test_apply_cached_device_info_without_a_cache_record():
+    """With no cache record (e.g. a corrupted cache), the entry is left as
+    the device list built it."""
+    entry = {"model": "Hybrid Inverter", "metrics": {}}
+
+    assert HyxiApiClient._apply_cached_device_info(entry, None) is False
+    assert entry == {"model": "Hybrid Inverter", "metrics": {}}

@@ -149,20 +149,22 @@ async def test_execute_fetch_cached_empty_cache():
         mock_exec.assert_called_once()
 
 
-def _discovery_client(device_lists, sub_device_lists=None):
+def _discovery_client(device_lists, sub_device_lists=None, device_info=None):
     """A client whose _request answers discovery calls by path.
 
     device_lists maps plantId -> list of device dicts, an Exception to raise
     for that plant's devicePage call, or "rejected" for a success:false
     answer. sub_device_lists maps parentSn the same way (default: no
-    children). Both are read on every call, so tests can change them between
-    polls. Each devicePage call appends the device types cached at that
+    children). device_info maps SN -> queryDeviceInfo data, or an Exception
+    to raise (default: empty data). All three are read on every call, so
+    tests can change them between polls. Each devicePage call appends the device types cached at that
     moment to client._request.device_types_seen.
     """
     client = HyxiApiClient("key", "secret", "http://api.com", AsyncMock())
     client.token = "Bearer test"
     client.token_expires_at = time.time() + 3600
     sub_device_lists = sub_device_lists or {}
+    device_info = {} if device_info is None else device_info
     device_types_seen = []
 
     def answer(value, key):
@@ -187,6 +189,11 @@ def _discovery_client(device_lists, sub_device_lists=None):
             return answer(device_lists[body["plantId"]], "deviceList")
         if path == "/api/device/v1/getSubDevicePage":
             return answer(sub_device_lists.get(body["parentSn"], []), "childDevice")
+        if path == "/api/device/v1/queryDeviceInfo":
+            info = device_info.get(kwargs["params"]["deviceSn"], {})
+            if isinstance(info, Exception):
+                raise info
+            return 200, {"success": True, "data": info}
         if path == "/api/alarm/v1/plantAlarmPage":
             return 200, {"success": True, "data": {"pageData": []}}
         return 200, {"success": True, "data": {}}
@@ -383,8 +390,9 @@ async def test_cached_poll_reuses_device_info_only_for_static_devices():
 async def test_device_info_fetch_caches_detailed_model_and_info(
     data, expect_info_metrics
 ):
-    """A device-info fetch stores the detailed model in the cache, and stores
-    the info for reuse only when the response actually carried data."""
+    """A device-info fetch stores the detailed model alongside the device
+    list's generic one, and stores the info for reuse only when the response
+    actually carried data."""
     client = HyxiApiClient("key", "secret", "http://api.com", AsyncMock())
     client._request = AsyncMock(return_value=(200, {"success": True, "data": data}))
     client._discovery_cache["device_info"]["S1"] = {
@@ -400,5 +408,24 @@ async def test_device_info_fetch_caches_detailed_model_and_info(
     await client._fetch_device_info("S1", entry)
 
     cached = client._discovery_cache["device_info"]["S1"]
-    assert cached["model"] == entry["model"]
+    assert cached["model"] == "Hybrid Inverter"
+    assert cached.get("detailed_model") == (data or {}).get("model")
     assert ("info_metrics" in cached) is expect_info_metrics
+
+
+@pytest.mark.asyncio
+async def test_detailed_model_survives_a_failed_info_refresh():
+    """If a later full discovery's device-info request fails, that poll and
+    the cached polls after it keep the detailed model and versions learned
+    earlier instead of falling back to the device list's generic values."""
+    device_info = {"INV": {"model": "HYX-H10K-HT", "swVerSys": "V1"}}
+    client = _discovery_client({"P1": [_inverter("INV")]}, device_info=device_info)
+    await client.get_all_device_data()
+
+    device_info["INV"] = TimeoutError()
+    rediscovered = await client.get_all_device_data(force_discovery=True)
+    cached_poll = await client.get_all_device_data()
+
+    for poll in (rediscovered, cached_poll):
+        assert poll["data"]["INV"]["model"] == "HYX-H10K-HT"
+        assert poll["data"]["INV"]["sw_version"] == "V1"

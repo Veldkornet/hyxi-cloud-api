@@ -1492,17 +1492,23 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         self._discovery_cache_ttl = 3600  # 1 hour default
         self._incomplete_discovery_retry = INCOMPLETE_DISCOVERY_RETRY
 
-    def _update_discovery_cache(self, sn: str, entry: dict):
-        """Update the discovery cache with basic entry structure."""
+    def _update_discovery_cache(self, sn: str, entry: dict) -> dict | None:
+        """Update the discovery cache with basic entry structure, returning
+        the device's cache record."""
         info_cache = self._discovery_cache.get("device_info")
-        if isinstance(info_cache, dict):
-            info_cache.setdefault(sn, {}).update(
-                {
-                    "model": entry["model"],
-                    "device_type_code": entry["device_type_code"],
-                    "device_name": entry.get("device_name"),
-                }
-            )
+        if not isinstance(info_cache, dict):
+            return None
+        cached = info_cache.setdefault(sn, {})
+        if cached.get("device_type_code") != entry["device_type_code"]:
+            cached.pop("detailed_model", None)
+        cached.update(
+            {
+                "model": entry["model"],
+                "device_type_code": entry["device_type_code"],
+                "device_name": entry.get("device_name"),
+            }
+        )
+        return cached
 
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXI's official Java SDK implementation."""
@@ -1554,6 +1560,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         _LOGGER.debug("HYXI %s %s", method.upper(), path)
 
         request_func = getattr(self.session, method.lower())
+        had_token = self.token is not None
         # Token requests skip the concurrency limit so a refresh never queues
         # behind data requests; headers are signed once a slot is free, so a
         # queued request carries a current timestamp and token.
@@ -1561,6 +1568,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             contextlib.nullcontext() if is_token_request else self._request_semaphore
         )
         async with limiter:
+            if not is_token_request and had_token and self.token is None:
+                # Rejected by the server while this request was queued; sending
+                # it now would go out without any token.
+                raise TokenRejectedError("Token rejected while request was queued")
             headers = self._generate_headers(
                 path, method.upper(), is_token_request=is_token_request
             )
@@ -1893,12 +1904,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 if sn not in self._discovery_cache["device_info"]:
                     # Ensure we preserve the name if it was set during discovery
                     self._discovery_cache["device_info"][sn] = {
+                        "model": entry.get("model", "Unknown"),
                         "device_type_code": entry.get("device_type_code", "Unknown"),
                         "device_name": entry.get("device_name", "Unknown"),
                     }
                 cached = self._discovery_cache["device_info"][sn]
-                # The detailed model from device info, not the device list's.
-                cached["model"] = entry.get("model", "Unknown")
+                if i_raw.get("model"):
+                    cached["detailed_model"] = i_raw["model"]
                 if i_raw and _is_static_device_info(
                     entry.get("device_type_code", ""), base_info
                 ):
@@ -1996,7 +2008,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             state.discovered_sns.add(sn)
             entry, dev_type = HyxiApiClient._build_device_entry(sn, d, state.now)
 
-            self._update_discovery_cache(sn, entry)
+            HyxiApiClient._apply_cached_device_info(
+                entry, self._update_discovery_cache(sn, entry)
+            )
 
             state.metric_tasks.append((sn, entry, dev_type))
 
@@ -2068,7 +2082,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 state.discovered_sns.add(sn)
                 entry, raw_type = HyxiApiClient._build_device_entry(sn, c, state.now)
 
-                self._update_discovery_cache(sn, entry)
+                HyxiApiClient._apply_cached_device_info(
+                    entry, self._update_discovery_cache(sn, entry)
+                )
 
                 # These are real devices, so store args for later metric/info fetch
                 state.metric_tasks.append((sn, entry, raw_type))
@@ -2453,21 +2469,38 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             return
         for sn in info_cache.keys() - state.discovered_sns:
             info = info_cache[sn]
-            info_metrics = info.get("info_metrics") or {}
             entry = {
                 "sn": sn,
                 "device_name": info.get("device_name", f"{info['model']} {sn}"),
                 "model": info["model"],
                 "device_type_code": info["device_type_code"],
-                "sw_version": info_metrics.get("_sw_ver_sys"),
-                "hw_version": info_metrics.get("hw_version"),
+                "sw_version": None,
+                "hw_version": None,
                 "metrics": {"last_seen": state.now},
             }
-            if info_metrics:
-                entry["metrics"].update(info_metrics)
+            if HyxiApiClient._apply_cached_device_info(entry, info):
                 state.cached_info_sns.add(sn)
             state.metric_tasks.append((sn, entry, info["device_type_code"]))
             state.discovered_sns.add(sn)
+
+    @staticmethod
+    def _apply_cached_device_info(entry: dict, cached: dict | None) -> bool:
+        """Fill entry with what queryDeviceInfo last reported for the device:
+        its detailed model and, for static device info, versions and info
+        metrics. A fresh device-info fetch overwrites these when it succeeds.
+
+        Returns True if the cached info can stand in for a fresh fetch.
+        """
+        if not cached:
+            return False
+        entry["model"] = cached.get("detailed_model") or entry["model"]
+        info_metrics = cached.get("info_metrics")
+        if not info_metrics:
+            return False
+        entry["sw_version"] = info_metrics.get("_sw_ver_sys")
+        entry["hw_version"] = info_metrics.get("hw_version")
+        entry["metrics"].update(info_metrics)
+        return True
 
     @staticmethod
     def _build_device_entry(sn, device_data, now):
