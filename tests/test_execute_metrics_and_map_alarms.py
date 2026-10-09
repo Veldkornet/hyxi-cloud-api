@@ -42,7 +42,7 @@ async def test_execute_metrics_and_map_alarms():
 
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
-    async def mock_fetch(sn, entry, t):
+    async def mock_fetch(sn, entry, t, **_kwargs):
         return (sn, entry)
 
     api._fetch_all_for_device = mock_fetch
@@ -76,7 +76,7 @@ async def test_execute_metrics_and_map_alarms_alarm_without_device_sn():
 
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
-    async def mock_fetch(sn, entry, t):
+    async def mock_fetch(sn, entry, t, **_kwargs):
         return (sn, entry)
 
     api._fetch_all_for_device = mock_fetch

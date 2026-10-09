@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import functools
 import hashlib
 import hmac
@@ -69,6 +70,8 @@ class FetchState:
     # Set when a device or sub-device list could not be fetched, so the
     # discovered device set may be missing devices.
     discovery_incomplete: bool = False
+    # SNs whose device info comes from the discovery cache this cycle.
+    cached_info_sns: set = field(default_factory=set)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -117,6 +120,12 @@ _EMS_DEVICE_TYPES = frozenset(
 # silently drift apart if a new EMS type code is added to one and not the
 # other later.
 _MICRO_ESS_DEVICE_TYPES = _EMS_DEVICE_TYPES - {"ENERGY_STORAGE_BATTERY"}
+# Communication units (collectors/DMUs) report no telemetry of their own;
+# queryDeviceInfo is their only live data (e.g. Wi-Fi signal strength).
+_COMM_UNIT_DEVICE_TYPES = frozenset(("COLLECTOR", "DMU", "3"))
+# queryDeviceInfo fields that change between polls, so a device reporting any
+# of them must have its device info fetched every poll.
+_LIVE_DEVICE_INFO_KEYS = ("signalIntensity", "signalVal")
 _COLLECTOR_FILTER_KEYWORDS = (
     "bat",
     "pv",
@@ -637,6 +646,15 @@ def _mark_exception_retrieved(task: asyncio.Task) -> None:
     exc = task.exception()
     if exc is not None and not isinstance(exc, (HyxiAuthError, TokenRequestError)):
         _LOGGER.error("HYXI token refresh failed unexpectedly", exc_info=exc)
+
+
+def _is_static_device_info(device_type: str, info_metrics: dict) -> bool:
+    """Whether a device's queryDeviceInfo data can be cached and reused on
+    later polls: not for communication units or devices reporting a live
+    Wi-Fi signal."""
+    return device_type not in _COMM_UNIT_DEVICE_TYPES and all(
+        info_metrics.get(k) is None for k in _LIVE_DEVICE_INFO_KEYS
+    )
 
 
 def _parse_data_list(data_list: list) -> dict:
@@ -1446,7 +1464,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         """Raised when a subscription request fails."""
 
     def __init__(
-        self, access_key, secret_key, base_url, session: aiohttp.ClientSession
+        self,
+        access_key,
+        secret_key,
+        base_url,
+        session: aiohttp.ClientSession,
+        max_concurrent_requests: int = 5,
     ):
         self.access_key = access_key
         self.secret_key = secret_key
@@ -1456,6 +1479,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         self.token: str | None = None
         self.token_expires_at: float = 0.0
         self._token_refresh: asyncio.Task | None = None
+        if max_concurrent_requests < 1:
+            raise ValueError("max_concurrent_requests must be at least 1")
+        self._request_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
         # Structural & Metadata Cache
         self._discovery_cache: dict[str, Any] = {
@@ -1466,17 +1492,23 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         self._discovery_cache_ttl = 3600  # 1 hour default
         self._incomplete_discovery_retry = INCOMPLETE_DISCOVERY_RETRY
 
-    def _update_discovery_cache(self, sn: str, entry: dict):
-        """Update the discovery cache with basic entry structure."""
+    def _update_discovery_cache(self, sn: str, entry: dict) -> dict | None:
+        """Update the discovery cache with basic entry structure, returning
+        the device's cache record."""
         info_cache = self._discovery_cache.get("device_info")
-        if isinstance(info_cache, dict):
-            info_cache.setdefault(sn, {}).update(
-                {
-                    "model": entry["model"],
-                    "device_type_code": entry["device_type_code"],
-                    "device_name": entry.get("device_name"),
-                }
-            )
+        if not isinstance(info_cache, dict):
+            return None
+        cached = info_cache.setdefault(sn, {})
+        if cached.get("device_type_code") != entry["device_type_code"]:
+            cached.pop("detailed_model", None)
+        cached.update(
+            {
+                "model": entry["model"],
+                "device_type_code": entry["device_type_code"],
+                "device_name": entry.get("device_name"),
+            }
+        )
+        return cached
 
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXI's official Java SDK implementation."""
@@ -1519,10 +1551,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
     ) -> tuple[int, dict]:
         """Centralized helper for making HTTP requests."""
         url = f"{self.base_url}{path}"
-        headers = self._generate_headers(
-            path, method.upper(), is_token_request=is_token_request
-        )
-        signed_token = headers.get("Authorization")
 
         kwargs.setdefault("timeout", 15)
 
@@ -1532,45 +1560,63 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         _LOGGER.debug("HYXI %s %s", method.upper(), path)
 
         request_func = getattr(self.session, method.lower())
-        async with request_func(url, headers=headers, **kwargs) as response:
-            status = response.status
-
-            if is_token_request and status in (401, 403):
-                return status, {}
-
-            try:
-                response.raise_for_status()
-            except aiohttp.ClientResponseError as e:
-                raise _sanitize_response_error(e) from None
-            try:
-                res = await response.json()
-            except ValueError as e:
-                raise aiohttp.ClientPayloadError("response body is not JSON") from e
-            if not isinstance(res, dict):
-                raise aiohttp.ClientPayloadError("response body is not a JSON object")
-
-            _LOGGER.debug(
-                "HYXI %s %s -> status=%s success=%s",
-                method.upper(),
-                path,
-                status,
-                res.get("success"),
+        had_token = self.token is not None
+        # Token requests skip the concurrency limit so a refresh never queues
+        # behind data requests; headers are signed once a slot is free, so a
+        # queued request carries a current timestamp and token.
+        limiter = (
+            contextlib.nullcontext() if is_token_request else self._request_semaphore
+        )
+        async with limiter:
+            if not is_token_request and had_token and self.token is None:
+                # Rejected by the server while this request was queued; sending
+                # it now would go out without any token.
+                raise TokenRejectedError("Token rejected while request was queued")
+            headers = self._generate_headers(
+                path, method.upper(), is_token_request=is_token_request
             )
+            signed_token = headers.get("Authorization")
+            async with request_func(url, headers=headers, **kwargs) as response:
+                status = response.status
 
-            if not is_token_request and not res.get("success") and res.get("code"):
-                api_code = res.get("code")
-                if api_code in _TOKEN_REJECTION_CODES:
-                    _LOGGER.debug(
-                        "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
-                        api_code,
+                if is_token_request and status in (401, 403):
+                    return status, {}
+
+                try:
+                    response.raise_for_status()
+                except aiohttp.ClientResponseError as e:
+                    raise _sanitize_response_error(e) from None
+                try:
+                    res = await response.json()
+                except ValueError as e:
+                    raise aiohttp.ClientPayloadError("response body is not JSON") from e
+                if not isinstance(res, dict):
+                    raise aiohttp.ClientPayloadError(
+                        "response body is not a JSON object"
                     )
-                    # Keep a token another caller refreshed meanwhile.
-                    if self.token == signed_token:
-                        self.token = None
-                        self.token_expires_at = 0
-                    raise TokenRejectedError("Server rejected token")
 
-            return status, res
+                _LOGGER.debug(
+                    "HYXI %s %s -> status=%s success=%s",
+                    method.upper(),
+                    path,
+                    status,
+                    res.get("success"),
+                )
+
+                if not is_token_request and not res.get("success") and res.get("code"):
+                    api_code = res.get("code")
+                    if api_code in _TOKEN_REJECTION_CODES:
+                        _LOGGER.debug(
+                            "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
+                            api_code,
+                        )
+                        # Keep a token another caller refreshed meanwhile.
+                        if self.token == signed_token:
+                            self.token = None
+                            self.token_expires_at = 0
+                        raise TokenRejectedError("Server rejected token")
+
+                return status, res
 
     def _apply_token_response(self, data: dict) -> bool:
         """Parse token and expiration from API response and update state."""
@@ -1862,7 +1908,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                         "device_type_code": entry.get("device_type_code", "Unknown"),
                         "device_name": entry.get("device_name", "Unknown"),
                     }
-                self._discovery_cache["device_info"][sn].update(base_info)
+                cached = self._discovery_cache["device_info"][sn]
+                if i_raw.get("model"):
+                    cached["detailed_model"] = i_raw["model"]
+                if i_raw and _is_static_device_info(
+                    entry.get("device_type_code", ""), base_info
+                ):
+                    cached["info_metrics"] = base_info
+                else:
+                    cached.pop("info_metrics", None)
             else:
                 _LOGGER.warning(
                     "HYXI INFO API Rejected for %s: %s",
@@ -1875,25 +1929,20 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except Exception as e:
             _LOGGER.exception("Error fetching device info for %s: %s", _mask_id(sn), e)
 
-    async def _fetch_all_for_device(self, sn, entry, dev_type):
-        """Fires off concurrent tasks for device info and telemetry, merging the results.
+    async def _fetch_all_for_device(self, sn, entry, dev_type, fetch_info=True):
+        """Fetch device info and telemetry concurrently, merging the results.
 
         Every non-communication-unit device, Micro ESS/Halo included, sources
         its telemetry from ``_fetch_device_metrics``
-        (``/api/device/v2/queryDeviceData``).
+        (``/api/device/v2/queryDeviceData``). ``fetch_info=False`` skips the
+        static device info, for a device whose info is already in ``entry``.
         """
-        tasks = [asyncio.create_task(self._fetch_device_info(sn, entry))]
-        is_comm_unit = dev_type in ("COLLECTOR", "DMU", "3")
-
-        if not is_comm_unit:
-            tasks.append(asyncio.create_task(self._fetch_device_metrics(sn, entry)))
-
-        # Wait for them to finish. `tasks` always has at least the device-info
-        # task appended above, so the false side of this check is unreachable
-        # given the current control flow -- kept as a guard against future
-        # refactors, not something a test can exercise honestly today.
-        if tasks:  # pragma: no branch
-            await asyncio.gather(*tasks)
+        fetches = []
+        if fetch_info:
+            fetches.append(self._fetch_device_info(sn, entry))
+        if dev_type not in _COMM_UNIT_DEVICE_TYPES:
+            fetches.append(self._fetch_device_metrics(sn, entry))
+        await asyncio.gather(*fetches)
 
         return sn, entry
 
@@ -1959,7 +2008,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             state.discovered_sns.add(sn)
             entry, dev_type = HyxiApiClient._build_device_entry(sn, d, state.now)
 
-            self._update_discovery_cache(sn, entry)
+            HyxiApiClient._apply_cached_device_info(
+                entry, self._update_discovery_cache(sn, entry)
+            )
 
             state.metric_tasks.append((sn, entry, dev_type))
 
@@ -2031,7 +2082,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 state.discovered_sns.add(sn)
                 entry, raw_type = HyxiApiClient._build_device_entry(sn, c, state.now)
 
-                self._update_discovery_cache(sn, entry)
+                HyxiApiClient._apply_cached_device_info(
+                    entry, self._update_discovery_cache(sn, entry)
+                )
 
                 # These are real devices, so store args for later metric/info fetch
                 state.metric_tasks.append((sn, entry, raw_type))
@@ -2306,7 +2359,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         # Convert argument tuples to coroutines just in time
         tasks = [
-            self._fetch_all_for_device(sn, entry, dev_type)
+            self._fetch_all_for_device(
+                sn, entry, dev_type, fetch_info=sn not in state.cached_info_sns
+            )
             for sn, entry, dev_type in state.metric_tasks
         ]
 
@@ -2419,12 +2474,33 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 "device_name": info.get("device_name", f"{info['model']} {sn}"),
                 "model": info["model"],
                 "device_type_code": info["device_type_code"],
-                "sw_version": info.get("_sw_ver_sys"),
-                "hw_version": info.get("hw_version"),
+                "sw_version": None,
+                "hw_version": None,
                 "metrics": {"last_seen": state.now},
             }
+            if HyxiApiClient._apply_cached_device_info(entry, info):
+                state.cached_info_sns.add(sn)
             state.metric_tasks.append((sn, entry, info["device_type_code"]))
             state.discovered_sns.add(sn)
+
+    @staticmethod
+    def _apply_cached_device_info(entry: dict, cached: dict | None) -> bool:
+        """Fill entry with what queryDeviceInfo last reported for the device:
+        its detailed model and, for static device info, versions and info
+        metrics. A fresh device-info fetch overwrites these when it succeeds.
+
+        Returns True if the cached info can stand in for a fresh fetch.
+        """
+        if not cached:
+            return False
+        entry["model"] = cached.get("detailed_model") or entry["model"]
+        info_metrics = cached.get("info_metrics")
+        if not info_metrics:
+            return False
+        entry["sw_version"] = info_metrics.get("_sw_ver_sys")
+        entry["hw_version"] = info_metrics.get("hw_version")
+        entry["metrics"].update(info_metrics)
+        return True
 
     @staticmethod
     def _build_device_entry(sn, device_data, now):
