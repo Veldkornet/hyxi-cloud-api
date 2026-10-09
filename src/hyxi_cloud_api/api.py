@@ -20,6 +20,7 @@ import re
 import secrets
 import time
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
@@ -694,6 +695,11 @@ def _page_items(data: Any, list_key: str, page: int) -> list | None:
         return None
     items = data.get(list_key, [] if page == 1 else None)
     return items if isinstance(items, list) else None
+
+
+# Cache-record fields that queryDeviceInfo supplies, dropped when a device's
+# type changes.
+_DEVICE_INFO_CACHE_KEYS = ("detailed_model", "info_sw_version", "info_hw_version")
 
 
 def _parse_data_list(data_list: list) -> dict:
@@ -1582,19 +1588,17 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         cached = info_cache.setdefault(sn, {})
         device_type = entry.get("device_type_code", "Unknown")
         if cached.get("device_type_code") != device_type:
-            cached.pop("detailed_model", None)
+            for key in _DEVICE_INFO_CACHE_KEYS:
+                cached.pop(key, None)
         cached.update(
             {
                 "model": entry.get("model", "Unknown"),
                 "device_type_code": device_type,
                 "device_name": entry.get("device_name"),
+                "sw_version": entry.get("sw_version"),
+                "hw_version": entry.get("hw_version"),
             }
         )
-        # The device list's versions only fill in what device info has not
-        # supplied; device info's take precedence (see _fetch_device_info).
-        for key in ("sw_version", "hw_version"):
-            if cached.get(key) is None:
-                cached[key] = entry.get(key)
         return cached
 
     def _generate_headers(self, path, method, is_token_request=False):
@@ -1842,16 +1846,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         self, method: str, path: str, error_cls: type[Exception], **kwargs
     ) -> dict:
         """Execute a request with automatic re-authentication if the token is rejected."""
-        await self._ensure_authenticated(error_cls)
-        try:
-            _, res = await self._request(method, path, **kwargs)
-        except TokenRejectedError:
-            _LOGGER.debug(
-                "Token rejected, forcing re-authentication and retrying request to %s...",
-                path,
-            )
-            await self._ensure_authenticated(error_cls)
-            _, res = await self._request(method, path, **kwargs)
+        _, res = await self._with_token_retry(
+            lambda: self._request(method, path, **kwargs),
+            path,
+            authenticate=lambda: self._ensure_authenticated(error_cls),
+        )
 
         if res is None or not res.get("success"):
             code = res.get("code", "unknown") if res else "no_response"
@@ -1997,9 +1996,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 if cached is not None:
                     if i_raw.get("model"):
                         cached["detailed_model"] = i_raw["model"]
-                    for key in ("sw_version", "hw_version"):
-                        if entry.get(key) is not None:
-                            cached[key] = entry[key]
+                    if base_info["_sw_ver_sys"]:
+                        cached["info_sw_version"] = base_info["_sw_ver_sys"]
+                    if base_info["hw_version"]:
+                        cached["info_hw_version"] = base_info["hw_version"]
                     if i_raw and _is_static_device_info(
                         entry.get("device_type_code", ""), base_info
                     ):
@@ -2474,8 +2474,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
     ):
         """Rediscover devices if forced or the discovery cache has expired,
         then poll them."""
-        await self.ensure_token()
+        return await self._with_token_retry(
+            lambda: self._fetch_all_once(allow_back_discovery, force_discovery),
+            "the fetch cycle",
+        )
 
+    async def _fetch_all_once(
+        self, allow_back_discovery: bool, force_discovery: bool
+    ) -> dict | None:
+        """One discovery-if-due and poll, with the current token."""
         discovery_state = None
         expires_in = self._discovery_cache_expires_at - time.time()
         if force_discovery or expires_in <= 0:
@@ -2506,6 +2513,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             self._incomplete_discovery_retry = INCOMPLETE_DISCOVERY_RETRY
             return
         if not state.plants:
+            self._discovery_cache_expires_at = 0
             return
         retry_in = self._incomplete_discovery_retry
         self._discovery_cache_expires_at = time.time() + retry_in
@@ -2533,8 +2541,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             aiohttp.ClientError, TimeoutError: the plant list could not be
                 fetched.
         """
-        await self.ensure_token()
-        state = await self._discover(allow_back_discovery)
+        state = await self._with_token_retry(
+            lambda: self._discover(allow_back_discovery), "device discovery"
+        )
         return DiscoveryResult(
             devices=self._inventory(), complete=not state.discovery_incomplete
         )
@@ -2606,14 +2615,40 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         without rediscovering them. Returns {} until a discovery has found
         devices.
 
-        Static device info comes from the inventory; it is fetched only for
-        devices whose info changes between polls or has not been received.
+        Static device info comes from the inventory. Device info is fetched on
+        every poll for devices whose info changes between polls, such as a
+        collector reporting its live signal strength, and for devices whose
+        info has not been received yet.
 
         Raises:
             HyxiAuthError: the access/secret key was rejected.
+            aiohttp.ClientError, TimeoutError: no token could be obtained, or
+                the token was rejected again after re-authenticating.
         """
-        await self.ensure_token()
-        return await self._poll_inventory(allow_back_discovery=False)
+        return await self._with_token_retry(
+            lambda: self._poll_inventory(allow_back_discovery=False), "polling"
+        )
+
+    async def _with_token_retry[T](
+        self,
+        operation: Callable[[], Awaitable[T]],
+        description: str,
+        authenticate: Callable[[], Awaitable[None]] | None = None,
+    ) -> T:
+        """Run an operation with a valid token, re-authenticating and running
+        it once more if the server rejects the token part-way through.
+        authenticate obtains the token (default: ensure_token)."""
+        authenticate = authenticate or self.ensure_token
+        await authenticate()
+        try:
+            return await operation()
+        except TokenRejectedError:
+            _LOGGER.debug(
+                "HYXI token rejected during %s, re-authenticating and retrying",
+                description,
+            )
+            await authenticate()
+            return await operation()
 
     async def _poll_inventory(self, allow_back_discovery: bool) -> dict:
         """Poll metrics and alarms for the devices in the inventory;
@@ -2649,8 +2684,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             "device_name": info.get("device_name", f"{info['model']} {sn}"),
             "model": info.get("detailed_model") or info["model"],
             "device_type_code": info["device_type_code"],
-            "sw_version": info.get("sw_version"),
-            "hw_version": info.get("hw_version"),
+            "sw_version": info.get("info_sw_version") or info.get("sw_version"),
+            "hw_version": info.get("info_hw_version") or info.get("hw_version"),
         }
 
     @staticmethod

@@ -12,6 +12,7 @@ from hyxi_cloud_api.api import (
     _FETCH_METRICS,
     INCOMPLETE_DISCOVERY_RETRY,
     DiscoveryResult,
+    TokenRejectedError,
 )
 
 
@@ -575,15 +576,19 @@ async def test_device_info_fetch_does_not_recreate_a_pruned_device():
 
 
 @pytest.mark.asyncio
-async def test_device_list_version_does_not_replace_device_info_version():
-    """When a later info refresh fails, the inventory keeps the version
-    device info reported rather than switching to the device list's."""
+@pytest.mark.parametrize(
+    "later_info", [TimeoutError(), {}], ids=["info-fails", "info-without-versions"]
+)
+async def test_device_list_version_does_not_replace_device_info_version(later_info):
+    """When a later info refresh fails or carries no versions, the inventory
+    keeps the version device info reported rather than switching to the
+    device list's."""
     device = dict(_inverter("S1"), swVer="1.0")
     device_info = {"S1": {"swVerSys": "1.2"}}
     client = _discovery_client({"P1": [device]}, device_info=device_info)
     await client.discover_devices()
 
-    device_info["S1"] = TimeoutError()
+    device_info["S1"] = later_info
     result = await client.discover_devices()
 
     assert result.devices["S1"]["sw_version"] == "1.2"
@@ -615,3 +620,92 @@ def test_push_data_reports_the_detailed_model():
     result = client.process_push_data({"dataList": [{"deviceSn": "S1"}]})
 
     assert result["S1"]["model"] == "HYX-H10K-HT"
+
+
+@pytest.mark.asyncio
+async def test_device_list_version_is_used_while_device_info_has_none():
+    """For a device whose device info reports no versions, a firmware update
+    shown in the device list reaches the inventory."""
+    device = dict(_inverter("S1"), swVer="1.0")
+    client = _discovery_client({"P1": [device]})
+    await client.discover_devices()
+
+    device["swVer"] = "1.1"
+    result = await client.discover_devices()
+
+    assert result.devices["S1"]["sw_version"] == "1.1"
+
+
+@pytest.mark.asyncio
+async def test_rejected_forced_discovery_rediscovers_on_the_next_call():
+    """A forced discovery whose plant list is rejected expires a still-valid
+    cache, so the next get_all_device_data() retries the discovery."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    await client.discover_devices()
+    client._fetch_plants = AsyncMock(return_value=None)
+
+    await client.get_all_device_data(force_discovery=True)
+
+    assert _seconds_until_rediscovery(client) <= 0
+
+
+def _reject_token_once(client, path):
+    """Make the first request to path reject the token as the server does,
+    and answer token requests with a new token."""
+    answer = client._request.side_effect
+    rejected = False
+
+    async def fake_request(method, request_path, **kwargs):
+        nonlocal rejected
+        if kwargs.get("is_token_request"):
+            return 200, {"success": True, "data": {"token": "new", "expiresIn": 7200}}
+        if request_path == path and not rejected:
+            rejected = True
+            client.token = None
+            client.token_expires_at = 0
+            raise TokenRejectedError("Server rejected token")
+        return await answer(method, request_path, **kwargs)
+
+    client._request = AsyncMock(side_effect=fake_request)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation, path",
+    [
+        (lambda client: client.discover_devices(), "/api/plant/v1/devicePage"),
+        (lambda client: client.poll_devices(), "/api/alarm/v1/plantAlarmPage"),
+        (
+            lambda client: client.get_all_device_data(),
+            "/api/alarm/v1/plantAlarmPage",
+        ),
+    ],
+    ids=["discover", "poll", "get-all"],
+)
+async def test_token_rejected_mid_operation_reauthenticates_once(operation, path):
+    """A token rejected part-way through discovery or polling is replaced by
+    a new one and the operation run once more, rather than failing it."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    await client.discover_devices()
+    _reject_token_once(client, path)
+
+    result = await operation(client)
+
+    if isinstance(result, DiscoveryResult):
+        devices = result.devices
+    else:
+        devices = result.get("data", result)
+    assert set(devices) == {"S1"}
+    assert client.token == "Bearer new"
+
+
+@pytest.mark.asyncio
+async def test_token_rejected_twice_fails_the_operation():
+    """A token rejected again after re-authenticating is not retried further."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    client._fetch_plants = AsyncMock(side_effect=TokenRejectedError("rejected"))
+    client.ensure_token = AsyncMock()
+
+    with pytest.raises(TokenRejectedError):
+        await client.discover_devices()
+    assert client._fetch_plants.await_count == 2
