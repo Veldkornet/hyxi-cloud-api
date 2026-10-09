@@ -53,27 +53,23 @@ async def test_discovery_caching_logic():
         assert res1["data"]["S1"]["sw_version"] == "V1"
         assert mock_req.call_count == 6
 
-        # Second call: Should use cache (Fast Poll)
-        # Sequence expected for Fast Poll:
-        # 1. Alarms (for Plant)
-        # 2. Info (for SN)
-        # 3. Metrics (for SN)
+        # Second call: Should use cache (Fast Poll). Static device info is
+        # served from the cache, so only alarms and metrics are requested.
         mock_req.reset_mock()
         mock_req.side_effect = [
             (200, alarms_resp),
-            (200, info_resp),
             (200, metrics_resp),
         ]
 
         res2 = await client.get_all_device_data()
         assert res2["data"]["S1"]["sw_version"] == "V1"  # Still there from cache
-        assert mock_req.call_count == 3
+        assert res2["data"]["S1"]["metrics"]["_sw_ver_sys"] == "V1"
+        assert mock_req.call_count == 2
 
         # Verify specific URL paths for fast poll
         calls = mock_req.call_args_list
         assert calls[0][0][1] == "/api/alarm/v1/plantAlarmPage"
-        assert calls[1][0][1] == "/api/device/v1/queryDeviceInfo"
-        assert calls[2][0][1] == "/api/device/v2/queryDeviceData"
+        assert calls[1][0][1] == "/api/device/v2/queryDeviceData"
 
         # Third call: Force discovery
         mock_req.reset_mock()
@@ -327,3 +323,82 @@ async def test_device_types_stay_available_while_discovery_runs():
     await client.get_all_device_data()
 
     assert client._request.device_types_seen == [{"S1": "HYBRID_INVERTER"}]
+
+
+@pytest.mark.asyncio
+async def test_cached_poll_reuses_device_info_only_for_static_devices():
+    """After a full discovery, a cached poll reuses device info for a device
+    with static info -- keeping its detailed model, versions and battery
+    details -- but fetches it again for a collector, a device reporting a
+    live Wi-Fi signal, and a device whose info came back empty."""
+    client = HyxiApiClient("key", "secret", "http://api.com", AsyncMock())
+    client.token = "Bearer test"
+    client.token_expires_at = time.time() + 3600
+    devices = [
+        {"deviceSn": "INV", "deviceType": "HYBRID_INVERTER"},
+        {"deviceSn": "WIFI", "deviceType": "MICRO_STORAGE_ALL_IN_ONE"},
+        {"deviceSn": "COL", "deviceType": "COLLECTOR"},
+        {"deviceSn": "EMPTY", "deviceType": "HYBRID_INVERTER"},
+    ]
+    device_info = {
+        "INV": {"model": "HYX-H10K-HT", "swVerSys": "V1", "batCap": "10"},
+        "WIFI": {"swVerSys": "V2", "signalVal": "-60"},
+        "COL": {"swVerSys": "W1", "signalIntensity": "3"},
+        "EMPTY": None,
+    }
+    info_requests = []
+
+    async def fake_request(method, path, **kwargs):
+        sn = (kwargs.get("params") or {}).get("deviceSn")
+        if path == "/api/plant/v1/page":
+            return 200, {"success": True, "data": {"list": [{"plantId": "P1"}]}}
+        if path == "/api/plant/v1/devicePage":
+            return 200, {"success": True, "data": {"deviceList": devices}}
+        if path == "/api/device/v1/queryDeviceInfo":
+            info_requests.append(sn)
+            return 200, {"success": True, "data": device_info[sn]}
+        if path == "/api/alarm/v1/plantAlarmPage":
+            return 200, {"success": True, "data": {"pageData": []}}
+        return 200, {"success": True, "data": {}}
+
+    client._request = AsyncMock(side_effect=fake_request)
+    await client.get_all_device_data()
+    info_requests.clear()
+
+    result = await client.get_all_device_data()
+
+    assert set(info_requests) == {"WIFI", "COL", "EMPTY"}
+    inv = result["data"]["INV"]
+    assert inv["model"] == "HYX-H10K-HT"
+    assert inv["sw_version"] == "V1"
+    assert inv["metrics"]["batCap"] == 10.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "data, expect_info_metrics",
+    [({"model": "HYX-H10K-HT", "swVerSys": "V1"}, True), (None, False)],
+    ids=["with-data", "empty-data"],
+)
+async def test_device_info_fetch_caches_detailed_model_and_info(
+    data, expect_info_metrics
+):
+    """A device-info fetch stores the detailed model in the cache, and stores
+    the info for reuse only when the response actually carried data."""
+    client = HyxiApiClient("key", "secret", "http://api.com", AsyncMock())
+    client._request = AsyncMock(return_value=(200, {"success": True, "data": data}))
+    client._discovery_cache["device_info"]["S1"] = {
+        "model": "Hybrid Inverter",
+        "device_type_code": "HYBRID_INVERTER",
+    }
+    entry = {
+        "model": "Hybrid Inverter",
+        "device_type_code": "HYBRID_INVERTER",
+        "metrics": {},
+    }
+
+    await client._fetch_device_info("S1", entry)
+
+    cached = client._discovery_cache["device_info"]["S1"]
+    assert cached["model"] == entry["model"]
+    assert ("info_metrics" in cached) is expect_info_metrics

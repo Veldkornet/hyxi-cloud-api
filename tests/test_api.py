@@ -334,7 +334,7 @@ async def test_execute_fetch_all_concurrent():
 
     api._fetch_devices_for_plant = MagicMock(side_effect=mock_fetch_devices)
     api._fetch_all_for_device = AsyncMock(
-        side_effect=lambda sn, entry, dev_type: (sn, entry)
+        side_effect=lambda sn, entry, dev_type, **_kwargs: (sn, entry)
     )
 
     # Configure the mock response to simulate aiohttp's async context manager.

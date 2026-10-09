@@ -115,7 +115,7 @@ async def test_back_discovery_finds_hidden_device():
     }
     api._fetch_alarms_for_plant = AsyncMock(return_value=[alarm])
 
-    async def mock_fetch_all(sn, entry, dev_type):
+    async def mock_fetch_all(sn, entry, dev_type, **_kwargs):
         return (sn, entry)
 
     api._fetch_all_for_device = MagicMock(side_effect=mock_fetch_all)
@@ -162,7 +162,7 @@ async def test_recursive_probe_of_hidden_collector():
     api.session.post = MagicMock(return_value=mock_sub_response)
     api.session.get = MagicMock(return_value=mock_sub_response)
 
-    async def mock_fetch_all(sn, entry, dev_type):
+    async def mock_fetch_all(sn, entry, dev_type, **_kwargs):
         return (sn, entry)
 
     api._fetch_all_for_device = MagicMock(side_effect=mock_fetch_all)
