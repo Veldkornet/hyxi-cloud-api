@@ -19,7 +19,9 @@ mock_aiohttp = sys.modules["aiohttp"]
 
 """Tests for exception handling in ensure_token."""
 
+import asyncio
 import logging
+import time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -29,6 +31,7 @@ from hyxi_cloud_api.api import (
     HyxiApiClient,
     HyxiAuthError,
     TokenNetworkError,
+    TokenRejectedError,
     TokenRequestError,
 )
 
@@ -207,3 +210,92 @@ def test_token_errors_are_exported_from_the_package():
     for name in ("HyxiAuthError", "TokenNetworkError", "TokenRequestError"):
         assert name in hyxi_cloud_api.__all__
         assert hasattr(hyxi_cloud_api, name)
+
+
+_TOKEN_OK = (200, {"success": True, "data": {"token": "abc", "expiresIn": 3600}})
+
+
+def _slow(response):
+    """A _request side effect that answers `response` after a short delay,
+    so concurrent callers overlap."""
+
+    async def answer(*args, **kwargs):
+        await asyncio.sleep(0.01)
+        return response
+
+    return answer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response, error",
+    [(_TOKEN_OK, None), ((401, {}), HyxiAuthError)],
+    ids=["success", "rejected"],
+)
+async def test_concurrent_callers_share_one_token_request(response, error):
+    """Callers that find the token expired at the same time share a single
+    token request and its outcome, instead of each requesting their own."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(side_effect=_slow(response))
+
+    results = await asyncio.gather(
+        *(api.ensure_token() for _ in range(10)), return_exceptions=True
+    )
+
+    assert api._request.await_count == 1
+    if error is None:
+        assert results == [None] * 10
+        assert api.token == "Bearer abc"
+    else:
+        assert all(isinstance(r, error) for r in results)
+
+
+@pytest.mark.asyncio
+async def test_failed_token_request_is_retried_by_the_next_caller():
+    """A finished, failed refresh does not stick: the next call tries again."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(side_effect=[(401, {}), _TOKEN_OK])
+
+    with pytest.raises(HyxiAuthError):
+        await api.ensure_token()
+    await api.ensure_token()
+
+    assert api.token == "Bearer abc"
+
+
+def _rejecting_session(api, refreshed_token=None):
+    """A session whose GET answers with a token-rejection code. If
+    refreshed_token is given, the client's token is replaced while the
+    request is in flight, as a concurrent refresh would."""
+    response = MagicMock()
+
+    async def json():
+        if refreshed_token is not None:
+            api.token = refreshed_token
+        return {"success": False, "code": "A000001"}
+
+    yielded = response.__aenter__.return_value
+    yielded.status = 200
+    yielded.raise_for_status = MagicMock()
+    yielded.json = json
+    api.session.get = MagicMock(return_value=response)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "refreshed_token", [None, "Bearer new"], ids=["same-token", "refreshed-meanwhile"]
+)
+async def test_token_rejection_clears_only_the_token_it_was_signed_with(
+    refreshed_token,
+):
+    """A rejection clears the token the request was signed with, but keeps a
+    token another caller refreshed while the request was in flight."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.token = "Bearer old"
+    api.token_expires_at = time.time() + 3600
+    _rejecting_session(api, refreshed_token)
+
+    with pytest.raises(TokenRejectedError):
+        await api._request("GET", "/x")
+
+    assert api.token == refreshed_token
