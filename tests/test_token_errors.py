@@ -208,7 +208,12 @@ def test_token_errors_are_exported_from_the_package():
     package root."""
     import hyxi_cloud_api  # pylint: disable=import-outside-toplevel
 
-    for name in ("HyxiAuthError", "TokenNetworkError", "TokenRequestError"):
+    for name in (
+        "DiscoveryResult",
+        "HyxiAuthError",
+        "TokenNetworkError",
+        "TokenRequestError",
+    ):
         assert name in hyxi_cloud_api.__all__
         assert hasattr(hyxi_cloud_api, name)
 

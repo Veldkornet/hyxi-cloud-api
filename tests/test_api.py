@@ -26,6 +26,7 @@ import aiohttp
 import pytest
 
 from src.hyxi_cloud_api.api import (
+    FetchState,
     HyxiApiClient,
     HyxiAuthError,
     TokenNetworkError,
@@ -309,49 +310,30 @@ async def test_fetch_all_for_device_never_probes_ems_endpoint():
     assert entry["metrics"] == {"existing_metric": "value"}
 
 
-# --- TEST 5: Concurrent Execution of Fetch All ---
+# --- TEST 5: Concurrent Discovery Across Plants ---
 @pytest.mark.asyncio
-async def test_execute_fetch_all_concurrent():
-    """Verify that _execute_fetch_all handles multiple plants correctly."""
-
+async def test_discover_devices_lists_every_plant():
+    """discover_devices lists the devices of every plant and reports them."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-
-    # Bypass token validation and mock file
     api.ensure_token = AsyncMock()
+    api._fetch_plants = AsyncMock(
+        return_value=[{"plantId": "plant_1"}, {"plantId": "plant_2"}]
+    )
+    api._fetch_device_info = AsyncMock()
 
-    fake_plants_response = {
-        "success": True,
-        "data": {"list": [{"plantId": "plant_1"}, {"plantId": "plant_2"}]},
-    }
-
-    # Mock the _fetch_devices_for_plant internal call
-    # It must return an awaitable AND add an awaitable to state.metric_tasks
     async def mock_fetch_devices(plant_id, state):
-        state.metric_tasks.append(
-            (f"SN_{plant_id}", {"device_name": f"Device {plant_id}"}, "MOCK")
+        await api._process_devices_for_plant(
+            [{"deviceSn": f"SN_{plant_id}", "deviceType": "HYBRID_INVERTER"}], state
         )
-        return None
 
     api._fetch_devices_for_plant = MagicMock(side_effect=mock_fetch_devices)
-    api._fetch_all_for_device = AsyncMock(
-        side_effect=lambda sn, entry, dev_type, **_kwargs: (sn, entry)
-    )
+    api._fetch_sub_devices = AsyncMock()
 
-    # Configure the mock response to simulate aiohttp's async context manager.
-    mock_response = MagicMock()
-    mock_response.__aenter__.return_value.json.return_value = fake_plants_response
-    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
-    mock_response.__aenter__.return_value.status = 200
-    mock_response.__aenter__.return_value.raise_for_status = MagicMock()
+    result = await api.discover_devices()
 
-    api.session.post = MagicMock(return_value=mock_response)
-
-    results = await api._execute_fetch_all()
-    # Verify both plants were called
     assert api._fetch_devices_for_plant.call_count == 2
-    # Verify the results are parsed properly (our dummy tuples are keys/values)
-    assert "SN_plant_1" in results
-    assert "SN_plant_2" in results
+    assert result.complete
+    assert set(result.devices) == {"SN_plant_1", "SN_plant_2"}
 
 
 # --- TEST 5: Token Refresh Failures ---
@@ -601,37 +583,21 @@ async def test_fetch_alarms_for_plant_error(caplog):
 
 @pytest.mark.asyncio
 async def test_execute_fetch_all_force_discovery():
-    """Verify that _execute_fetch_all respects the force_discovery flag to bypass cache."""
+    """_execute_fetch_all rediscovers when forced and only polls otherwise."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-
-    # Bypass token validation
     api.ensure_token = AsyncMock()
-
-    # Mock cache state to be valid
     api._discovery_cache["plants"] = [{"plantId": "plant_1"}]
     api._discovery_cache_expires_at = time.time() + 3600
+    api._discover = AsyncMock(return_value=FetchState(now="now"))
+    api._poll_inventory = AsyncMock(return_value={"SN1": {}})
 
-    # Mock internal methods
-    api._execute_fetch_cached = AsyncMock(return_value="cached_result")
-    api._execute_fetch_full_discovery = AsyncMock(return_value="full_discovery_result")
+    assert await api._execute_fetch_all(force_discovery=True) == {"SN1": {}}
+    api._discover.assert_awaited_once()
 
-    # Test 1: force_discovery=True should bypass cache and call full discovery
-    result = await api._execute_fetch_all(force_discovery=True)
-
-    assert result == "full_discovery_result"
-    api._execute_fetch_full_discovery.assert_called_once()
-    api._execute_fetch_cached.assert_not_called()
-
-    # Reset mocks
-    api._execute_fetch_full_discovery.reset_mock()
-    api._execute_fetch_cached.reset_mock()
-
-    # Test 2: force_discovery=False should use cache
-    result = await api._execute_fetch_all(force_discovery=False)
-
-    assert result == "cached_result"
-    api._execute_fetch_cached.assert_called_once()
-    api._execute_fetch_full_discovery.assert_not_called()
+    api._discover.reset_mock()
+    assert await api._execute_fetch_all(force_discovery=False) == {"SN1": {}}
+    api._discover.assert_not_awaited()
+    assert api._poll_inventory.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -660,33 +626,21 @@ async def test_execute_fetch_all_force_discovery_integration():
     metrics_resp = {"success": True, "data": [{"dataKey": "gridP", "dataValue": "100"}]}
 
     with patch.object(api, "_request") as mock_req:
+        # Discovery (plants, devices, sub-devices, device info), then the
+        # poll (alarms, metrics).
         mock_req.side_effect = [
             (200, plant_resp),
             (200, device_resp),
             (200, sub_dev_resp),
-            (200, alarms_resp),
             (200, info_resp),
+            (200, alarms_resp),
             (200, metrics_resp),
         ]
 
-        # Use wraps to spy on internal methods while preserving their original logic
-        with (
-            patch.object(
-                api,
-                "_execute_fetch_full_discovery",
-                wraps=api._execute_fetch_full_discovery,
-            ) as mock_full,
-            patch.object(
-                api, "_execute_fetch_cached", wraps=api._execute_fetch_cached
-            ) as mock_cached,
-        ):
+        with patch.object(api, "_discover", wraps=api._discover) as mock_discover:
             result = await api._execute_fetch_all(force_discovery=True)
 
-            # Assert that the full discovery method was called and cached was not
-            mock_full.assert_called_once()
-            mock_cached.assert_not_called()
-
-            # Ensure we successfully parsed the data, meaning full discovery worked
+            mock_discover.assert_awaited_once()
             assert "device_1" in result
             assert result["device_1"]["sw_version"] == "v1.0"
 

@@ -103,15 +103,18 @@ async def test_fetch_alarms_for_plant_coverage(caplog):
 
 
 @pytest.mark.asyncio
-async def test_execute_fetch_full_discovery_error():
-    """Test _execute_fetch_full_discovery returns None if fetch_plants fails (line 1588)."""
-    mock_session = MagicMock()
-    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
-    state = FetchState(now="now")
-
+async def test_rejected_plant_list_with_nothing_known_returns_none():
+    """A rejected plant list with no known devices is an incomplete
+    discovery: _execute_fetch_all returns None (so the caller retries) after
+    discovering once, not again from the poll."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.ensure_token = AsyncMock()
     api._fetch_plants = AsyncMock(return_value=None)
-    res = await api._execute_fetch_full_discovery(state, allow_back_discovery=False)
-    assert res is None
+
+    result = await api._execute_fetch_all()
+
+    assert result is None
+    api._fetch_plants.assert_awaited_once()
 
 
 def test_compute_derived_metrics_classmethod():

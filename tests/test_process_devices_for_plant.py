@@ -42,7 +42,7 @@ async def test_process_devices_for_plant_missing_sn_edge_cases(mock_api, mock_st
         {"deviceSn": None, "deviceType": "INVERTER"},
         {"deviceSn": "", "deviceType": "INVERTER"},
     ]
-    with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
+    with patch("src.hyxi_cloud_api.api._gather", new_callable=AsyncMock) as mock_gather:
         await mock_api._process_devices_for_plant(devices, mock_state)
         mock_gather.assert_not_called()
         assert len(mock_state.discovered_sns) == 0
@@ -52,7 +52,7 @@ async def test_process_devices_for_plant_missing_sn_edge_cases(mock_api, mock_st
 @pytest.mark.asyncio
 async def test_process_devices_for_plant_empty(mock_api, mock_state):
     """Test with an empty list of devices."""
-    with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
+    with patch("src.hyxi_cloud_api.api._gather", new_callable=AsyncMock) as mock_gather:
         await mock_api._process_devices_for_plant([], mock_state)
         mock_gather.assert_not_called()
         assert len(mock_state.discovered_sns) == 0
@@ -63,7 +63,7 @@ async def test_process_devices_for_plant_empty(mock_api, mock_state):
 async def test_process_devices_for_plant_no_sn(mock_api, mock_state):
     """Test with devices missing a serial number."""
     devices = [{"deviceType": "INVERTER"}, {"deviceName": "No SN"}]
-    with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
+    with patch("src.hyxi_cloud_api.api._gather", new_callable=AsyncMock) as mock_gather:
         await mock_api._process_devices_for_plant(devices, mock_state)
         mock_gather.assert_not_called()
         assert len(mock_state.discovered_sns) == 0
@@ -77,7 +77,7 @@ async def test_process_devices_for_plant_normal_devices(mock_api, mock_state):
         {"deviceSn": "SN_NORMAL_1", "deviceType": "NORMAL_1"},
         {"deviceSn": "SN_NORMAL_2", "deviceType": "NORMAL_2"},
     ]
-    with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
+    with patch("src.hyxi_cloud_api.api._gather", new_callable=AsyncMock) as mock_gather:
         await mock_api._process_devices_for_plant(devices, mock_state)
 
         mock_gather.assert_not_called()
@@ -97,7 +97,7 @@ async def test_process_devices_for_plant_parent_devices(mock_api, mock_state):
         {"deviceSn": "SN_DMU", "deviceType": "DMU"},
         {"deviceSn": "SN_INVERTER", "deviceType": "INVERTER"},
     ]
-    with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
+    with patch("src.hyxi_cloud_api.api._gather", new_callable=AsyncMock) as mock_gather:
         await mock_api._process_devices_for_plant(devices, mock_state)
 
         mock_gather.assert_called_once_with(
@@ -121,7 +121,7 @@ async def test_process_devices_for_plant_mixed_devices(mock_api, mock_state):
         {"deviceType": "UNKNOWN"},  # Missing SN
         {"deviceSn": "SN_NORMAL", "deviceType": "METER"},
     ]
-    with patch("asyncio.gather", new_callable=AsyncMock) as mock_gather:
+    with patch("src.hyxi_cloud_api.api._gather", new_callable=AsyncMock) as mock_gather:
         await mock_api._process_devices_for_plant(devices, mock_state)
 
         mock_gather.assert_called_once_with("fetch_sub_device_task")

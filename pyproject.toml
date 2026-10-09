@@ -51,11 +51,15 @@ select = [
     "N",   # pep8-naming
     "PTH", # flake8-use-pathlib
     "RUF", # ruff-internal rules
+    "TID", # flake8-tidy-imports (banned APIs)
 ]
 ignore = ["E501", "N818", "S105"]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"asyncio.gather".msg = "Use _gather, which cancels the other awaitables when one fails"
+
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S105", "S106", "N802", "E402"]
+"tests/*" = ["S101", "S105", "S106", "N802", "E402", "TID251"]
 "/hyxi_cloud/__init__.py" = ["N812"]
 
 [tool.mypy]

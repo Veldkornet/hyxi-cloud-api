@@ -76,29 +76,22 @@ def _setup_mock_api():
 async def test_collector_discovery_only():
     """Verify that a Collector is discovered correctly."""
     api = _setup_mock_api()
-    state = FetchState(now="2024-01-01")
-    state.plants = [{"plantId": "Pl123"}]
 
-    await api._process_plants_data(state, allow_back_discovery=True)
-    results = state.results
+    result = await api.discover_devices()
 
-    assert "COLL_001" in results
-    assert results["COLL_001"]["device_type_code"] == "COLLECTOR"
+    assert result.complete
+    assert result.devices["COLL_001"]["device_type_code"] == "COLLECTOR"
 
 
 @pytest.mark.asyncio
 async def test_sub_device_discovery_triggered_by_collector():
     """Verify that discovering a Collector triggers discovery of its sub-devices."""
     api = _setup_mock_api()
-    state = FetchState(now="2024-01-01")
-    state.plants = [{"plantId": "Pl123"}]
 
-    await api._process_plants_data(state, allow_back_discovery=True)
-    results = state.results
+    devices = (await api.discover_devices()).devices
 
-    assert "INV_001" in results
-    assert results["INV_001"]["model"] == "Hybrid Inverter"
-    assert results["INV_001"]["device_type_code"] == "1"
+    assert devices["INV_001"]["model"] == "Hybrid Inverter"
+    assert devices["INV_001"]["device_type_code"] == "1"
 
 
 @pytest.mark.asyncio
@@ -120,12 +113,11 @@ async def test_back_discovery_finds_hidden_device():
 
     api._fetch_all_for_device = MagicMock(side_effect=mock_fetch_all)
 
-    state = FetchState(now="2024-01-01")
-    state.plants = [{"plantId": "Pl123"}]
-    await api._process_plants_data(state, allow_back_discovery=True)
+    api._discovery_cache["plants"] = [{"plantId": "Pl123"}]
 
-    assert "HIDDEN_INV" in state.results
-    assert state.results["HIDDEN_INV"]["device_type_code"] == "1"
+    results = await api._poll_inventory(allow_back_discovery=True)
+
+    assert results["HIDDEN_INV"]["device_type_code"] == "1"
 
 
 @pytest.mark.asyncio
@@ -167,12 +159,12 @@ async def test_recursive_probe_of_hidden_collector():
 
     api._fetch_all_for_device = MagicMock(side_effect=mock_fetch_all)
 
-    state = FetchState(now="2024-01-01")
-    state.plants = [{"plantId": "Pl123"}]
-    await api._process_plants_data(state, allow_back_discovery=True)
+    api._discovery_cache["plants"] = [{"plantId": "Pl123"}]
 
-    assert "HIDDEN_COLL" in state.results
-    assert "CHILD_INV" in state.results
+    results = await api._poll_inventory(allow_back_discovery=True)
+
+    assert "HIDDEN_COLL" in results
+    assert "CHILD_INV" in results
 
 
 @pytest.mark.asyncio

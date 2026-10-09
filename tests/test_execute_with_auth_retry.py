@@ -42,10 +42,7 @@ async def test_execute_with_auth_retry_retries_after_token_rejection(
     assert result == {"success": True, "data": {"ok": True}}
     assert api_client._request.await_count == 2
     assert api_client._ensure_authenticated.await_count == 2
-    assert (
-        "Token rejected, forcing re-authentication and retrying request to "
-        "/api/some/path" in caplog.text
-    )
+    assert "token rejected during /api/some/path, re-authenticating" in caplog.text
 
 
 @pytest.mark.asyncio

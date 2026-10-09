@@ -30,7 +30,7 @@ async def test_execute_metric_tasks_with_tasks():
     plant_alarms = {}
 
     api._fetch_all_for_device = AsyncMock()
-    with patch("asyncio.gather", new_callable=AsyncMock):
+    with patch("src.hyxi_cloud_api.api._gather", new_callable=AsyncMock):
         await api._execute_metric_tasks(plant_alarms, state)
         api._execute_metrics_and_map_alarms.assert_awaited_once()
 
@@ -44,6 +44,6 @@ async def test_execute_metric_tasks_without_tasks():
     plant_alarms = {}
     api._execute_metrics_and_map_alarms = AsyncMock()
 
-    with patch("asyncio.gather", new_callable=AsyncMock):
+    with patch("src.hyxi_cloud_api.api._gather", new_callable=AsyncMock):
         await api._execute_metric_tasks(plant_alarms, state)
         api._execute_metrics_and_map_alarms.assert_not_awaited()

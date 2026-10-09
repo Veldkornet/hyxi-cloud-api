@@ -107,7 +107,7 @@ async def test_process_alarms_with_non_list_results(mock_api, mock_state):
 
 
 @pytest.mark.asyncio
-@patch("src.hyxi_cloud_api.api.asyncio.gather", new_callable=AsyncMock)
+@patch("src.hyxi_cloud_api.api._gather", new_callable=AsyncMock)
 async def test_process_alarms_gathers_sub_device_tasks(
     mock_gather, mock_api, mock_state
 ):
