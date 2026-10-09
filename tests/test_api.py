@@ -25,7 +25,13 @@ from unittest.mock import MagicMock
 import aiohttp
 import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient, _parse_ems_kv
+from src.hyxi_cloud_api.api import (
+    HyxiApiClient,
+    HyxiAuthError,
+    TokenNetworkError,
+    TokenRequestError,
+    _parse_ems_kv,
+)
 
 
 # --- TEST 1: Basic Initialization ---
@@ -139,16 +145,29 @@ async def test_get_all_device_data_timeout_error(monkeypatch, caplog):
 
 @pytest.mark.asyncio
 async def test_get_all_device_data_auth_failed():
-    """Test that get_all_device_data immediately fails on auth failure."""
+    """Rejected credentials raise HyxiAuthError at once, without retrying."""
     fake_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
 
-    api._execute_fetch_all = AsyncMock(return_value="auth_failed")
+    api._execute_fetch_all = AsyncMock(side_effect=HyxiAuthError("rejected"))
 
-    result = await api.get_all_device_data()
+    with pytest.raises(HyxiAuthError):
+        await api.get_all_device_data()
 
-    assert result is None
     assert api._execute_fetch_all.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_get_all_device_data_token_request_error_retries(monkeypatch):
+    """A transient token failure is retried, then reported as None."""
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    fake_session = MagicMock()
+    api = HyxiApiClient("ak", "sk", "https://api.com", fake_session)
+
+    api._execute_fetch_all = AsyncMock(side_effect=TokenRequestError("network"))
+
+    assert await api.get_all_device_data() is None
+    assert api._execute_fetch_all.call_count == 3
 
 
 @pytest.mark.asyncio
@@ -298,7 +317,7 @@ async def test_execute_fetch_all_concurrent():
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
     # Bypass token validation and mock file
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
 
     fake_plants_response = {
         "success": True,
@@ -338,20 +357,20 @@ async def test_execute_fetch_all_concurrent():
 # --- TEST 5: Token Refresh Failures ---
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "status, payload, expected_result",
+    "status, payload, expected_error",
     [
-        (401, {}, "auth_failed"),
-        (403, {}, "auth_failed"),
-        (200, {"success": False, "code": "401"}, "auth_failed"),
-        (200, {"success": False, "code": 403}, "auth_failed"),
-        (200, {"success": False, "code": "500"}, False),
+        (401, {}, HyxiAuthError),
+        (403, {}, HyxiAuthError),
+        (200, {"success": False, "code": "401"}, HyxiAuthError),
+        (200, {"success": False, "code": 403}, HyxiAuthError),
+        (200, {"success": False, "code": "500"}, TokenRequestError),
         # A 500 makes raise_for_status raise, which is a transport-level
-        # failure (not an explicit rejection) -- distinguished as None.
-        (500, {"success": False}, None),
+        # failure, not a credential rejection.
+        (500, {"success": False}, TokenNetworkError),
     ],
 )
-async def test_refresh_token_failures(status, payload, expected_result):
-    """Test _refresh_token handles various failure conditions correctly."""
+async def test_ensure_token_failures(status, payload, expected_error):
+    """Test ensure_token handles various failure conditions correctly."""
 
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
@@ -378,13 +397,13 @@ async def test_refresh_token_failures(status, payload, expected_result):
 
     api.session.post = MagicMock(return_value=mock_response)
 
-    result = await api._refresh_token()
-    assert result == expected_result
+    with pytest.raises(expected_error):
+        await api.ensure_token()
 
 
 @pytest.mark.asyncio
-async def test_refresh_token_network_exception():
-    """Test _refresh_token handles network exceptions gracefully."""
+async def test_ensure_token_network_exception():
+    """A network error from the token request is raised as TokenNetworkError."""
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
     api.token = None
@@ -394,10 +413,24 @@ async def test_refresh_token_network_exception():
     # The simplest way to trigger the exception is side_effect on request.
     api.session.post = MagicMock(side_effect=aiohttp.ClientError("Network error"))
 
-    result = await api._refresh_token()
-    # Falsy like the old `False`, but distinguishable as a transport-level
-    # failure rather than an explicit rejection from the server.
-    assert result is None
+    with pytest.raises(TokenNetworkError, match="network or connection error"):
+        await api.ensure_token()
+
+
+@pytest.mark.asyncio
+async def test_get_all_device_data_raises_auth_error_on_401_token():
+    """A 401 from the token endpoint escapes get_all_device_data as
+    HyxiAuthError through the real request chain, after a single attempt."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+    mock_response = MagicMock()
+    mock_response.__aenter__.return_value.status = 401
+    api.session.post = MagicMock(return_value=mock_response)
+
+    with pytest.raises(HyxiAuthError):
+        await api.get_all_device_data()
+
+    assert api.session.post.call_count == 1
 
 
 # --- TEST 5: Alarm Log Sanitization ---
@@ -498,7 +531,7 @@ async def test_fetch_all_for_device_non_collector():
 async def test_execute_fetch_all_empty_plants():
     """Verify that _execute_fetch_all returns empty dict (not None) for successful but empty plant list."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
 
     # Mock response for /api/plant/v1/page: success=True, but data is an empty list or null
     mock_response = MagicMock()
@@ -526,7 +559,7 @@ async def test_execute_fetch_all_empty_plants():
 async def test_execute_fetch_all_null_data():
     """Verify robustness when the 'data' field itself is null."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
 
     mock_response = MagicMock()
     # Scenario: success=True, data is null (None)
@@ -572,7 +605,7 @@ async def test_execute_fetch_all_force_discovery():
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
     # Bypass token validation
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
 
     # Mock cache state to be valid
     api._discovery_cache["plants"] = [{"plantId": "plant_1"}]
@@ -610,7 +643,7 @@ async def test_execute_fetch_all_force_discovery_integration():
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
 
     # Bypass token validation
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
 
     # Mock cache state to be valid to test bypass
     api._discovery_cache["plants"] = [{"plantId": "plant_1"}]

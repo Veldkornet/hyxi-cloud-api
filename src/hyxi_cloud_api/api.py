@@ -37,6 +37,25 @@ class TokenRejectedError(aiohttp.ClientError):
     """Raised when the HYXI Cloud API rejects an authentication token."""
 
 
+class TokenRequestError(aiohttp.ClientError):
+    """Raised when an API token could not be obtained for a reason other than
+    rejected credentials (network failure, non-credential rejection, or a
+    malformed token response). Transient: callers may retry."""
+
+
+class TokenNetworkError(TokenRequestError):
+    """Raised when the token endpoint could not be reached at all."""
+
+
+class HyxiAuthError(Exception):
+    """Raised when HYXI Cloud rejects the configured access/secret key.
+
+    Deliberately not an aiohttp.ClientError: retrying or falling back to
+    cached data cannot fix bad credentials, so this must not be caught by
+    handlers meant for transient connection errors.
+    """
+
+
 @dataclass
 class FetchState:
     """State object to hold shared data during a device fetch cycle."""
@@ -1549,10 +1568,29 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         )
         return token_expires_at
 
-    async def _refresh_token(self):
-        """Async version of token refresh."""
+    async def _refresh_token(self) -> bool | str | None:
+        """Status-returning wrapper around ensure_token(), for callers that
+        predate its exceptions: True on success, "auth_failed" for rejected
+        credentials, None for a network failure, False otherwise."""
+        try:
+            await self.ensure_token()
+        except HyxiAuthError:
+            return "auth_failed"
+        except TokenNetworkError:
+            return None
+        except TokenRequestError:
+            return False
+        return True
+
+    async def ensure_token(self) -> None:
+        """Ensure a valid API token, requesting a new one if needed.
+
+        Raises:
+            HyxiAuthError: the access/secret key was rejected.
+            TokenRequestError: no token could be obtained for any other reason.
+        """
         if self.token and time.time() < self.token_expires_at:
-            return True
+            return
 
         path = "/api/authorization/v1/token"
 
@@ -1560,45 +1598,38 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             status, res = await self._request(
                 "POST", path, is_token_request=True, json={"grantType": 1}
             )
-
-            if status in (401, 403):
-                _LOGGER.error("HYXI API: Token request unauthorized (401/403)")
-                return "auth_failed"
-
-            if not res.get("success"):
-                _LOGGER.error("HYXI API Token Rejected: %s", _sanitize_dict(res))
-                if res.get("code") in (401, 403, "401", "403"):
-                    return "auth_failed"
-                return False
-
-            result = self._apply_token_response(res.get("data", {}))
-            if result:
-                _LOGGER.debug("HYXI token refresh succeeded")
-            return result
         except (aiohttp.ClientError, TimeoutError) as e:
-            # Distinguish "couldn't even reach the server" from an explicit
-            # rejection above: both are falsy for existing callers, but
-            # _ensure_authenticated uses the distinction to avoid raising a
-            # message that reads like a credential problem for what's
-            # actually a transient network failure. Anything other than a
-            # transport-layer error is not caught here -- e.g. a malformed
-            # response tripping up _apply_token_response is a real bug and
-            # should surface as one, not get silently relabeled as "the
-            # network is flaky" forever.
+            # Only transport-layer errors are relabeled here -- anything else
+            # (e.g. a parsing bug) is a real bug and should surface as one,
+            # not get silently reported as "the network is flaky" forever.
             _LOGGER.exception(
                 "HYXI Token Request Failed (network/connection error): %s", e
             )
-            return None
+            raise TokenNetworkError("network or connection error") from e
+
+        if status in (401, 403):
+            _LOGGER.error("HYXI API: Token request unauthorized (401/403)")
+            raise HyxiAuthError(f"token request unauthorized, HTTP {status}")
+
+        if not res.get("success"):
+            _LOGGER.error("HYXI API Token Rejected: %s", _sanitize_dict(res))
+            code = res.get("code")
+            if code in (401, 403, "401", "403"):
+                raise HyxiAuthError(f"token request rejected, code {code}")
+            raise TokenRequestError(f"token request rejected, code {code}")
+
+        if not self._apply_token_response(res.get("data", {})):
+            raise TokenRequestError("token response missing token")
+        _LOGGER.debug("HYXI token refresh succeeded")
 
     async def _ensure_authenticated(self, error_cls: type[Exception]) -> None:
         """Refresh the API token or raise the provided domain error."""
-        token_status = await self._refresh_token()
-        if token_status == "auth_failed":
-            raise error_cls("Authentication failed")
-        if token_status is None:
-            raise error_cls("Could not obtain API token: network or connection error")
-        if not token_status:
-            raise error_cls("Could not obtain API token")
+        try:
+            await self.ensure_token()
+        except HyxiAuthError as err:
+            raise error_cls("Authentication failed") from err
+        except TokenRequestError as err:
+            raise error_cls(f"Could not obtain API token: {err}") from err
 
     async def _execute_with_auth_retry(
         self, method: str, path: str, error_cls: type[Exception], **kwargs
@@ -1972,7 +2003,14 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
     async def get_all_device_data(
         self, allow_back_discovery: bool = False, force_discovery: bool = False
     ):
-        """Fetches data with built-in retry logic and returns attempt count."""
+        """Fetches data with built-in retry logic and returns attempt count.
+
+        Returns None once every retry has failed for a transient reason.
+
+        Raises:
+            HyxiAuthError: the access/secret key was rejected. Not retried --
+                retrying cannot fix bad credentials.
+        """
 
         for attempt in range(1, MAX_RETRIES + 1):
             err: aiohttp.ClientError | TimeoutError | None = None
@@ -1982,8 +2020,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                     allow_back_discovery=allow_back_discovery,
                     force_discovery=force_discovery,
                 )
-                if data == "auth_failed":
-                    return None  # Hard fail, don't retry bad credentials
                 if data is not None:
                     # ✅ Success
                     _LOGGER.debug(
@@ -2001,8 +2037,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             except (aiohttp.ClientError, TimeoutError) as e:
                 err = e
 
-            # Every path that reaches here has either returned already (hard
-            # auth failure or success) or set `err` above -- the false side
+            # Every path that reaches here has either returned already
+            # (success), raised (HyxiAuthError), or set `err` above -- the false side
             # is unreachable given the current control flow, kept as a guard
             # against future refactors rather than something a test can
             # exercise honestly today.
@@ -2201,12 +2237,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
     ):
         """The actual fetching logic with discovery caching support."""
 
-        token_status = await self._refresh_token()
-
-        if token_status == "auth_failed":
-            return "auth_failed"
-        if not token_status:
-            return None
+        await self.ensure_token()
 
         now = datetime.now(UTC).isoformat()
         state = FetchState(now=now)
@@ -2625,12 +2656,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         Endpoint: POST /api/alarm/v1/alterAlarm
         Body: {"ids": [id1, id2, ...], "state": 1}
         """
-        token_status = await self._refresh_token()
-        if token_status == "auth_failed":
-            raise self.ControlError("Authentication failed")
-        if not token_status:
-            raise self.ControlError("Could not obtain API token")
-
         path = "/api/alarm/v1/alterAlarm"
         body = {
             "ids": alarm_ids,
@@ -2641,16 +2666,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             alarm_ids,
             body,
         )
-        _, res = await self._request("POST", path, json=body)
-        if res is None or not res.get("success"):
-            code = res.get("code", "unknown") if res else "no_response"
-            msg = res.get("msg", "") if res else ""
-            raise self.ControlError(f"alarm alteration failed (code={code}): {msg}")
-        _LOGGER.debug(
-            "HYXI ALTER_ALARM response: success=%s",
-            res.get("success"),
+        return await self._execute_with_auth_retry(
+            "POST", path, self.ControlError, json=body
         )
-        return res
 
     @staticmethod
     def compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:

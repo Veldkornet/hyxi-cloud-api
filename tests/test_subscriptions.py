@@ -12,12 +12,12 @@ if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientEr
     m.ContentTypeError = type("ContentTypeError", (Exception,), {})
     sys.modules["aiohttp"] = m
 
-from src.hyxi_cloud_api.api import HyxiApiClient
+from src.hyxi_cloud_api.api import HyxiApiClient, HyxiAuthError
 
 
 def _client() -> HyxiApiClient:
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
     api._request = AsyncMock(
         return_value=(
             200,
@@ -170,7 +170,7 @@ async def test_cancel_subscription_return_value():
 async def test_subscription_error_on_auth_failed():
     """Test SubscriptionError is raised when authentication fails."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value="auth_failed")
+    api.ensure_token = AsyncMock(side_effect=HyxiAuthError("rejected"))
 
     with pytest.raises(api.SubscriptionError, match="Authentication failed"):
         await api.subscribe_alarm("https://example.com/hyxi", ["SN1"], 60000)
@@ -180,7 +180,7 @@ async def test_subscription_error_on_auth_failed():
 async def test_subscription_error_on_api_failure():
     """Test SubscriptionError is raised when API returns success=False."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
     api._request = AsyncMock(
         return_value=(
             200,
