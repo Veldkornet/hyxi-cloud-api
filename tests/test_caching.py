@@ -1,12 +1,18 @@
 """Tests for the HYXI Cloud discovery caching mechanism."""
 
+import logging
 import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from hyxi_cloud_api import HyxiApiClient
-from hyxi_cloud_api.api import INCOMPLETE_DISCOVERY_RETRY, FetchState
+from hyxi_cloud_api.api import (
+    _FETCH_ALARMS,
+    _FETCH_METRICS,
+    INCOMPLETE_DISCOVERY_RETRY,
+    FetchState,
+)
 
 
 @pytest.mark.asyncio
@@ -429,3 +435,40 @@ async def test_detailed_model_survives_a_failed_info_refresh():
     for poll in (rediscovered, cached_poll):
         assert poll["data"]["INV"]["model"] == "HYX-H10K-HT"
         assert poll["data"]["INV"]["sw_version"] == "V1"
+
+
+@pytest.mark.asyncio
+async def test_complete_discovery_forgets_failures_of_removed_subjects(caplog):
+    """A complete discovery drops failure state for devices and plants it no
+    longer lists, keeps it for ones still listed and still failing, and a
+    removed device that fails again is reported in full."""
+    caplog.set_level(logging.DEBUG, logger="hyxi_cloud_api.api")
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    discovery = client._request.side_effect
+    rejected = (200, {"success": False, "code": "X"})
+
+    async def still_failing(method, path, **kwargs):
+        if path in ("/api/device/v2/queryDeviceData", "/api/alarm/v1/plantAlarmPage"):
+            return rejected
+        return await discovery(method, path, **kwargs)
+
+    client._request = AsyncMock(side_effect=still_failing)
+    client._failing_fetches = {
+        (_FETCH_METRICS, "S1"): "rejected:X",
+        (_FETCH_METRICS, "GONE"): "rejected:X",
+        (_FETCH_ALARMS, "P1"): "rejected:X",
+        (_FETCH_ALARMS, "OLD_PLANT"): "rejected:X",
+    }
+
+    await client.get_all_device_data()
+
+    assert set(client._failing_fetches) == {
+        (_FETCH_METRICS, "S1"),
+        (_FETCH_ALARMS, "P1"),
+    }
+
+    caplog.clear()
+    await client._fetch_device_metrics("GONE", {"metrics": {}})
+    assert [
+        r.levelname for r in caplog.records if "rejected for" in r.getMessage()
+    ] == ["WARNING"]

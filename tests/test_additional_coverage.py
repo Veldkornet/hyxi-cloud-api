@@ -61,7 +61,7 @@ async def test_fetch_sub_devices_coverage(caplog):
 @pytest.mark.asyncio
 async def test_fetch_alarms_for_plant_coverage(caplog):
     """Test _fetch_alarms_for_plant rejection and alarm name mapping."""
-    caplog.set_level(logging.ERROR)
+    caplog.set_level(logging.WARNING)
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
@@ -72,7 +72,11 @@ async def test_fetch_alarms_for_plant_coverage(caplog):
     res = await api._fetch_alarms_for_plant("PLANT_123")
     assert res == []
     # PLANT_123 is masked to b7a0873d
-    assert "HYXI API Alarm Fetch Rejected for Plant " in caplog.text
+    assert [
+        r.levelname
+        for r in caplog.records
+        if "HYXI API Alarm Fetch Rejected for Plant " in r.getMessage()
+    ] == ["WARNING"]
 
     # 2. Alarm Name Mapping (line 1295)
     api._request = AsyncMock(
