@@ -669,8 +669,17 @@ def _total_pages(data: dict) -> int:
     """The page count a paged list response reports, or 1 if it has none."""
     try:
         return int(data.get("totalPage") or 1)
-    except TypeError, ValueError:
+    except TypeError, ValueError, OverflowError:
         return 1
+
+
+def _page_items(data: Any, list_key: str, page: int) -> list | None:
+    """The list a page of a paged list response carries, or None if the page
+    has no readable list. A first page without the list key is empty."""
+    if not isinstance(data, dict):
+        return None
+    items = data.get(list_key, [] if page == 1 else None)
+    return items if isinstance(items, list) else None
 
 
 def _parse_data_list(data_list: list) -> dict:
@@ -2016,11 +2025,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
     ) -> tuple[dict, list]:
         """POST a paged list request and follow its totalPage.
 
-        Returns the last response and the items from every page. A first-page
-        answer whose data is a plain list is taken as the whole list. A
-        rejected page, a later page without a paged list, or more pages than
-        _MAX_LIST_PAGES gives a failed response and no items, so a partial
-        list is never taken for the full one.
+        Returns the last response and the items from every page. On the first
+        page, data that is a plain list is taken as the whole list, and data
+        that is missing or has no list key as an empty one. A rejected page, a
+        page whose list is not a list, a later page without its list, or more
+        pages than _MAX_LIST_PAGES gives a failed response and no items, so a
+        partial list is never taken for the full one.
         """
         items: list = []
         for page in range(1, _MAX_LIST_PAGES + 1):
@@ -2029,16 +2039,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             )
             if not res.get("success"):
                 return res, []
-            data = res.get("data")
-            if page == 1 and isinstance(data, list):
-                return res, data
-            if not isinstance(data, dict):
-                if page == 1:
-                    return res, []
-                return _paging_failure(f"page {page} has no data"), []
-            page_items = data.get(list_key) or []
-            if not isinstance(page_items, list):
-                return _paging_failure(f"{list_key} is not a list"), []
+            data: Any = res.get("data")
+            if page == 1 and not isinstance(data, dict):
+                return res, data if isinstance(data, list) else []
+            page_items = _page_items(data, list_key, page)
+            if page_items is None:
+                return _paging_failure(f"page {page} has no {list_key} list"), []
             items.extend(page_items)
             if page >= _total_pages(data):
                 return res, items

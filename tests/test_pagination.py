@@ -73,9 +73,18 @@ async def test_a_rejected_later_page_is_a_rejection():
 
 
 @pytest.mark.asyncio
-async def test_unparseable_total_page_is_one_page():
-    """A totalPage that is not a number is read as a single page."""
-    api = _client([_page("list", [{"plantId": "A"}], 1, "many")])
+async def test_a_first_page_without_the_list_is_empty():
+    """A first page that carries no list at all is an empty list."""
+    api = _client([(200, {"success": True, "data": {"totalPage": 0}})])
+
+    assert await api._fetch_device_list_for_plant("P1") == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("total", ["many", float("inf")], ids=["text", "infinity"])
+async def test_unparseable_total_page_is_one_page(total):
+    """A totalPage that is not a usable number is read as a single page."""
+    api = _client([_page("list", [{"plantId": "A"}], 1, total)])
 
     assert await api._fetch_plants() == [{"plantId": "A"}]
     assert api._request.await_count == 1
@@ -86,6 +95,11 @@ async def test_unparseable_total_page_is_one_page():
     "responses",
     [
         [(200, {"success": True, "data": {"deviceList": "AB"}})],
+        [(200, {"success": True, "data": {"deviceList": None}})],
+        [
+            _page("deviceList", [{"deviceSn": "A"}], 1, 2),
+            (200, {"success": True, "data": {"totalPage": 2}}),
+        ],
         [
             _page("deviceList", [{"deviceSn": "A"}], 1, 2),
             (200, {"success": True, "data": None}),
@@ -99,7 +113,14 @@ async def test_unparseable_total_page_is_one_page():
             (200, {"success": True, "data": {"deviceList": {"B": {}}}}),
         ],
     ],
-    ids=["first-list-not-a-list", "no-data", "plain-list", "list-not-a-list"],
+    ids=[
+        "first-list-not-a-list",
+        "first-list-null",
+        "later-list-missing",
+        "no-data",
+        "plain-list",
+        "list-not-a-list",
+    ],
 )
 async def test_a_malformed_page_is_a_rejection(responses):
     """A page without a readable list fails the whole list instead of
