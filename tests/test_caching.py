@@ -11,7 +11,7 @@ from hyxi_cloud_api.api import (
     _FETCH_ALARMS,
     _FETCH_METRICS,
     INCOMPLETE_DISCOVERY_RETRY,
-    FetchState,
+    DiscoveryResult,
 )
 
 
@@ -36,23 +36,20 @@ async def test_discovery_caching_logic():
     alarms_resp = {"success": True, "data": {"pageData": []}}
     sub_dev_resp = {"success": True, "data": {"childDevice": []}}
 
-    # Setup the sequence of responses for the first (full) call
-    # 1. Plants
-    # 2. Devices for Plant
-    # 3. Sub-devices for Inverter
-    # 4. Alarms for Plant
-    # 5. Info for Inverter
-    # 6. Metrics for Inverter
+    # The first (full) call discovers -- plants, the plant's devices, the
+    # inverter's sub-devices and its device info -- then polls alarms and
+    # metrics.
+    full_cycle = [
+        (200, plant_resp),
+        (200, device_resp),
+        (200, sub_dev_resp),
+        (200, info_resp),
+        (200, alarms_resp),
+        (200, metrics_resp),
+    ]
 
     with patch.object(client, "_request") as mock_req:
-        mock_req.side_effect = [
-            (200, plant_resp),
-            (200, device_resp),
-            (200, sub_dev_resp),
-            (200, alarms_resp),
-            (200, info_resp),
-            (200, metrics_resp),
-        ]
+        mock_req.side_effect = list(full_cycle)
 
         # First call: Full Discovery
         res1 = await client.get_all_device_data()
@@ -79,80 +76,28 @@ async def test_discovery_caching_logic():
 
         # Third call: Force discovery
         mock_req.reset_mock()
-        mock_req.side_effect = [
-            (200, plant_resp),
-            (200, device_resp),
-            (200, sub_dev_resp),
-            (200, alarms_resp),
-            (200, info_resp),
-            (200, metrics_resp),
-        ]
+        mock_req.side_effect = list(full_cycle)
         await client.get_all_device_data(force_discovery=True)
         assert mock_req.call_count == 6
 
 
 @pytest.mark.asyncio
-async def test_execute_fetch_cached_no_device_info():
-    """Verify _execute_fetch_cached handles missing device_info without errors."""
-    session = AsyncMock()
-    client = HyxiApiClient("key", "secret", "http://api.com", session)
+@pytest.mark.parametrize(
+    "cache",
+    [{"plants": [{"plantId": "P1"}], "device_info": None}, {}],
+    ids=["no-device-info", "empty-cache"],
+)
+async def test_poll_devices_without_an_inventory_returns_nothing(cache):
+    """Polling with no device inventory returns no devices rather than
+    raising, and does not run a discovery itself."""
+    client = HyxiApiClient("key", "secret", "http://api.com", AsyncMock())
+    client.ensure_token = AsyncMock()
+    client._discover = AsyncMock()
+    client._fetch_and_process_alarms = AsyncMock(return_value=[])
+    client._discovery_cache = cache
 
-    # Empty cache
-    client._discovery_cache = {
-        "plants": [{"plantId": "P1"}],
-        "device_info": None,
-    }
-
-    state = FetchState(now="2023-01-01T00:00:00Z")
-
-    with (
-        patch.object(client, "_build_plant_tasks", return_value=([], [])) as mock_build,
-        patch.object(
-            client, "_fetch_and_process_alarms", return_value={}
-        ) as mock_alarms,
-        patch.object(
-            client, "_execute_metric_tasks", new_callable=AsyncMock
-        ) as mock_exec,
-    ):
-        results = await client._execute_fetch_cached(state, allow_back_discovery=True)
-
-        # Verify it runs without error and executes the next steps
-        assert results == {}
-        assert len(state.metric_tasks) == 0
-        mock_build.assert_called_once()
-        mock_alarms.assert_called_once()
-        mock_exec.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_execute_fetch_cached_empty_cache():
-    """Verify _execute_fetch_cached handles fully empty cache without errors."""
-    session = AsyncMock()
-    client = HyxiApiClient("key", "secret", "http://api.com", session)
-
-    # Fully empty cache
-    client._discovery_cache = {}
-
-    state = FetchState(now="2023-01-01T00:00:00Z")
-
-    with (
-        patch.object(client, "_build_plant_tasks", return_value=([], [])) as mock_build,
-        patch.object(
-            client, "_fetch_and_process_alarms", return_value={}
-        ) as mock_alarms,
-        patch.object(
-            client, "_execute_metric_tasks", new_callable=AsyncMock
-        ) as mock_exec,
-    ):
-        results = await client._execute_fetch_cached(state, allow_back_discovery=True)
-
-        # Verify it runs without error and executes the next steps
-        assert results == {}
-        assert not state.plants
-        assert len(state.metric_tasks) == 0
-        mock_build.assert_called_once()
-        mock_alarms.assert_called_once()
-        mock_exec.assert_called_once()
+    assert await client.poll_devices() == {}
+    client._discover.assert_not_awaited()
 
 
 def _discovery_client(device_lists, sub_device_lists=None, device_info=None):
@@ -414,7 +359,6 @@ async def test_device_info_fetch_caches_detailed_model_and_info(
     await client._fetch_device_info("S1", entry)
 
     cached = client._discovery_cache["device_info"]["S1"]
-    assert cached["model"] == "Hybrid Inverter"
     assert cached.get("detailed_model") == (data or {}).get("model")
     assert ("info_metrics" in cached) is expect_info_metrics
 
@@ -472,3 +416,202 @@ async def test_complete_discovery_forgets_failures_of_removed_subjects(caplog):
     assert [
         r.levelname for r in caplog.records if "rejected for" in r.getMessage()
     ] == ["WARNING"]
+
+
+@pytest.mark.asyncio
+async def test_discover_devices_reports_the_inventory():
+    """discover_devices returns each discovered device with its detailed
+    model and versions from device info."""
+    device_info = {"S1": {"model": "HYX-H10K-HT", "swVerSys": "V1", "hwVer": "H1"}}
+    client = _discovery_client({"P1": [_inverter("S1")]}, device_info=device_info)
+
+    result = await client.discover_devices()
+
+    assert result.complete
+    assert result.devices == {
+        "S1": {
+            "sn": "S1",
+            "device_name": "Hybrid Inverter S1",
+            "model": "HYX-H10K-HT",
+            "device_type_code": "HYBRID_INVERTER",
+            "sw_version": "V1",
+            "hw_version": "H1",
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_incomplete_discover_devices_keeps_known_devices():
+    """An incomplete discovery reports complete=False and keeps devices
+    that an earlier discovery found."""
+    client = _discovery_client({"P1": TimeoutError()})
+    client._discovery_cache["device_info"] = {"OLD": _known()}
+
+    result = await client.discover_devices()
+
+    assert not result.complete
+    assert set(result.devices) == {"OLD"}
+
+
+@pytest.mark.asyncio
+async def test_discover_devices_with_a_corrupted_cache_reports_no_devices():
+    """A device-info cache that is not a dict yields an empty inventory."""
+    client = _discovery_client({})
+    client._fetch_plants = AsyncMock(return_value=None)
+    client._discovery_cache["device_info"] = None
+
+    result = await client.discover_devices()
+
+    assert result == DiscoveryResult(devices={}, complete=False)
+
+
+@pytest.mark.asyncio
+async def test_poll_devices_does_not_rediscover_a_known_inventory():
+    """Once devices are known, poll_devices only polls them."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    await client.discover_devices()
+    client._request.reset_mock()
+
+    result = await client.poll_devices()
+
+    assert set(result) == {"S1"}
+    assert "/api/plant/v1/page" not in _paths(client)
+    assert "/api/plant/v1/devicePage" not in _paths(client)
+
+
+@pytest.mark.asyncio
+async def test_discover_devices_keeps_devices_known_only_from_alarms():
+    """With back-discovery enabled, a device that appears only in alarms is
+    part of the discovered inventory, so discovery does not prune it."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    alarm = {"deviceSn": "HIDDEN1", "deviceType": "HYBRID_INVERTER"}
+    discovery = client._request.side_effect
+
+    async def with_alarm(method, path, **kwargs):
+        if path == "/api/alarm/v1/plantAlarmPage":
+            return 200, {"success": True, "data": {"pageData": [alarm]}}
+        return await discovery(method, path, **kwargs)
+
+    client._request = AsyncMock(side_effect=with_alarm)
+    client._discovery_cache["device_info"] = {"HIDDEN1": _known()}
+
+    result = await client.discover_devices(allow_back_discovery=True)
+
+    assert set(result.devices) == {"S1", "HIDDEN1"}
+
+
+@pytest.mark.asyncio
+async def test_discover_devices_keeps_versions_of_live_info_devices():
+    """A collector's device info is not reusable between polls, but the
+    versions it reported are still part of the inventory."""
+    collector = {"deviceSn": "COL", "deviceType": "COLLECTOR"}
+    device_info = {"COL": {"swVerSys": "W1", "hwVer": "H2", "signalIntensity": "3"}}
+    client = _discovery_client({"P1": [collector]}, device_info=device_info)
+
+    result = await client.discover_devices()
+
+    assert result.devices["COL"]["sw_version"] == "W1"
+    assert result.devices["COL"]["hw_version"] == "H2"
+
+
+@pytest.mark.asyncio
+async def test_rejected_plant_list_does_not_advance_the_retry_backoff():
+    """A rejected plant list leaves the incomplete-discovery backoff alone, so
+    the caller's retries do not multiply it."""
+    client = _discovery_client({})
+    client._fetch_plants = AsyncMock(return_value=None)
+
+    for _ in range(3):
+        result = await client.discover_devices()
+
+    assert not result.complete
+    assert client._incomplete_discovery_retry == INCOMPLETE_DISCOVERY_RETRY
+
+
+@pytest.mark.asyncio
+async def test_discover_devices_tolerates_a_corrupted_cache_with_plants():
+    """A device-info cache that is not a dict does not crash a discovery
+    that lists devices."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    client._discovery_cache["device_info"] = None
+
+    result = await client.discover_devices()
+
+    assert result.devices == {}
+
+
+@pytest.mark.asyncio
+async def test_back_discovered_device_is_kept_when_its_info_fetch_fails():
+    """A device found only in alarms is part of the inventory even if its
+    device-info request fails."""
+    alarm = {"deviceSn": "HIDDEN1", "deviceType": "HYBRID_INVERTER"}
+    client = _discovery_client(
+        {"P1": [_inverter("S1")]}, device_info={"HIDDEN1": TimeoutError()}
+    )
+    discovery = client._request.side_effect
+
+    async def with_alarm(method, path, **kwargs):
+        if path == "/api/alarm/v1/plantAlarmPage":
+            return 200, {"success": True, "data": {"pageData": [alarm]}}
+        return await discovery(method, path, **kwargs)
+
+    client._request = AsyncMock(side_effect=with_alarm)
+
+    result = await client.discover_devices(allow_back_discovery=True)
+
+    assert set(result.devices) == {"S1", "HIDDEN1"}
+
+
+@pytest.mark.asyncio
+async def test_device_info_fetch_does_not_recreate_a_pruned_device():
+    """A device-info fetch for a device discovery no longer knows leaves the
+    inventory alone, so a poll cannot bring a pruned device back."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    entry = {"model": "Hybrid Inverter", "device_type_code": "1", "metrics": {}}
+
+    await client._fetch_device_info("GONE", entry)
+
+    assert "GONE" not in client._discovery_cache["device_info"]
+
+
+@pytest.mark.asyncio
+async def test_device_list_version_does_not_replace_device_info_version():
+    """When a later info refresh fails, the inventory keeps the version
+    device info reported rather than switching to the device list's."""
+    device = dict(_inverter("S1"), swVer="1.0")
+    device_info = {"S1": {"swVerSys": "1.2"}}
+    client = _discovery_client({"P1": [device]}, device_info=device_info)
+    await client.discover_devices()
+
+    device_info["S1"] = TimeoutError()
+    result = await client.discover_devices()
+
+    assert result.devices["S1"]["sw_version"] == "1.2"
+
+
+@pytest.mark.asyncio
+async def test_discover_devices_defers_get_all_device_data_rediscovery():
+    """After a public discover_devices(), get_all_device_data only polls."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    await client.discover_devices()
+    client._request.reset_mock()
+
+    await client.get_all_device_data()
+
+    assert "/api/plant/v1/page" not in _paths(client)
+
+
+def test_push_data_reports_the_detailed_model():
+    """Push results use the detailed model from device info when known."""
+    client = HyxiApiClient("key", "secret", "http://api.com", AsyncMock())
+    client._discovery_cache["device_info"] = {
+        "S1": {
+            "model": "Hybrid Inverter",
+            "detailed_model": "HYX-H10K-HT",
+            "device_type_code": "HYBRID_INVERTER",
+        }
+    }
+
+    result = client.process_push_data({"dataList": [{"deviceSn": "S1"}]})
+
+    assert result["S1"]["model"] == "HYX-H10K-HT"
