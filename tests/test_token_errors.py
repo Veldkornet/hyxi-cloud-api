@@ -13,6 +13,7 @@ if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientEr
     m.ClientError = MockExp
     m.ClientResponseError = type("ClientResponseError", (MockExp,), {})
     m.ContentTypeError = type("ContentTypeError", (MockExp,), {})
+    m.ClientPayloadError = type("ClientPayloadError", (MockExp,), {})
     sys.modules["aiohttp"] = m
 mock_aiohttp = sys.modules["aiohttp"]
 
@@ -136,3 +137,73 @@ async def test_refresh_token_keeps_status_return_values(side_effect, expected):
     api.ensure_token = AsyncMock(side_effect=side_effect)
 
     assert await api._refresh_token() == expected
+
+
+def _token_session(api, body=None, json_error=None):
+    """Point the client's session.post at a 200 response whose json() returns
+    body, or raises json_error."""
+    response = MagicMock()
+    yielded = response.__aenter__.return_value
+    yielded.status = 200
+    yielded.raise_for_status = MagicMock()
+    yielded.json = AsyncMock(return_value=body, side_effect=json_error)
+    api.session.post = MagicMock(return_value=response)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code, error",
+    [
+        ("A000001", HyxiAuthError),
+        ("A000003", HyxiAuthError),
+        ("A000004", HyxiAuthError),
+        ("A000005", HyxiAuthError),
+        ("A000006", TokenRequestError),
+    ],
+)
+async def test_token_rejection_codes(code, error):
+    """HYXI's codes for a wrong access/secret key are credential failures;
+    A000006 (request time out of sync) is fixable without new keys."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(return_value=(200, {"success": False, "code": code}))
+
+    with pytest.raises(error) as exc_info:
+        await api.ensure_token()
+
+    assert not isinstance(exc_info.value, TokenNetworkError)
+
+
+@pytest.mark.asyncio
+async def test_token_data_that_is_not_an_object_raises_request_error():
+    """A token response whose data is not an object has no usable token."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(return_value=(200, {"success": True, "data": ["x"]}))
+
+    with pytest.raises(TokenRequestError, match="missing token"):
+        await api.ensure_token()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body, json_error",
+    [(["not", "an", "object"], None), (None, ValueError("Expecting value"))],
+    ids=["body-not-object", "body-not-json"],
+)
+async def test_unusable_token_body_raises_network_error(body, json_error):
+    """A token response body that is not a JSON object is a typed error
+    rather than a raw AttributeError or ValueError."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    _token_session(api, body, json_error)
+
+    with pytest.raises(TokenNetworkError):
+        await api.ensure_token()
+
+
+def test_token_errors_are_exported_from_the_package():
+    """Every typed error callers may need to catch is importable from the
+    package root."""
+    import hyxi_cloud_api  # pylint: disable=import-outside-toplevel
+
+    for name in ("HyxiAuthError", "TokenNetworkError", "TokenRequestError"):
+        assert name in hyxi_cloud_api.__all__
+        assert hasattr(hyxi_cloud_api, name)

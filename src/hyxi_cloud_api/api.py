@@ -44,7 +44,8 @@ class TokenRequestError(aiohttp.ClientError):
 
 
 class TokenNetworkError(TokenRequestError):
-    """Raised when the token endpoint could not be reached at all."""
+    """Raised on a transport or payload failure of the token request: the
+    endpoint could not be reached, or its response was unusable."""
 
 
 class HyxiAuthError(Exception):
@@ -555,6 +556,19 @@ INTERNAL_ERROR_MAP = {
     "C000011": "AES decryption failed",
     "C999999": "Service exception, please contact the service provide",
 }
+
+# Token-endpoint rejection codes that mean the access/secret key itself is
+# wrong: authentication failed, unknown user, invalid credentials, and a
+# signature mismatch (a wrong secret key).
+_CREDENTIAL_REJECTION_CODES = frozenset(
+    ("401", "403", "A000001", "A000003", "A000004", "A000005")
+)
+
+# Token lifetime assumed when the API sends none or an unusable one, the
+# longest lifetime accepted, and how long before expiry to refresh.
+_DEFAULT_TOKEN_LIFETIME = 6600
+_MAX_TOKEN_LIFETIME = 30 * 86400
+_TOKEN_REFRESH_BUFFER = 300
 
 _TOKEN_REJECTION_CODES = frozenset(
     (
@@ -1504,7 +1518,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 response.raise_for_status()
             except aiohttp.ClientResponseError as e:
                 raise _sanitize_response_error(e) from None
-            res = await response.json()
+            try:
+                res = await response.json()
+            except ValueError as e:
+                raise aiohttp.ClientPayloadError("response body is not JSON") from e
+            if not isinstance(res, dict):
+                raise aiohttp.ClientPayloadError("response body is not a JSON object")
 
             _LOGGER.debug(
                 "HYXI %s %s -> status=%s success=%s",
@@ -1546,16 +1565,29 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
     def _calculate_token_expiration(self, data: dict) -> float:
         """Calculate token expiration timestamp from API response."""
         # 1. Grab the raw expiration value exactly as the API sent it
-        raw_expires_in = data.get("expiresIn") or data.get("expires_in")
+        raw_expires_in = data.get("expiresIn", data.get("expires_in"))
         _LOGGER.debug(
             "HYXI API returned raw token expiration: %s seconds",
             raw_expires_in,
         )
 
-        # 3. Apply the 5-minute (300s) safety buffer
-        buffer_secs = 300
-        expires_at_val = raw_expires_in or 6600
-        token_expires_at = time.time() + float(expires_at_val) - buffer_secs
+        try:
+            lifetime = float(raw_expires_in or 0)
+        except TypeError, ValueError:
+            lifetime = 0.0
+        # Also rejects nan and inf, which fail both comparisons.
+        if not 0 < lifetime <= _MAX_TOKEN_LIFETIME:
+            if raw_expires_in is not None:
+                _LOGGER.warning(
+                    "HYXI token expiration %r is not a usable lifetime; "
+                    "assuming %d seconds",
+                    raw_expires_in,
+                    _DEFAULT_TOKEN_LIFETIME,
+                )
+            lifetime = _DEFAULT_TOKEN_LIFETIME
+        # Refresh ahead of expiry, or halfway through a short-lived token.
+        refresh_in = max(lifetime - _TOKEN_REFRESH_BUFFER, lifetime / 2)
+        token_expires_at = time.time() + refresh_in
 
         # 4. Log the actual scheduled refresh time
         refresh_time_str = datetime.fromtimestamp(token_expires_at).strftime(
@@ -1563,7 +1595,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         )
         _LOGGER.debug(
             "HYXI Token proactive refresh scheduled in %s seconds (at %s)",
-            int(float(expires_at_val)) - buffer_secs,
+            int(refresh_in),
             refresh_time_str,
         )
         return token_expires_at
@@ -1614,11 +1646,12 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         if not res.get("success"):
             _LOGGER.error("HYXI API Token Rejected: %s", _sanitize_dict(res))
             code = res.get("code")
-            if code in (401, 403, "401", "403"):
+            if str(code) in _CREDENTIAL_REJECTION_CODES:
                 raise HyxiAuthError(f"token request rejected, code {code}")
             raise TokenRequestError(f"token request rejected, code {code}")
 
-        if not self._apply_token_response(res.get("data", {})):
+        data = res.get("data")
+        if not isinstance(data, dict) or not self._apply_token_response(data):
             raise TokenRequestError("token response missing token")
         _LOGGER.debug("HYXI token refresh succeeded")
 
