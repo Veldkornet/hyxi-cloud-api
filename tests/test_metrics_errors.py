@@ -401,3 +401,144 @@ async def test_fetch_device_metrics_cell_temperatures_normalized_from_tenths():
 
     assert entry["metrics"]["batTch"] == 38.3
     assert entry["metrics"]["batTcl"] == 33.6
+
+
+def _levels(caplog, text):
+    return [r.levelname for r in caplog.records if text in r.getMessage()]
+
+
+def _client():
+    return HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+
+
+def _entry():
+    return {"metrics": {}, "device_type_code": "HYBRID_INVERTER"}
+
+
+@pytest.mark.asyncio
+async def test_repeated_fetch_error_logs_once_then_recovery(caplog):
+    """A device whose metrics keep failing is logged in full once, then at
+    DEBUG while it stays down, and once at INFO when it recovers."""
+    caplog.set_level(logging.DEBUG, logger="hyxi_cloud_api.api")
+    api = _client()
+    api._request = AsyncMock(side_effect=aiohttp.ClientError("Connection reset"))
+
+    for _ in range(3):
+        await api._fetch_device_metrics("SN1", _entry())
+
+    assert _levels(caplog, "Error fetching metrics for") == ["ERROR", "DEBUG", "DEBUG"]
+
+    api._request = AsyncMock(return_value=(200, {"success": True, "data": []}))
+    await api._fetch_device_metrics("SN1", _entry())
+    await api._fetch_device_metrics("SN1", _entry())
+
+    assert _levels(caplog, "metrics fetch for") == ["INFO"]
+
+
+@pytest.mark.asyncio
+async def test_new_failure_cause_is_logged_in_full(caplog):
+    """A device that moves from a network error to an API rejection gets the
+    rejection reason logged at WARNING, not suppressed as a repeat."""
+    caplog.set_level(logging.DEBUG, logger="hyxi_cloud_api.api")
+    api = _client()
+    api._request = AsyncMock(side_effect=aiohttp.ClientError("Connection reset"))
+    await api._fetch_device_metrics("SN1", _entry())
+
+    api._request = AsyncMock(return_value=(200, {"success": False, "code": "X"}))
+    await api._fetch_device_metrics("SN1", _entry())
+
+    assert _levels(caplog, "metrics rejected for") == ["WARNING"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        (aiohttp.ClientError("offline"), KeyError("batP")),
+        ({"success": False, "code": "X1"}, {"success": False, "code": "X2"}),
+    ],
+    ids=["exception-type", "rejection-code"],
+)
+async def test_changed_failure_within_same_kind_is_logged_in_full(
+    caplog, first, second
+):
+    """A different exception type, or a different rejection code, is a new
+    failure and is logged at full level rather than as a repeat."""
+    caplog.set_level(logging.DEBUG, logger="hyxi_cloud_api.api")
+    api = _client()
+
+    def outcome(value):
+        if isinstance(value, Exception):
+            return AsyncMock(side_effect=value)
+        return AsyncMock(return_value=(200, value))
+
+    for value in (first, second):
+        api._request = outcome(value)
+        await api._fetch_device_metrics("SN1", _entry())
+
+    full = [
+        r.levelname
+        for r in caplog.records
+        if "metrics" in r.getMessage() and r.levelname in ("ERROR", "WARNING")
+    ]
+    assert len(full) == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_failures_are_tracked_per_device(caplog):
+    """One device already failing does not silence a first failure on
+    another device."""
+    caplog.set_level(logging.WARNING, logger="hyxi_cloud_api.api")
+    api = _client()
+    api._request = AsyncMock(return_value=(200, {"success": False, "code": "X"}))
+
+    await api._fetch_device_metrics("SN1", _entry())
+    await api._fetch_device_metrics("SN2", _entry())
+
+    assert _levels(caplog, "metrics rejected for") == ["WARNING", "WARNING"]
+
+
+@pytest.mark.asyncio
+async def test_success_response_that_fails_to_parse_is_not_a_recovery(caplog):
+    """A success response whose data cannot be parsed stays a repeated
+    failure; it is never logged as recovered in between."""
+    caplog.set_level(logging.DEBUG, logger="hyxi_cloud_api.api")
+    api = _client()
+    api._request = AsyncMock(return_value=(200, {"success": True, "data": 5}))
+
+    await api._fetch_device_metrics("SN1", _entry())
+    await api._fetch_device_metrics("SN1", _entry())
+
+    assert _levels(caplog, "Error fetching metrics for") == ["ERROR", "DEBUG"]
+    assert not _levels(caplog, "recovered")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fetch, rejected, ok, kind",
+    [
+        (
+            lambda api: api._fetch_device_info("SN1", _entry()),
+            {"success": False, "code": "X"},
+            {"success": True, "data": {}},
+            "device info",
+        ),
+        (
+            lambda api: api._fetch_alarms_for_plant("P1"),
+            {"success": False, "code": "X"},
+            {"success": True, "data": {"pageData": []}},
+            "alarms",
+        ),
+    ],
+    ids=["device-info", "plant-alarms"],
+)
+async def test_other_fetches_log_recovery(caplog, fetch, rejected, ok, kind):
+    """Device-info and plant-alarm fetches also log their recovery once."""
+    caplog.set_level(logging.INFO, logger="hyxi_cloud_api.api")
+    api = _client()
+    api._request = AsyncMock(side_effect=[(200, rejected), (200, ok)])
+
+    await fetch(api)
+    await fetch(api)
+
+    assert _levels(caplog, f"{kind} fetch for") == ["INFO"]

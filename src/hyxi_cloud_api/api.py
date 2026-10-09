@@ -1420,6 +1420,11 @@ def _sanitize_response_error(
     )
 
 
+# Per-poll fetch kinds, for throttling repeated failure logs.
+_FETCH_METRICS = "metrics"
+_FETCH_DEVICE_INFO = "device info"
+_FETCH_ALARMS = "alarms"
+
 _PEAK_SHAVING_VALUES = {
     "close": "0",
     "charge": "1",
@@ -1482,6 +1487,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         if max_concurrent_requests < 1:
             raise ValueError("max_concurrent_requests must be at least 1")
         self._request_semaphore = asyncio.Semaphore(max_concurrent_requests)
+        # Cause of the last failure per (fetch kind, SN or plant ID).
+        self._failing_fetches: dict[tuple[str, str], str] = {}
 
         # Structural & Metadata Cache
         self._discovery_cache: dict[str, Any] = {
@@ -1491,6 +1498,36 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         self._discovery_cache_expires_at: float = 0.0
         self._discovery_cache_ttl = 3600  # 1 hour default
         self._incomplete_discovery_retry = INCOMPLETE_DISCOVERY_RETRY
+
+    def _log_fetch_failure(
+        self, kind: str, subject_id: str, msg: str, detail: Any, *, error: bool = False
+    ) -> None:
+        """Log a failed per-poll fetch in full the first time each cause
+        occurs -- ERROR with traceback for an unexpected exception (detail is
+        the exception), WARNING for an API rejection (detail is the sanitized
+        response) -- then at DEBUG while the same cause repeats.
+
+        The cause is the exception type or the rejection code. msg takes two
+        arguments: the masked subject_id (SN or plant ID) and detail.
+        """
+        if error:
+            cause = f"error:{type(detail).__name__}"
+        else:
+            cause = f"rejected:{detail.get('code')}"
+        key = (kind, subject_id)
+        if self._failing_fetches.get(key) == cause:
+            _LOGGER.debug(msg, _mask_id(subject_id), detail)
+            return
+        self._failing_fetches[key] = cause
+        if error:
+            _LOGGER.error(msg, _mask_id(subject_id), detail, exc_info=True)
+        else:
+            _LOGGER.warning(msg, _mask_id(subject_id), detail)
+
+    def _log_fetch_recovered(self, kind: str, subject_id: str) -> None:
+        """Log once when a per-poll fetch that was failing succeeds again."""
+        if self._failing_fetches.pop((kind, subject_id), None):
+            _LOGGER.info("HYXI %s fetch for %s recovered", kind, _mask_id(subject_id))
 
     def _update_discovery_cache(self, sn: str, entry: dict) -> dict | None:
         """Update the discovery cache with basic entry structure, returning
@@ -1803,16 +1840,20 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                     entry["metrics"].update(
                         _compute_derived_metrics(m_raw, device_type)
                     )
+                self._log_fetch_recovered(_FETCH_METRICS, sn)
             else:
-                _LOGGER.warning(
+                self._log_fetch_failure(
+                    _FETCH_METRICS,
+                    sn,
                     "HYXI API metrics rejected for %s: %s",
-                    _mask_id(sn),
                     _sanitize_dict(res_q),
                 )
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.exception("Error fetching metrics for %s: %s", _mask_id(sn), e)
+            self._log_fetch_failure(
+                _FETCH_METRICS, sn, "Error fetching metrics for %s: %s", e, error=True
+            )
 
     async def query_ems_basic_details(self, ems_sn):
         """Acquire basic data for Energy Storage Systems (ESS)."""
@@ -1917,17 +1958,25 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                     cached["info_metrics"] = base_info
                 else:
                     cached.pop("info_metrics", None)
+                self._log_fetch_recovered(_FETCH_DEVICE_INFO, sn)
             else:
-                _LOGGER.warning(
+                self._log_fetch_failure(
+                    _FETCH_DEVICE_INFO,
+                    sn,
                     "HYXI INFO API Rejected for %s: %s",
-                    _mask_id(sn),
                     _sanitize_dict(res_i),
                 )
 
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.exception("Error fetching device info for %s: %s", _mask_id(sn), e)
+            self._log_fetch_failure(
+                _FETCH_DEVICE_INFO,
+                sn,
+                "Error fetching device info for %s: %s",
+                e,
+                error=True,
+            )
 
     async def _fetch_all_for_device(self, sn, entry, dev_type, fetch_info=True):
         """Fetch device info and telemetry concurrently, merging the results.
@@ -2109,9 +2158,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             )
 
             if not res_a.get("success"):
-                _LOGGER.error(
+                self._log_fetch_failure(
+                    _FETCH_ALARMS,
+                    plant_id,
                     "HYXI API Alarm Fetch Rejected for Plant %s: %s",
-                    _mask_id(plant_id),
                     _sanitize_dict(res_a),
                 )
                 return []
@@ -2125,12 +2175,17 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 if alarm_name := ALARM_CODE_MAP.get(code):
                     a["alarmName"] = alarm_name
 
+            self._log_fetch_recovered(_FETCH_ALARMS, plant_id)
             return alarms
         except TokenRejectedError:  # pylint: disable=try-except-raise  # pylint: disable=try-except-raise
             raise
         except Exception as e:
-            _LOGGER.exception(
-                "Error fetching alarms for plant %s: %s", _mask_id(plant_id), e
+            self._log_fetch_failure(
+                _FETCH_ALARMS,
+                plant_id,
+                "Error fetching alarms for plant %s: %s",
+                e,
+                error=True,
             )
             return []
 

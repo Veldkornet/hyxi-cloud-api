@@ -61,7 +61,7 @@ async def test_fetch_sub_devices_coverage(caplog):
 @pytest.mark.asyncio
 async def test_fetch_alarms_for_plant_coverage(caplog):
     """Test _fetch_alarms_for_plant rejection and alarm name mapping."""
-    caplog.set_level(logging.ERROR)
+    caplog.set_level(logging.WARNING)
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
 
