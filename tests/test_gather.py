@@ -45,8 +45,10 @@ async def test_a_failure_cancels_the_others_before_propagating(caplog):
         await stalled.wait()
         raise KeyError("first")
 
+    gathering = _gather(stall(), fail_on_cancel(), fail())
+
     with pytest.raises(KeyError, match="first"):
-        await _gather(stall(), fail_on_cancel(), fail())
+        await gathering
 
     assert cancelled == ["stall"]
     assert "teardown failed" in caplog.text
