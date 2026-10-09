@@ -619,6 +619,20 @@ _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
 _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
 
 
+def _mark_exception_retrieved(task: asyncio.Task) -> None:
+    """Retrieve a finished token refresh's exception.
+
+    Stops asyncio reporting a token error as never retrieved when every
+    caller waiting on the refresh was cancelled. Anything other than a token
+    error is a bug, so it is logged here rather than dropped.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None and not isinstance(exc, (HyxiAuthError, TokenRequestError)):
+        _LOGGER.error("HYXI token refresh failed unexpectedly", exc_info=exc)
+
+
 def _parse_data_list(data_list: list) -> dict:
     """Extract dataKey and dataValue into a cleaner dictionary."""
     return {
@@ -1435,6 +1449,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         self.session = session
         self.token: str | None = None
         self.token_expires_at: float = 0.0
+        self._token_refresh: asyncio.Task | None = None
 
         # Structural & Metadata Cache
         self._discovery_cache: dict[str, Any] = {
@@ -1499,6 +1514,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         headers = self._generate_headers(
             path, method.upper(), is_token_request=is_token_request
         )
+        signed_token = headers.get("Authorization")
 
         kwargs.setdefault("timeout", 15)
 
@@ -1540,8 +1556,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                         "HYXI Server rejected our token (%s). Forcing immediate token refresh...",
                         api_code,
                     )
-                    self.token = None
-                    self.token_expires_at = 0
+                    # Keep a token another caller refreshed meanwhile.
+                    if self.token == signed_token:
+                        self.token = None
+                        self.token_expires_at = 0
                     raise TokenRejectedError("Server rejected token")
 
             return status, res
@@ -1621,9 +1639,24 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             HyxiAuthError: the access/secret key was rejected.
             TokenRequestError: no token could be obtained for any other reason.
         """
-        if self.token and time.time() < self.token_expires_at:
+        if self._has_valid_token():
             return
+        # Concurrent callers share one in-flight request and its outcome.
+        # asyncio.wait leaves the shared task running if this caller is
+        # cancelled, so one cancellation does not cancel it for all.
+        if self._token_refresh is None or self._token_refresh.done():
+            self._token_refresh = asyncio.create_task(self._request_token())
+            self._token_refresh.add_done_callback(_mark_exception_retrieved)
+        refresh = self._token_refresh
+        await asyncio.wait([refresh])
+        refresh.result()
 
+    def _has_valid_token(self) -> bool:
+        return bool(self.token) and time.time() < self.token_expires_at
+
+    async def _request_token(self) -> None:
+        """Fetch a token and store it on the client; ensure_token documents
+        the errors raised."""
         path = "/api/authorization/v1/token"
 
         try:
