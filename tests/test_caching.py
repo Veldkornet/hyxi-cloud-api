@@ -1,5 +1,6 @@
 """Tests for the HYXI Cloud discovery caching mechanism."""
 
+import asyncio
 import logging
 import time
 from unittest.mock import AsyncMock, patch
@@ -709,3 +710,41 @@ async def test_token_rejected_twice_fails_the_operation():
     with pytest.raises(TokenRejectedError):
         await client.discover_devices()
     assert client._fetch_plants.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_token_retry_cancels_the_failed_attempts_requests():
+    """When one request of a discovery rejects the token, the attempt's other
+    requests are cancelled before the retry, so none of them can update the
+    inventory after the retried discovery has committed it."""
+    client = _discovery_client({"P1": [_inverter("S1")], "P2": [_inverter("S2")]})
+    answer = client._request.side_effect
+    attempt = 0
+    stalled = asyncio.Event()
+    cancelled = []
+
+    async def fake_request(method, path, **kwargs):
+        nonlocal attempt
+        if kwargs.get("is_token_request"):
+            return 200, {"success": True, "data": {"token": "new", "expiresIn": 7200}}
+        if path == "/api/plant/v1/page":
+            attempt += 1
+        if path == "/api/plant/v1/devicePage" and attempt == 1:
+            if kwargs["json"]["plantId"] == "P1":
+                try:
+                    stalled.set()
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    cancelled.append("P1")
+                    raise
+            await stalled.wait()
+            client.token = None
+            raise TokenRejectedError("Server rejected token")
+        return await answer(method, path, **kwargs)
+
+    client._request = AsyncMock(side_effect=fake_request)
+
+    result = await client.discover_devices()
+
+    assert set(result.devices) == {"S1", "S2"}
+    assert cancelled == ["P1"]

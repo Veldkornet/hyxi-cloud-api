@@ -702,6 +702,26 @@ def _page_items(data: Any, list_key: str, page: int) -> list | None:
 _DEVICE_INFO_CACHE_KEYS = ("detailed_model", "info_sw_version", "info_hw_version")
 
 
+async def _gather(*aws: Awaitable[Any]) -> list[Any]:
+    """Like asyncio.gather, but when one awaitable raises, the others are
+    cancelled and awaited before the exception propagates, so no work from a
+    failed operation outlives it. Unlike asyncio.TaskGroup, the exception
+    propagates as itself rather than inside an ExceptionGroup, so callers
+    can still catch TokenRejectedError and aiohttp errors directly."""
+    tasks = [asyncio.ensure_future(aw) for aw in aws]
+    try:
+        return await asyncio.gather(*tasks)  # noqa: TID251
+    except Exception as err:
+        for task in tasks:
+            task.cancel()
+        for result in await asyncio.gather(*tasks, return_exceptions=True):  # noqa: TID251
+            if isinstance(result, Exception) and result is not err:
+                _LOGGER.debug(
+                    "HYXI request cancelled after %r also failed: %r", err, result
+                )
+        raise
+
+
 def _parse_data_list(data_list: list) -> dict:
     """Extract dataKey and dataValue into a cleaner dictionary."""
     return {
@@ -2039,7 +2059,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             fetches.append(self._fetch_device_info(sn, entry))
         if dev_type not in _COMM_UNIT_DEVICE_TYPES:
             fetches.append(self._fetch_device_metrics(sn, entry))
-        await asyncio.gather(*fetches)
+        await _gather(*fetches)
 
         return sn, entry
 
@@ -2141,7 +2161,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 sub_device_tasks.append(self._fetch_sub_devices(sn, state))
 
         if sub_device_tasks:
-            await asyncio.gather(*sub_device_tasks)
+            await _gather(*sub_device_tasks)
 
     async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict] | None:
         """Fetch the list of sub-devices from the API, or None if the request
@@ -2368,7 +2388,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         if not alarm_fetch_tasks:
             return []
 
-        alarm_results = await asyncio.gather(*alarm_fetch_tasks)
+        alarm_results = await _gather(*alarm_fetch_tasks)
         return await self._process_alarms_and_back_discovery(
             alarm_results,
             state,
@@ -2379,7 +2399,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
     async def _execute_device_tasks(device_fetch_tasks):
         """Helper to conditionally execute device tasks concurrently."""
         if device_fetch_tasks:
-            await asyncio.gather(*device_fetch_tasks)
+            await _gather(*device_fetch_tasks)
 
     async def _execute_metric_tasks(self, plant_alarms, state: FetchState):
         """Helper to conditionally execute metrics and map alarms."""
@@ -2440,7 +2460,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         if sub_device_tasks:
             tasks = [self._fetch_sub_devices(sn, s) for sn, s in sub_device_tasks]
-            await asyncio.gather(*tasks)
+            await _gather(*tasks)
 
         return plant_alarms
 
@@ -2462,7 +2482,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         ]
 
         if tasks:
-            updated_entries = await asyncio.gather(*tasks)
+            updated_entries = await _gather(*tasks)
             for sn, entry in updated_entries:
                 if sn:
                     # Map the relevant active alarms to this specific device
@@ -2565,7 +2585,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         device_fetch_tasks, alarm_fetch_tasks = self._build_plant_tasks(
             state, include_alarms=allow_back_discovery
         )
-        await asyncio.gather(
+        await _gather(
             HyxiApiClient._execute_device_tasks(device_fetch_tasks),
             self._fetch_and_process_alarms(
                 alarm_fetch_tasks, state, allow_back_discovery=allow_back_discovery
@@ -2573,7 +2593,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         )
         # device_info is updated in place: push processing reads device types
         # from it meanwhile.
-        await asyncio.gather(
+        await _gather(
             *(self._fetch_device_info(sn, entry) for sn, entry, _ in state.metric_tasks)
         )
         self._commit_discovery(state)

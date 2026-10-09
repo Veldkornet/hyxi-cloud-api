@@ -89,7 +89,7 @@ async def test_execute_metrics_and_map_alarms_alarm_without_device_sn():
 @pytest.mark.asyncio
 async def test_execute_metrics_and_map_alarms_no_metric_tasks():
     """With no metric tasks (e.g. a plant that only reported alarms), the
-    method must not call asyncio.gather on an empty list and should simply
+    method must not gather an empty list and should simply
     leave state.results empty."""
     plant_alarms = [{"deviceSn": "SN1", "alarmId": "A1"}]
     state = FetchState(now="2023-10-27")
