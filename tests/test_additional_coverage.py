@@ -99,23 +99,6 @@ async def test_fetch_alarms_for_plant_coverage(caplog):
 
 
 @pytest.mark.asyncio
-async def test_execute_fetch_all_errors():
-    """Test _execute_fetch_all authentication fail paths (lines 1530, 1532)."""
-    mock_session = MagicMock()
-    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
-
-    # 1. auth_failed path (line 1530)
-    api._refresh_token = AsyncMock(return_value="auth_failed")
-    res = await api._execute_fetch_all()
-    assert res == "auth_failed"
-
-    # 2. False token status path (line 1532)
-    api._refresh_token = AsyncMock(return_value=False)
-    res = await api._execute_fetch_all()
-    assert res is None
-
-
-@pytest.mark.asyncio
 async def test_execute_fetch_full_discovery_error():
     """Test _execute_fetch_full_discovery returns None if fetch_plants fails (line 1588)."""
     mock_session = MagicMock()
@@ -125,23 +108,6 @@ async def test_execute_fetch_full_discovery_error():
     api._fetch_plants = AsyncMock(return_value=None)
     res = await api._execute_fetch_full_discovery(state, allow_back_discovery=False)
     assert res is None
-
-
-@pytest.mark.asyncio
-async def test_alter_alarm_token_errors():
-    """Test alter_alarm raises ControlError on token failure (line 1911)."""
-    mock_session = MagicMock()
-    api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
-
-    # 1. auth_failed
-    api._refresh_token = AsyncMock(return_value="auth_failed")
-    with pytest.raises(HyxiApiClient.ControlError, match="Authentication failed"):
-        await api.alter_alarm([123])
-
-    # 2. False status (line 1911)
-    api._refresh_token = AsyncMock(return_value=False)
-    with pytest.raises(HyxiApiClient.ControlError, match="Could not obtain API token"):
-        await api.alter_alarm([123])
 
 
 def test_compute_derived_metrics_classmethod():

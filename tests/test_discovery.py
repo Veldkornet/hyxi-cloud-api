@@ -28,7 +28,7 @@ from hyxi_cloud_api.api import FetchState, HyxiApiClient
 def _setup_mock_api():
     """Helper to set up a mock API client for discovery tests."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
     api._fetch_plants = AsyncMock(return_value=[{"plantId": "Pl123"}])
 
     mock_response = MagicMock()
@@ -105,7 +105,7 @@ async def test_sub_device_discovery_triggered_by_collector():
 async def test_back_discovery_finds_hidden_device():
     """Verify that a non-parent device found ONLY in alarms is discovered."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
     api._fetch_devices_for_plant = AsyncMock()
 
     alarm = {
@@ -132,7 +132,7 @@ async def test_back_discovery_finds_hidden_device():
 async def test_recursive_probe_of_hidden_collector():
     """Verify that a hidden Collector triggers a sub-device probe."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
     api._fetch_devices_for_plant = AsyncMock()
 
     alarm = {
@@ -299,7 +299,7 @@ async def test_fetch_sub_devices_exception():
 async def test_get_all_device_data_discovery_toggle():
     """Verify that get_all_device_data respects the allow_back_discovery toggle."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
     api._fetch_plants = AsyncMock(return_value=[{"plantId": "Pl123"}])
 
     # 1. Mock empty device list
@@ -323,7 +323,7 @@ async def test_get_all_device_data_discovery_toggle():
 async def test_back_discovery_sn_validation():
     """Verify that back-discovery rejects malformed or short serial numbers."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
     api._fetch_plants = AsyncMock(return_value=[{"plantId": "Pl123"}])
     api._fetch_devices_for_plant = AsyncMock()
 

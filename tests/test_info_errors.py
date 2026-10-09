@@ -129,7 +129,7 @@ async def test_fetch_device_info_invalid_data_type():
     """Test that _fetch_device_info handles unexpected data types in the response data gracefully."""
     mock_session = MagicMock()
     api = HyxiApiClient("ak", "sk", "https://api.com", mock_session)
-    api._refresh_token = AsyncMock(return_value=True)
+    api.ensure_token = AsyncMock()
 
     mock_response = MagicMock()
     yielded_response = mock_response.__aenter__.return_value

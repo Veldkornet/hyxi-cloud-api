@@ -221,3 +221,27 @@ def test_calculate_token_expiration_prioritizes_expiresIn(mock_time, api_client)
 
     expires_at = api_client._calculate_token_expiration(data)
     assert expires_at == 1003300.0
+
+
+@patch("time.time")
+@pytest.mark.parametrize("expires_in", ["soon", "inf", "nan", "1e400", -5, 10**12])
+def test_apply_token_response_unusable_expiration(
+    mock_time, api_client, caplog, expires_in
+):
+    """A non-numeric, non-finite, negative or absurd expiration falls back to
+    the default 6600 seconds, with a warning, instead of crashing."""
+    mock_time.return_value = 1000000.0
+
+    assert api_client._apply_token_response({"token": "xyz", "expiresIn": expires_in})
+    assert api_client.token_expires_at == 1006300.0
+    assert "is not a usable lifetime" in caplog.text
+
+
+@patch("time.time")
+def test_apply_token_response_short_lifetime_refreshes_halfway(mock_time, api_client):
+    """A valid lifetime shorter than the refresh buffer is kept, refreshing
+    halfway through rather than immediately or far too late."""
+    mock_time.return_value = 1000000.0
+
+    assert api_client._apply_token_response({"token": "xyz", "expiresIn": 100})
+    assert api_client.token_expires_at == 1000050.0
