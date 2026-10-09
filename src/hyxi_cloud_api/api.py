@@ -619,6 +619,20 @@ _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
 _EMPTY_STR_HASH = hashlib.sha512(b"").hexdigest()
 
 
+def _mark_exception_retrieved(task: asyncio.Task) -> None:
+    """Retrieve a finished token refresh's exception.
+
+    Stops asyncio reporting a token error as never retrieved when every
+    caller waiting on the refresh was cancelled. Anything other than a token
+    error is a bug, so it is logged here rather than dropped.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None and not isinstance(exc, (HyxiAuthError, TokenRequestError)):
+        _LOGGER.error("HYXI token refresh failed unexpectedly", exc_info=exc)
+
+
 def _parse_data_list(data_list: list) -> dict:
     """Extract dataKey and dataValue into a cleaner dictionary."""
     return {
@@ -1627,11 +1641,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         """
         if self._has_valid_token():
             return
-        # Concurrent callers share one in-flight request and its outcome;
-        # shielded so one caller being cancelled does not cancel it for all.
+        # Concurrent callers share one in-flight request and its outcome.
+        # asyncio.wait leaves the shared task running if this caller is
+        # cancelled, so one cancellation does not cancel it for all.
         if self._token_refresh is None or self._token_refresh.done():
             self._token_refresh = asyncio.create_task(self._request_token())
-        await asyncio.shield(self._token_refresh)
+            self._token_refresh.add_done_callback(_mark_exception_retrieved)
+        refresh = self._token_refresh
+        await asyncio.wait([refresh])
+        refresh.result()
 
     def _has_valid_token(self) -> bool:
         return bool(self.token) and time.time() < self.token_expires_at

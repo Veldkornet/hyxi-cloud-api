@@ -20,6 +20,7 @@ mock_aiohttp = sys.modules["aiohttp"]
 """Tests for exception handling in ensure_token."""
 
 import asyncio
+import gc
 import logging
 import time
 from unittest.mock import AsyncMock
@@ -299,3 +300,82 @@ async def test_token_rejection_clears_only_the_token_it_was_signed_with(
         await api._request("GET", "/x")
 
     assert api.token == refreshed_token
+
+
+@pytest.mark.asyncio
+async def test_failed_refresh_with_cancelled_waiter_is_not_reported_unretrieved():
+    """If the only caller waiting on a refresh is cancelled and the refresh
+    then fails, asyncio does not report a never-retrieved task exception."""
+    loop = asyncio.get_running_loop()
+    reported = []
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: reported.append(context))
+    try:
+        api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+        api._request = AsyncMock(side_effect=_slow((401, {})))
+
+        waiter = asyncio.create_task(api.ensure_token())
+        await asyncio.sleep(0)
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        refresh = api._token_refresh
+        await asyncio.wait([refresh])
+
+        api._token_refresh = refresh = None
+        gc.collect()
+        assert not reported
+    finally:
+        loop.set_exception_handler(previous_handler)
+
+
+@pytest.mark.asyncio
+async def test_cancelling_one_caller_does_not_cancel_the_shared_refresh():
+    """A caller cancelled while waiting leaves the refresh running for the
+    other callers sharing it."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(side_effect=_slow(_TOKEN_OK))
+
+    cancelled = asyncio.create_task(api.ensure_token())
+    other = asyncio.create_task(api.ensure_token())
+    await asyncio.sleep(0)
+    cancelled.cancel()
+    await other
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+
+    assert api.token == "Bearer abc"
+    assert api._request.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_unexpected_refresh_error_is_logged(caplog):
+    """A refresh failing with something other than a token error is a bug,
+    and is logged even if no caller was left to see it."""
+    caplog.set_level(logging.ERROR, logger="hyxi_cloud_api.api")
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request_token = AsyncMock(side_effect=KeyError("token"))
+
+    with pytest.raises(KeyError):
+        await api.ensure_token()
+    await asyncio.sleep(0)
+
+    assert "HYXI token refresh failed unexpectedly" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_cancelled_refresh_is_not_logged_as_unexpected(caplog):
+    """A refresh cancelled outright (e.g. at shutdown) is not logged as an
+    unexpected failure."""
+    caplog.set_level(logging.ERROR, logger="hyxi_cloud_api.api")
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._request = AsyncMock(side_effect=_slow(_TOKEN_OK))
+
+    waiter = asyncio.create_task(api.ensure_token())
+    await asyncio.sleep(0)
+    api._token_refresh.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    await asyncio.sleep(0)
+
+    assert "failed unexpectedly" not in caplog.text
