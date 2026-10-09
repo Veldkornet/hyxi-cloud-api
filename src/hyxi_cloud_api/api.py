@@ -2512,6 +2512,13 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         for sn in device_info.keys() - state.discovered_sns:
             del device_info[sn]
+        # Forget failures for devices and plants that are no longer listed.
+        listed = state.discovered_sns | {p.get("plantId") for p in state.plants}
+        self._failing_fetches = {
+            key: cause
+            for key, cause in self._failing_fetches.items()
+            if key[1] in listed
+        }
         self._discovery_cache_expires_at = time.time() + self._discovery_cache_ttl
         self._incomplete_discovery_retry = INCOMPLETE_DISCOVERY_RETRY
         return state.results
