@@ -609,8 +609,7 @@ async def test_execute_fetch_all_force_discovery():
 
     # Mock cache state to be valid
     api._discovery_cache["plants"] = [{"plantId": "plant_1"}]
-    api._discovery_cache_time = time.time()
-    api._discovery_cache_ttl = 3600
+    api._discovery_cache_expires_at = time.time() + 3600
 
     # Mock internal methods
     api._execute_fetch_cached = AsyncMock(return_value="cached_result")
@@ -647,8 +646,7 @@ async def test_execute_fetch_all_force_discovery_integration():
 
     # Mock cache state to be valid to test bypass
     api._discovery_cache["plants"] = [{"plantId": "plant_1"}]
-    api._discovery_cache_time = time.time()
-    api._discovery_cache_ttl = 3600
+    api._discovery_cache_expires_at = time.time() + 3600
 
     # Mock the HTTP layer to return valid JSON responses for a full discovery flow
     plant_resp = {"success": True, "data": {"list": [{"plantId": "plant_1"}]}}

@@ -34,7 +34,7 @@ async def test_fetch_sub_device_list_success():
 
 @pytest.mark.asyncio
 async def test_fetch_sub_device_list_failure(caplog):
-    """Verify that the method returns an empty list and logs an error on failure."""
+    """A rejected request returns None (not []) and logs an error."""
     caplog.set_level(logging.ERROR)
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._request = AsyncMock(
@@ -45,7 +45,7 @@ async def test_fetch_sub_device_list_failure(caplog):
     )
 
     result = await api._fetch_sub_device_list("parent123")
-    assert result == []
+    assert result is None
     api._request.assert_awaited_once_with(
         "POST",
         "/api/device/v1/getSubDevicePage",
@@ -96,21 +96,21 @@ async def test_fetch_sub_device_list_missing_child_device():
 
 @pytest.mark.asyncio
 async def test_fetch_sub_device_list_client_error(caplog):
-    """Verify that ClientError is caught, logged, and returns an empty list."""
+    """Verify that ClientError is caught, logged, and returns None."""
     caplog.set_level(logging.ERROR)
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._request = AsyncMock(side_effect=aiohttp.ClientError("Connection refused"))
 
     result = await api._fetch_sub_device_list("parent123")
 
-    assert result == []
+    assert result is None
     assert "Error fetching sub-device list for" in caplog.text
     assert "Connection refused" in caplog.text
 
 
 @pytest.mark.asyncio
 async def test_fetch_sub_device_list_processing_error(caplog):
-    """Verify that a general Exception during processing is caught, logged, and returns an empty list."""
+    """Verify that a general Exception during processing is caught, logged, and returns None."""
     caplog.set_level(logging.ERROR)
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     # Mocking the request to return something that causes an exception (like a list instead of dict)
@@ -121,7 +121,7 @@ async def test_fetch_sub_device_list_processing_error(caplog):
 
     result = await api._fetch_sub_device_list("parent123")
 
-    assert result == []
+    assert result is None
     assert "Error fetching sub-device list for" in caplog.text
     assert "no attribute 'get'" in caplog.text
     assert any(record.levelname == "ERROR" for record in caplog.records)
