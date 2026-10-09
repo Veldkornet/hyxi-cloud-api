@@ -219,9 +219,9 @@ def _paths(client):
 
 @pytest.mark.asyncio
 async def test_failed_device_list_falls_back_to_known_devices(monkeypatch):
-    """When the device list times out, the retry polls the devices an earlier
-    discovery found instead of returning nothing, and full discovery is
-    retried before the normal TTL."""
+    """When the device list times out, the same attempt polls the devices an
+    earlier discovery found instead of returning nothing, and full discovery
+    is retried before the normal TTL."""
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     client = _discovery_client({"P1": TimeoutError()})
     client._discovery_cache["device_info"] = {"S1": _known()}
@@ -229,6 +229,7 @@ async def test_failed_device_list_falls_back_to_known_devices(monkeypatch):
     result = await client.get_all_device_data()
 
     assert set(result["data"]) == {"S1"}
+    assert result["attempts"] == 1
     assert _paths(client).count("/api/plant/v1/page") == 1
     assert 0 < _seconds_until_rediscovery(client) <= INCOMPLETE_DISCOVERY_RETRY
 
@@ -267,13 +268,15 @@ async def test_failed_device_list_with_nothing_known_runs_discovery_once(
 )
 async def test_incomplete_discovery_keeps_known_devices(device_lists, sub_device_lists):
     """A device or sub-device list that fails or is rejected keeps devices
-    known from earlier discoveries, and schedules an early rediscovery."""
+    known from earlier discoveries -- still polled and returned this cycle --
+    and schedules an early rediscovery."""
     client = _discovery_client(device_lists, sub_device_lists)
     client._discovery_cache["device_info"] = {"OLD": _known()}
 
     result = await client.get_all_device_data()
 
-    assert "S1" in result["data"]
+    assert set(result["data"]) == {"S1", "OLD"}
+    assert _paths(client).count("/api/device/v2/queryDeviceData") == 2
     assert set(client._discovery_cache["device_info"]) == {"S1", "OLD"}
     assert 0 < _seconds_until_rediscovery(client) <= INCOMPLETE_DISCOVERY_RETRY
 

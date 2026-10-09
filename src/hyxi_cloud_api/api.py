@@ -2232,6 +2232,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             ),
         )
 
+        if state.discovery_incomplete:
+            # Keep polling known devices whose list could not be fetched,
+            # so an incomplete discovery still returns them this cycle.
+            self._queue_cached_devices(state)
+
         # 3. Concurrent Metrics
         await self._execute_metric_tasks(plant_alarms, state)
 
@@ -2348,20 +2353,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         _LOGGER.debug("HYXI using cached discovery data (Fast Polling)")
         state.plants = self._discovery_cache.get("plants") or []
         # Reconstruct entries from the devices known to the discovery cache
-        info_cache = self._discovery_cache.get("device_info")
-        if isinstance(info_cache, dict):
-            for sn, info in info_cache.items():
-                entry = {
-                    "sn": sn,
-                    "device_name": info.get("device_name", f"{info['model']} {sn}"),
-                    "model": info["model"],
-                    "device_type_code": info["device_type_code"],
-                    "sw_version": info.get("_sw_ver_sys"),
-                    "hw_version": info.get("hw_version"),
-                    "metrics": {"last_seen": state.now},
-                }
-                state.metric_tasks.append((sn, entry, info["device_type_code"]))
-            state.discovered_sns = set(info_cache.keys())
+        self._queue_cached_devices(state)
 
         # Fetch alarms (to allow back-discovery if enabled) and metrics
         _, alarm_fetch_tasks = self._build_plant_tasks(state, include_devices=False)
@@ -2392,16 +2384,17 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         device_info = self._discovery_cache["device_info"]
         if state.discovery_incomplete:
-            # Keep polling the devices known so far, and retry full discovery
-            # before the normal TTL, backing off while it stays incomplete.
+            # Retry full discovery before the normal TTL, backing off while
+            # it stays incomplete.
             retry_in = self._incomplete_discovery_retry
             self._discovery_cache_expires_at = time.time() + retry_in
             self._incomplete_discovery_retry = min(
                 retry_in * 2, self._discovery_cache_ttl
             )
             _LOGGER.warning(
-                "HYXI device discovery incomplete (%d devices found); "
-                "retrying full discovery in %ds",
+                "HYXI device discovery incomplete: some device lists could not "
+                "be fetched, so %d devices were polled including previously "
+                "known ones; retrying full discovery in %ds",
                 len(state.results),
                 retry_in,
             )
@@ -2412,6 +2405,26 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         self._discovery_cache_expires_at = time.time() + self._discovery_cache_ttl
         self._incomplete_discovery_retry = INCOMPLETE_DISCOVERY_RETRY
         return state.results
+
+    def _queue_cached_devices(self, state: FetchState) -> None:
+        """Queue metric tasks for the devices in the discovery cache that are
+        not already queued, building each entry from its cache record."""
+        info_cache = self._discovery_cache.get("device_info")
+        if not isinstance(info_cache, dict):
+            return
+        for sn in info_cache.keys() - state.discovered_sns:
+            info = info_cache[sn]
+            entry = {
+                "sn": sn,
+                "device_name": info.get("device_name", f"{info['model']} {sn}"),
+                "model": info["model"],
+                "device_type_code": info["device_type_code"],
+                "sw_version": info.get("_sw_ver_sys"),
+                "hw_version": info.get("hw_version"),
+                "metrics": {"last_seen": state.now},
+            }
+            state.metric_tasks.append((sn, entry, info["device_type_code"]))
+            state.discovered_sns.add(sn)
 
     @staticmethod
     def _build_device_entry(sn, device_data, now):
