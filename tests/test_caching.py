@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from hyxi_cloud_api import HyxiApiClient
-from hyxi_cloud_api.api import FetchState
+from hyxi_cloud_api.api import INCOMPLETE_DISCOVERY_RETRY, FetchState
 
 
 @pytest.mark.asyncio
@@ -151,3 +151,179 @@ async def test_execute_fetch_cached_empty_cache():
         mock_build.assert_called_once()
         mock_alarms.assert_called_once()
         mock_exec.assert_called_once()
+
+
+def _discovery_client(device_lists, sub_device_lists=None):
+    """A client whose _request answers discovery calls by path.
+
+    device_lists maps plantId -> list of device dicts, an Exception to raise
+    for that plant's devicePage call, or "rejected" for a success:false
+    answer. sub_device_lists maps parentSn the same way (default: no
+    children). Both are read on every call, so tests can change them between
+    polls. Each devicePage call appends the device types cached at that
+    moment to client._request.device_types_seen.
+    """
+    client = HyxiApiClient("key", "secret", "http://api.com", AsyncMock())
+    client.token = "Bearer test"
+    client.token_expires_at = time.time() + 3600
+    sub_device_lists = sub_device_lists or {}
+    device_types_seen = []
+
+    def answer(value, key):
+        if isinstance(value, Exception):
+            raise value
+        if value == "rejected":
+            return 200, {"success": False, "code": "B000001", "msg": "denied"}
+        return 200, {"success": True, "data": {key: value}}
+
+    async def fake_request(method, path, **kwargs):
+        body = kwargs.get("json") or {}
+        if path == "/api/plant/v1/page":
+            plants = [{"plantId": pid} for pid in device_lists]
+            return 200, {"success": True, "data": {"list": plants}}
+        if path == "/api/plant/v1/devicePage":
+            device_types_seen.append(
+                {
+                    sn: info.get("device_type_code")
+                    for sn, info in client._discovery_cache["device_info"].items()
+                }
+            )
+            return answer(device_lists[body["plantId"]], "deviceList")
+        if path == "/api/device/v1/getSubDevicePage":
+            return answer(sub_device_lists.get(body["parentSn"], []), "childDevice")
+        if path == "/api/alarm/v1/plantAlarmPage":
+            return 200, {"success": True, "data": {"pageData": []}}
+        return 200, {"success": True, "data": {}}
+
+    client._request = AsyncMock(side_effect=fake_request)
+    client._request.device_types_seen = device_types_seen
+    return client
+
+
+def _inverter(sn):
+    return {"deviceSn": sn, "deviceType": "HYBRID_INVERTER"}
+
+
+def _known():
+    """A device_info entry as an earlier discovery would have left it."""
+    return {"model": "Hybrid Inverter", "device_type_code": "HYBRID_INVERTER"}
+
+
+def _seconds_until_rediscovery(client):
+    return client._discovery_cache_expires_at - time.time()
+
+
+def _paths(client):
+    return [c.args[1] for c in client._request.call_args_list]
+
+
+@pytest.mark.asyncio
+async def test_failed_device_list_falls_back_to_known_devices(monkeypatch):
+    """When the device list times out, the same attempt polls the devices an
+    earlier discovery found instead of returning nothing, and full discovery
+    is retried before the normal TTL."""
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    client = _discovery_client({"P1": TimeoutError()})
+    client._discovery_cache["device_info"] = {"S1": _known()}
+
+    result = await client.get_all_device_data()
+
+    assert set(result["data"]) == {"S1"}
+    assert result["attempts"] == 1
+    assert _paths(client).count("/api/plant/v1/page") == 1
+    assert 0 < _seconds_until_rediscovery(client) <= INCOMPLETE_DISCOVERY_RETRY
+
+
+@pytest.mark.asyncio
+async def test_failed_device_list_with_nothing_known_runs_discovery_once(
+    monkeypatch,
+):
+    """With no previously known devices, a failed device list runs full
+    discovery once per cycle, not once per retry attempt."""
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    client = _discovery_client({"P1": TimeoutError()})
+
+    result = await client.get_all_device_data()
+
+    assert result["data"] == {}
+    assert _paths(client).count("/api/plant/v1/page") == 1
+    assert 0 < _seconds_until_rediscovery(client) <= INCOMPLETE_DISCOVERY_RETRY
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "device_lists, sub_device_lists",
+    [
+        ({"P1": [_inverter("S1")], "P2": TimeoutError()}, None),
+        ({"P1": [_inverter("S1")], "P2": "rejected"}, None),
+        ({"P1": [_inverter("S1")]}, {"S1": TimeoutError()}),
+        ({"P1": [_inverter("S1")]}, {"S1": "rejected"}),
+    ],
+    ids=[
+        "device-list-timeout",
+        "device-list-rejected",
+        "sub-device-timeout",
+        "sub-device-rejected",
+    ],
+)
+async def test_incomplete_discovery_keeps_known_devices(device_lists, sub_device_lists):
+    """A device or sub-device list that fails or is rejected keeps devices
+    known from earlier discoveries -- still polled and returned this cycle --
+    and schedules an early rediscovery."""
+    client = _discovery_client(device_lists, sub_device_lists)
+    client._discovery_cache["device_info"] = {"OLD": _known()}
+
+    result = await client.get_all_device_data()
+
+    assert set(result["data"]) == {"S1", "OLD"}
+    assert _paths(client).count("/api/device/v2/queryDeviceData") == 2
+    assert set(client._discovery_cache["device_info"]) == {"S1", "OLD"}
+    assert 0 < _seconds_until_rediscovery(client) <= INCOMPLETE_DISCOVERY_RETRY
+
+
+@pytest.mark.asyncio
+async def test_incomplete_discovery_retry_backs_off_and_resets():
+    """While discovery stays incomplete the retry delay doubles up to the
+    cache TTL; a complete discovery restores the full TTL and the delay."""
+    device_lists = {"P1": [_inverter("S1")], "P2": "rejected"}
+    client = _discovery_client(device_lists)
+    ttl = client._discovery_cache_ttl
+
+    delays = []
+    for _ in range(6):
+        await client.get_all_device_data(force_discovery=True)
+        delays.append(round(_seconds_until_rediscovery(client), -1))
+
+    expected = [min(INCOMPLETE_DISCOVERY_RETRY * 2**i, ttl) for i in range(6)]
+    assert delays == expected
+
+    device_lists["P2"] = []
+    await client.get_all_device_data(force_discovery=True)
+
+    assert round(_seconds_until_rediscovery(client), -1) == ttl
+    assert client._incomplete_discovery_retry == INCOMPLETE_DISCOVERY_RETRY
+
+
+@pytest.mark.asyncio
+async def test_complete_discovery_prunes_unlisted_devices():
+    """A complete discovery commits the cache for the full TTL and drops
+    devices that are no longer listed."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    client._discovery_cache["device_info"] = {"GONE": _known()}
+
+    await client.get_all_device_data()
+
+    assert _seconds_until_rediscovery(client) > INCOMPLETE_DISCOVERY_RETRY
+    assert set(client._discovery_cache["device_info"]) == {"S1"}
+
+
+@pytest.mark.asyncio
+async def test_device_types_stay_available_while_discovery_runs():
+    """Full discovery keeps device_info populated while the device lists are
+    being fetched, so push processing can still resolve device types."""
+    client = _discovery_client({"P1": [_inverter("S1")]})
+    client._discovery_cache["device_info"] = {"S1": _known()}
+
+    await client.get_all_device_data()
+
+    assert client._request.device_types_seen == [{"S1": "HYBRID_INVERTER"}]

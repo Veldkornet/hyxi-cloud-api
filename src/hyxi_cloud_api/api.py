@@ -66,6 +66,9 @@ class FetchState:
     discovered_sns: set = field(default_factory=set)
     results: dict = field(default_factory=dict)
     plants: list = field(default_factory=list)
+    # Set when a device or sub-device list could not be fetched, so the
+    # discovered device set may be missing devices.
+    discovery_incomplete: bool = False
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -613,6 +616,9 @@ DEVICE_TYPE_MAP = {
 # Retry configuration
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number)
+# Initial delay before retrying full discovery after one that could not list
+# every device; doubles while discovery stays incomplete, up to the cache TTL.
+INCOMPLETE_DISCOVERY_RETRY = 300
 
 # Precomputed hashes for HMAC signature
 _GRANT_TYPE_HASH = hashlib.sha512(b"grantType:1").hexdigest()
@@ -1455,20 +1461,22 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         self._discovery_cache: dict[str, Any] = {
             "plants": None,  # list[dict] | None
             "device_info": {},  # SN -> dict (static data)
-            "hierarchy": {},  # SN -> list[dict] (sub-devices)
         }
-        self._discovery_cache_time: float = 0.0
+        self._discovery_cache_expires_at: float = 0.0
         self._discovery_cache_ttl = 3600  # 1 hour default
+        self._incomplete_discovery_retry = INCOMPLETE_DISCOVERY_RETRY
 
     def _update_discovery_cache(self, sn: str, entry: dict):
         """Update the discovery cache with basic entry structure."""
         info_cache = self._discovery_cache.get("device_info")
         if isinstance(info_cache, dict):
-            info_cache[sn] = {
-                "model": entry["model"],
-                "device_type_code": entry["device_type_code"],
-                "device_name": entry.get("device_name"),
-            }
+            info_cache.setdefault(sn, {}).update(
+                {
+                    "model": entry["model"],
+                    "device_type_code": entry["device_type_code"],
+                    "device_name": entry.get("device_name"),
+                }
+            )
 
     def _generate_headers(self, path, method, is_token_request=False):
         """Generates headers matching HYXI's official Java SDK implementation."""
@@ -1927,6 +1935,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         try:
             devices = await self._fetch_device_list_for_plant(plant_id)
             if devices is None:
+                state.discovery_incomplete = True
                 return
 
             await self._process_devices_for_plant(devices, state)
@@ -1934,6 +1943,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
+            state.discovery_incomplete = True
             _LOGGER.exception(
                 "Error fetching devices for plant %s: %s", _mask_id(plant_id), e
             )
@@ -1965,8 +1975,9 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         if sub_device_tasks:
             await asyncio.gather(*sub_device_tasks)
 
-    async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict]:
-        """Fetch the list of sub-devices from the API."""
+    async def _fetch_sub_device_list(self, parent_sn: str) -> list[dict] | None:
+        """Fetch the list of sub-devices from the API, or None if the request
+        was rejected or failed."""
         sd_path = "/api/device/v1/getSubDevicePage"
         _LOGGER.debug("HYXI fetching sub-device list for %s", _mask_id(parent_sn))
         try:
@@ -1982,7 +1993,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                     _mask_id(parent_sn),
                     _sanitize_dict(res_sd),
                 )
-                return []
+                return None
 
             data_val = res_sd.get("data", {})
             return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
@@ -1992,12 +2003,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             _LOGGER.exception(
                 "Error fetching sub-device list for %s: %s", _mask_id(parent_sn), e
             )
-            return []
+            return None
 
     async def _fetch_sub_devices(self, parent_sn, state: FetchState):
         """Fetch sub-devices under a communication unit (Collector/DMU)."""
         try:
             children = await self._fetch_sub_device_list(parent_sn)
+            if children is None:
+                state.discovery_incomplete = True
+                return
             if not children:
                 return
 
@@ -2025,6 +2039,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
+            state.discovery_incomplete = True
             _LOGGER.exception(
                 "Error fetching sub-devices for %s: %s", _mask_id(parent_sn), e
             )
@@ -2217,6 +2232,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             ),
         )
 
+        if state.discovery_incomplete:
+            # Keep polling known devices whose list could not be fetched,
+            # so an incomplete discovery still returns them this cycle.
+            self._queue_cached_devices(state)
+
         # 3. Concurrent Metrics
         await self._execute_metric_tasks(plant_alarms, state)
 
@@ -2308,21 +2328,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         now = datetime.now(UTC).isoformat()
         state = FetchState(now=now)
 
+        expires_in = self._discovery_cache_expires_at - time.time()
         use_cache = (
             not force_discovery
             and self._discovery_cache["plants"] is not None
-            and (time.time() - self._discovery_cache_time) < self._discovery_cache_ttl
-        )
-        cache_age = (
-            f"{time.time() - self._discovery_cache_time:.0f}s"
-            if self._discovery_cache_time
-            else "n/a"
+            and expires_in > 0
         )
         _LOGGER.debug(
-            "HYXI discovery cache %s (age=%s, ttl=%ds), using %s path",
+            "HYXI discovery cache %s (expires in %.0fs), using %s path",
             "valid" if use_cache else "expired/forced",
-            cache_age,
-            self._discovery_cache_ttl,
+            max(expires_in, 0),
             "cached" if use_cache else "full discovery",
         )
 
@@ -2337,21 +2352,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         """Execute the fetching logic using cached discovery data (Fast Polling)."""
         _LOGGER.debug("HYXI using cached discovery data (Fast Polling)")
         state.plants = self._discovery_cache.get("plants") or []
-        # Reconstruct entries from hierarchy or known SNS
-        info_cache = self._discovery_cache.get("device_info")
-        if isinstance(info_cache, dict):
-            for sn, info in info_cache.items():
-                entry = {
-                    "sn": sn,
-                    "device_name": info.get("device_name", f"{info['model']} {sn}"),
-                    "model": info["model"],
-                    "device_type_code": info["device_type_code"],
-                    "sw_version": info.get("_sw_ver_sys"),
-                    "hw_version": info.get("hw_version"),
-                    "metrics": {"last_seen": state.now},
-                }
-                state.metric_tasks.append((sn, entry, info["device_type_code"]))
-            state.discovered_sns = set(info_cache.keys())
+        # Reconstruct entries from the devices known to the discovery cache
+        self._queue_cached_devices(state)
 
         # Fetch alarms (to allow back-discovery if enabled) and metrics
         _, alarm_fetch_tasks = self._build_plant_tasks(state, include_devices=False)
@@ -2372,17 +2374,57 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             return None
         state.plants = plants
 
-        # Clear cache for fresh discovery
         self._discovery_cache["plants"] = plants
-        self._discovery_cache_time = time.time()
-        self._discovery_cache["device_info"].clear()
-        self._discovery_cache["hierarchy"].clear()
 
+        # device_info is updated in place, and only pruned after a complete
+        # discovery: push processing reads device types from it meanwhile.
         await self._process_plants_data(
             state, allow_back_discovery=allow_back_discovery
         )
 
+        device_info = self._discovery_cache["device_info"]
+        if state.discovery_incomplete:
+            # Retry full discovery before the normal TTL, backing off while
+            # it stays incomplete.
+            retry_in = self._incomplete_discovery_retry
+            self._discovery_cache_expires_at = time.time() + retry_in
+            self._incomplete_discovery_retry = min(
+                retry_in * 2, self._discovery_cache_ttl
+            )
+            _LOGGER.warning(
+                "HYXI device discovery incomplete: some device lists could not "
+                "be fetched, so %d devices were polled including previously "
+                "known ones; retrying full discovery in %ds",
+                len(state.results),
+                retry_in,
+            )
+            return state.results or None
+
+        for sn in device_info.keys() - state.discovered_sns:
+            del device_info[sn]
+        self._discovery_cache_expires_at = time.time() + self._discovery_cache_ttl
+        self._incomplete_discovery_retry = INCOMPLETE_DISCOVERY_RETRY
         return state.results
+
+    def _queue_cached_devices(self, state: FetchState) -> None:
+        """Queue metric tasks for the devices in the discovery cache that are
+        not already queued, building each entry from its cache record."""
+        info_cache = self._discovery_cache.get("device_info")
+        if not isinstance(info_cache, dict):
+            return
+        for sn in info_cache.keys() - state.discovered_sns:
+            info = info_cache[sn]
+            entry = {
+                "sn": sn,
+                "device_name": info.get("device_name", f"{info['model']} {sn}"),
+                "model": info["model"],
+                "device_type_code": info["device_type_code"],
+                "sw_version": info.get("_sw_ver_sys"),
+                "hw_version": info.get("hw_version"),
+                "metrics": {"last_seen": state.now},
+            }
+            state.metric_tasks.append((sn, entry, info["device_type_code"]))
+            state.discovered_sns.add(sn)
 
     @staticmethod
     def _build_device_entry(sn, device_data, now):

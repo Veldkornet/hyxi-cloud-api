@@ -26,3 +26,23 @@ def test_update_discovery_cache_corrupted_state_is_a_noop():
     api._update_discovery_cache("SN1", {"model": "H5K-HT"})
 
     assert api._discovery_cache["device_info"] is None
+
+
+def test_update_discovery_cache_keeps_enriched_fields():
+    """Re-discovering a device updates its basic fields without discarding
+    data learned from queryDeviceInfo (versions, battery info)."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api._discovery_cache["device_info"] = {
+        "SN1": {"model": "Old", "device_type_code": "X", "hw_version": "H1"}
+    }
+
+    api._update_discovery_cache(
+        "SN1", {"model": "H5K-HT", "device_type_code": "HYBRID_INVERTER"}
+    )
+
+    assert api._discovery_cache["device_info"]["SN1"] == {
+        "model": "H5K-HT",
+        "device_type_code": "HYBRID_INVERTER",
+        "device_name": None,
+        "hw_version": "H1",
+    }
