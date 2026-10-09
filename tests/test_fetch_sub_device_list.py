@@ -60,8 +60,8 @@ async def test_fetch_sub_device_list_failure(caplog):
 
 
 @pytest.mark.asyncio
-async def test_fetch_sub_device_list_data_not_dict():
-    """Verify that the method returns an empty list when data is not a dict."""
+async def test_fetch_sub_device_list_data_as_a_plain_list():
+    """A response whose data is a plain list is taken as the children."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api._request = AsyncMock(
         return_value=(
@@ -71,7 +71,7 @@ async def test_fetch_sub_device_list_data_not_dict():
     )
 
     result = await api._fetch_sub_device_list("parent123")
-    assert result == []
+    assert result == [{"deviceSn": "CHILD123"}]
     api._request.assert_awaited_once_with(
         "POST",
         "/api/device/v1/getSubDevicePage",

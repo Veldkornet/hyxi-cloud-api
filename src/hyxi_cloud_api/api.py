@@ -622,6 +622,9 @@ DEVICE_TYPE_MAP = {
     "16": "Micro ESS",
 }
 
+# Most pages followed for one list, in case a response's totalPage is wrong.
+_MAX_LIST_PAGES = 50
+
 # Retry configuration
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # Seconds to wait between retries (multiplied by attempt number)
@@ -655,6 +658,28 @@ def _is_static_device_info(device_type: str, info_metrics: dict) -> bool:
     return device_type not in _COMM_UNIT_DEVICE_TYPES and all(
         info_metrics.get(k) is None for k in _LIVE_DEVICE_INFO_KEYS
     )
+
+
+def _paging_failure(reason: str) -> dict:
+    """A failed response for a paged list the client could not read in full."""
+    return {"success": False, "msg": f"incomplete paged list: {reason}"}
+
+
+def _total_pages(data: dict) -> int:
+    """The page count a paged list response reports, or 1 if it has none."""
+    try:
+        return int(data.get("totalPage") or 1)
+    except TypeError, ValueError, OverflowError:
+        return 1
+
+
+def _page_items(data: Any, list_key: str, page: int) -> list | None:
+    """The list a page of a paged list response carries, or None if the page
+    has no readable list. A first page without the list key is empty."""
+    if not isinstance(data, dict):
+        return None
+    items = data.get(list_key, [] if page == 1 else None)
+    return items if isinstance(items, list) else None
 
 
 def _parse_data_list(data_list: list) -> dict:
@@ -1995,13 +2020,41 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         return sn, entry
 
+    async def _fetch_all_pages(
+        self, path: str, body: dict, list_key: str, page_size: int
+    ) -> tuple[dict, list]:
+        """POST a paged list request and follow its totalPage.
+
+        Returns the last response and the items from every page. On the first
+        page, data that is a plain list is taken as the whole list, and data
+        that is missing or has no list key as an empty one. A rejected page, a
+        page whose list is not a list, a later page without its list, or more
+        pages than _MAX_LIST_PAGES gives a failed response and no items, so a
+        partial list is never taken for the full one.
+        """
+        items: list = []
+        for page in range(1, _MAX_LIST_PAGES + 1):
+            _, res = await self._request(
+                "POST", path, json={**body, "pageSize": page_size, "currentPage": page}
+            )
+            if not res.get("success"):
+                return res, []
+            data: Any = res.get("data")
+            if page == 1 and not isinstance(data, dict):
+                return res, data if isinstance(data, list) else []
+            page_items = _page_items(data, list_key, page)
+            if page_items is None:
+                return _paging_failure(f"page {page} has no {list_key} list"), []
+            items.extend(page_items)
+            if page >= _total_pages(data):
+                return res, items
+        return _paging_failure(f"more than {_MAX_LIST_PAGES} pages"), []
+
     async def _fetch_device_list_for_plant(self, plant_id: str) -> list[dict] | None:
         """Fetch the raw device list from the API for a specific plant."""
         d_path = "/api/plant/v1/devicePage"
-        _, res_d = await self._request(
-            "POST",
-            d_path,
-            json={"plantId": plant_id, "pageSize": 50, "currentPage": 1},
+        res_d, devices = await self._fetch_all_pages(
+            d_path, {"plantId": plant_id}, "deviceList", 50
         )
 
         if not res_d.get("success"):
@@ -2011,14 +2064,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 _sanitize_dict(res_d),
             )
             return None
-
-        data_val = res_d.get("data", {})
-        if isinstance(data_val, list):
-            devices = data_val
-        elif isinstance(data_val, dict):
-            devices = data_val.get("deviceList", [])
-        else:
-            devices = []
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
@@ -2081,10 +2126,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         sd_path = "/api/device/v1/getSubDevicePage"
         _LOGGER.debug("HYXI fetching sub-device list for %s", _mask_id(parent_sn))
         try:
-            _, res_sd = await self._request(
-                "POST",
-                sd_path,
-                json={"parentSn": parent_sn, "pageSize": 50, "currentPage": 1},
+            res_sd, children = await self._fetch_all_pages(
+                sd_path, {"parentSn": parent_sn}, "childDevice", 50
             )
 
             if not res_sd.get("success"):
@@ -2095,8 +2138,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                 )
                 return None
 
-            data_val = res_sd.get("data", {})
-            return data_val.get("childDevice", []) if isinstance(data_val, dict) else []
+            return children
         except TokenRejectedError:  # pylint: disable=try-except-raise
             raise
         except Exception as e:
@@ -2151,10 +2193,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         a_path = "/api/alarm/v1/plantAlarmPage"
         _LOGGER.debug("HYXI fetching alarms for plant %s", _mask_id(plant_id))
         try:
-            _, res_a = await self._request(
-                "POST",
-                a_path,
-                json={"plantId": plant_id, "pageSize": 100, "currentPage": 1},
+            res_a, alarms = await self._fetch_all_pages(
+                a_path, {"plantId": plant_id}, "pageData", 100
             )
 
             if not res_a.get("success"):
@@ -2165,9 +2205,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
                     _sanitize_dict(res_a),
                 )
                 return []
-
-            data_val = res_a.get("data", {})
-            alarms = data_val.get("pageData", []) if isinstance(data_val, dict) else []
 
             # Enrichment: Map raw alarmCodes to official descriptions
             for a in alarms:
@@ -2254,16 +2291,11 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
     async def _fetch_plants(self):
         """Helper to fetch plants associated with the account."""
         p_path = "/api/plant/v1/page"
-        _, res_p = await self._request(
-            "POST", p_path, json={"pageSize": 10, "currentPage": 1}
-        )
+        res_p, plants = await self._fetch_all_pages(p_path, {}, "list", 10)
 
         if not res_p.get("success"):
             _LOGGER.error("HYXI API Plant Fetch Rejected: %s", _sanitize_dict(res_p))
             return None
-
-        data_p = res_p.get("data", {})
-        plants = data_p.get("list", []) if isinstance(data_p, dict) else []
 
         if not plants:
             _LOGGER.warning(
