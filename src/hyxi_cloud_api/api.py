@@ -27,9 +27,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 try:
-    from datetime import UTC, datetime
+    from datetime import UTC, datetime, timedelta
 except ImportError:  # pragma: no cover - unreachable given requires-python >=3.14
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     UTC = timezone.utc  # noqa
 
@@ -1151,24 +1151,102 @@ def _compute_derived_metrics(m_raw: dict, device_type: str = "") -> dict:
     return derived
 
 
+# A pushed reading time further than this from its arrival comes from a
+# clock in another time zone: HYXI has stamped readings eight hours behind
+# UTC, UTC's wall time read as China time (UTC+8).
+_PUSH_CLOCK_TOLERANCE = timedelta(minutes=30)
+_PUSH_MAX_CLOCK_OFFSET = timedelta(hours=14)
+
+
+def _correct_push_clock(reading: datetime, now_utc: datetime) -> datetime:
+    """Move a reading time that is a time zone's whole hours off from its
+    arrival back to UTC, and never place it after its arrival."""
+    offset = now_utc - reading
+    if _PUSH_CLOCK_TOLERANCE < abs(offset) <= _PUSH_MAX_CLOCK_OFFSET:
+        reading += timedelta(hours=offset // timedelta(hours=1))
+    return min(reading, now_utc)
+
+
+def _read_push_timestamp(device: dict[str, Any]) -> datetime | None:
+    """The reading time a push states in collectTime or reportTimestamp."""
+    for value, divisor in (
+        (device.get("collectTime"), 1.0),
+        (device.get("reportTimestamp"), 1000.0),
+    ):
+        if value is None:
+            continue
+        try:
+            return datetime.fromtimestamp(float(value) / divisor, UTC)
+        except ValueError, TypeError, OverflowError, OSError:
+            pass
+    return None
+
+
 def _resolve_push_timestamp(device: dict[str, Any], now_utc: datetime) -> datetime:
-    """Determine the last_seen timestamp from collectTime or reportTimestamp."""
-    collect_time = device.get("collectTime")
-    report_ts = device.get("reportTimestamp")
+    """Determine the last_seen timestamp from collectTime or reportTimestamp,
+    or the arrival time when neither is usable."""
+    reading = _read_push_timestamp(device)
+    return now_utc if reading is None else _correct_push_clock(reading, now_utc)
 
-    if collect_time is not None:
-        try:
-            return datetime.fromtimestamp(float(collect_time), UTC)
-        except ValueError, TypeError, OverflowError, OSError:
-            pass
 
-    if report_ts is not None:
-        try:
-            return datetime.fromtimestamp(float(report_ts) / 1000.0, UTC)
-        except ValueError, TypeError, OverflowError, OSError:
-            pass
+def _held_last_seen(
+    existing_metrics: dict[str, dict[str, Any]] | None, sn: str
+) -> datetime | None:
+    """The time of the reading already held for a device, if known."""
+    try:
+        held = datetime.fromisoformat((existing_metrics or {})[sn]["last_seen"])
+    except KeyError, TypeError, ValueError:
+        return None
+    return held if held.tzinfo else held.replace(tzinfo=UTC)
 
-    return now_utc
+
+def _newest_push_readings(
+    data_list: list, now_utc: datetime
+) -> dict[str, tuple[datetime, dict, bool]]:
+    """Flatten a push's readings and keep each device's newest, as its
+    reading time, flat reading and whether its grid power is already kW."""
+    newest: dict[str, tuple[datetime, dict, bool]] = {}
+
+    for device in data_list:
+        if not isinstance(device, dict):
+            continue
+
+        # A nested grid.powerW has already been converted to kW by
+        # _flatten_nested_push_device, regardless of device type.
+        # Mirror its own condition for running that conversion exactly
+        # (not just "a grid dict is present") -- a grid object without
+        # a usable powerW (e.g. only frequencyHz) wouldn't trigger it,
+        # leaving any gridP that slipped through unconverted and still
+        # needing the gridP fixup in _normalize_raw_metrics.
+        raw_grid = device.get("grid")
+        grid_power_converted = (
+            isinstance(raw_grid, dict)
+            and "powerW" in raw_grid
+            and raw_grid["powerW"] is not None
+        )
+        device = _flatten_nested_push_device(device)
+
+        sn = device.get("deviceSn")
+        if not sn:
+            continue
+
+        # A push can carry several readings of a device, out of order.
+        last_seen = _resolve_push_timestamp(device, now_utc)
+        best = newest.get(sn)
+        if best is None or last_seen > best[0]:
+            newest[sn] = (last_seen, device, grid_power_converted)
+
+    return newest
+
+
+def _drop_eps_phase_powers(device: dict[str, Any]) -> None:
+    """Remove ph1p..ph3p where they repeat ph1peps..ph3peps: in a flat push
+    they report the backup (EPS) port, not the inverter's AC phases that a
+    poll reports under the same keys."""
+    for i in range(1, 4):
+        key, eps_key = f"ph{i}p", f"ph{i}peps"
+        if eps_key in device and device.get(key) == device[eps_key]:
+            device.pop(key, None)
 
 
 def _extract_raw_push_metrics(device: dict[str, Any]) -> dict[str, Any]:
@@ -1219,6 +1297,8 @@ def _flatten_nested_push_device(device: dict) -> dict:
     _flatten_phases_section(device, flat)
     _flatten_grid_section(device, flat)
     _copy_remaining_root_keys(device, flat)
+    if not isinstance(device.get("phases"), dict):
+        _drop_eps_phase_powers(flat)
     return flat
 
 
@@ -3252,7 +3332,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         """Process real-time push data from HYXI Cloud.
 
         Parses the flat push payload, matches it to the discovery cache,
-        filters collector metrics, and computes derived metrics.
+        filters collector metrics, and computes derived metrics. Only the
+        newest reading of each device is used, and a device is left out when
+        that reading is not newer than the ``last_seen`` in
+        ``existing_metrics``.
 
         Returns a dictionary of:
         {
@@ -3274,29 +3357,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             return {}
 
         now_utc = datetime.now(UTC)
+        newest = _newest_push_readings(data_list, now_utc)
+
         results = {}
-
-        for device in data_list:
-            if not isinstance(device, dict):
-                continue
-
-            # A nested grid.powerW has already been converted to kW by
-            # _flatten_nested_push_device below, regardless of device type.
-            # Mirror its own condition for running that conversion exactly
-            # (not just "a grid dict is present") -- a grid object without
-            # a usable powerW (e.g. only frequencyHz) wouldn't trigger it,
-            # leaving any gridP that slipped through unconverted and still
-            # needing the gridP fixup in _normalize_raw_metrics below.
-            raw_grid = device.get("grid")
-            grid_power_converted = (
-                isinstance(raw_grid, dict)
-                and "powerW" in raw_grid
-                and raw_grid["powerW"] is not None
-            )
-            device = _flatten_nested_push_device(device)
-
-            sn = device.get("deviceSn")
-            if not sn:
+        for sn, (last_seen, device, grid_power_converted) in newest.items():
+            held_last_seen = _held_last_seen(existing_metrics, sn)
+            if held_last_seen is not None and last_seen <= held_last_seen:
+                _LOGGER.debug(
+                    "HYXI push: reading for %s is not newer than the held one",
+                    _mask_id(sn),
+                )
                 continue
 
             # Retrieve info from discovery cache
@@ -3311,7 +3381,6 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             _normalize_raw_metrics(device, device_type, skip_gridp=grid_power_converted)
 
             raw_metrics = _extract_raw_push_metrics(device)
-            last_seen = _resolve_push_timestamp(device, now_utc)
 
             merged_metrics = _merge_push_metrics(
                 sn, raw_metrics, device_type, existing_metrics
