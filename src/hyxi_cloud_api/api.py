@@ -1200,6 +1200,45 @@ def _held_last_seen(
     return held if held.tzinfo else held.replace(tzinfo=UTC)
 
 
+def _newest_push_readings(
+    data_list: list, now_utc: datetime
+) -> dict[str, tuple[datetime, dict, bool]]:
+    """Flatten a push's readings and keep each device's newest, as its
+    reading time, flat reading and whether its grid power is already kW."""
+    newest: dict[str, tuple[datetime, dict, bool]] = {}
+
+    for device in data_list:
+        if not isinstance(device, dict):
+            continue
+
+        # A nested grid.powerW has already been converted to kW by
+        # _flatten_nested_push_device, regardless of device type.
+        # Mirror its own condition for running that conversion exactly
+        # (not just "a grid dict is present") -- a grid object without
+        # a usable powerW (e.g. only frequencyHz) wouldn't trigger it,
+        # leaving any gridP that slipped through unconverted and still
+        # needing the gridP fixup in _normalize_raw_metrics.
+        raw_grid = device.get("grid")
+        grid_power_converted = (
+            isinstance(raw_grid, dict)
+            and "powerW" in raw_grid
+            and raw_grid["powerW"] is not None
+        )
+        device = _flatten_nested_push_device(device)
+
+        sn = device.get("deviceSn")
+        if not sn:
+            continue
+
+        # A push can carry several readings of a device, out of order.
+        last_seen = _resolve_push_timestamp(device, now_utc)
+        best = newest.get(sn)
+        if best is None or last_seen > best[0]:
+            newest[sn] = (last_seen, device, grid_power_converted)
+
+    return newest
+
+
 def _drop_eps_phase_powers(device: dict[str, Any]) -> None:
     """Remove ph1p..ph3p where they repeat ph1peps..ph3peps: in a flat push
     they report the backup (EPS) port, not the inverter's AC phases that a
@@ -3318,36 +3357,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             return {}
 
         now_utc = datetime.now(UTC)
-        newest: dict[str, tuple[datetime, dict, bool]] = {}
-
-        for device in data_list:
-            if not isinstance(device, dict):
-                continue
-
-            # A nested grid.powerW has already been converted to kW by
-            # _flatten_nested_push_device below, regardless of device type.
-            # Mirror its own condition for running that conversion exactly
-            # (not just "a grid dict is present") -- a grid object without
-            # a usable powerW (e.g. only frequencyHz) wouldn't trigger it,
-            # leaving any gridP that slipped through unconverted and still
-            # needing the gridP fixup in _normalize_raw_metrics below.
-            raw_grid = device.get("grid")
-            grid_power_converted = (
-                isinstance(raw_grid, dict)
-                and "powerW" in raw_grid
-                and raw_grid["powerW"] is not None
-            )
-            device = _flatten_nested_push_device(device)
-
-            sn = device.get("deviceSn")
-            if not sn:
-                continue
-
-            # A push can carry several readings of a device, out of order.
-            last_seen = _resolve_push_timestamp(device, now_utc)
-            best = newest.get(sn)
-            if best is None or last_seen > best[0]:
-                newest[sn] = (last_seen, device, grid_power_converted)
+        newest = _newest_push_readings(data_list, now_utc)
 
         results = {}
         for sn, (last_seen, device, grid_power_converted) in newest.items():
