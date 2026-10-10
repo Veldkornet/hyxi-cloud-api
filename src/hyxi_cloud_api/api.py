@@ -22,6 +22,7 @@ import time
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from enum import IntEnum
 from typing import Any
 from urllib.parse import urlparse
 
@@ -71,6 +72,35 @@ class DiscoveryResult:
 
     devices: dict[str, dict[str, Any]]
     complete: bool
+
+
+class SubscriptionType(IntEnum):
+    """The kinds of push subscription HYXI reports in subscribeType."""
+
+    DEVICE_INFO = 1
+    REAL_TIME_DATA = 2
+    ALARM = 3
+    INSTRUCTION_RESULT = 4
+    FM_DATA = 5
+
+
+@dataclass(frozen=True)
+class Subscription:
+    """A push subscription HYXI holds for the client's credentials.
+
+    subscribe_type is a SubscriptionType member for the types listed there
+    (it compares equal to the plain int), the plain int for a type HYXI has
+    added since, or None if HYXI's value is not an integer.
+    create_time is HYXI's timestamp text as given, without a timezone.
+    devices lists the associated device serial numbers; HYXI reports none
+    for some subscriptions, such as alarm subscriptions.
+    """
+
+    subscribe_code: str
+    subscribe_type: int | None
+    callback_url: str
+    create_time: str
+    devices: tuple[str, ...]
 
 
 @dataclass
@@ -731,6 +761,44 @@ def _control_skipped(res: dict) -> bool:
         and str(entry.get("traceId", "")).strip().upper() == "SKIPPED"
         for entry in data
     )
+
+
+def _text(value: Any) -> str | None:
+    """value stripped of surrounding spaces, or None if it is not a
+    non-blank string."""
+    return value.strip() or None if isinstance(value, str) else None
+
+
+def _subscription(item: dict) -> Subscription | None:
+    """A Subscription from one entry of HYXI's subscription list, or None if
+    the entry has no subscription code."""
+    code = _text(item.get("subscribeCode"))
+    if code is None:
+        return None
+    raw_devices = item.get("devices")
+    devices = (
+        tuple(sn for sn in map(_text, raw_devices) if sn)
+        if isinstance(raw_devices, list)
+        else ()
+    )
+    return Subscription(
+        subscribe_code=code,
+        subscribe_type=_subscription_type(item.get("subscribeType")),
+        callback_url=str(item.get("callbackUrl") or ""),
+        create_time=str(item.get("createTime") or ""),
+        devices=devices,
+    )
+
+
+def _subscription_type(value: Any) -> int | None:
+    """subscribeType as a SubscriptionType when known, a plain int for a
+    newer type, or None when it is not an integer."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    try:
+        return SubscriptionType(value)
+    except ValueError:
+        return value
 
 
 def _parse_data_list(data_list: list) -> dict:
@@ -2949,6 +3017,47 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             "postRate": int(post_rate),
         }
         return await self._post_subscription("/api/subscribe/v1/FMRealTimeData", body)
+
+    async def list_subscriptions(
+        self, device_sn: str | None = None
+    ) -> list[Subscription]:
+        """List the push subscriptions HYXI holds for these credentials.
+
+        Endpoint: GET /api/subscribe/v1/list
+
+        Without device_sn, every subscription for the credentials is
+        listed; with it, HYXI returns only those associated with that
+        device. Entries without a subscription code are left out.
+
+        Raises:
+            ValueError: device_sn is not a non-empty string.
+            SubscriptionError: HYXI rejected the request, no token could be
+                obtained, or the answer was not a list.
+            aiohttp.ClientError, TimeoutError: HYXI could not be reached.
+        """
+        sn = None
+        if device_sn is not None and (sn := _text(device_sn)) is None:
+            raise ValueError("device_sn must be a non-empty string")
+        _LOGGER.debug(
+            "HYXI subscription list request for %s",
+            _mask_id(sn) if sn else "all devices",
+        )
+        res = await self._execute_with_auth_retry(
+            "GET",
+            "/api/subscribe/v1/list",
+            self.SubscriptionError,
+            params={"deviceSn": sn} if sn else None,
+        )
+        data = res.get("data")
+        if data is None:
+            return []
+        if not isinstance(data, list):
+            raise self.SubscriptionError("subscription list is not a list")
+        return [
+            sub
+            for item in data
+            if isinstance(item, dict) and (sub := _subscription(item)) is not None
+        ]
 
     async def cancel_subscription(self, subscribe_code: str) -> dict:
         """Cancel a subscription by subscription code.

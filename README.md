@@ -150,6 +150,19 @@ async def subscription_example(client):
     await client.cancel_subscription(real_time["data"]["subscribeCode"])
 ```
 
+`list_subscriptions()` returns the subscriptions HYXI holds for your credentials; pass a `device_sn` to list only those associated with that device. For example, to see which of them deliver to your callback URL:
+
+```python
+async def my_subscriptions(client, callback_url):
+    return [
+        sub
+        for sub in await client.list_subscriptions()
+        if sub.callback_url == callback_url
+    ]
+```
+
+Each entry is a `Subscription` with its `subscribe_code` (for `cancel_subscription`), `subscribe_type` (a `SubscriptionType`, such as `SubscriptionType.ALARM`), `callback_url`, `create_time` and associated `devices`.
+
 Subscription failures raise `HyxiApiClient.SubscriptionError`.
 
 ## 🛠️ Requirements

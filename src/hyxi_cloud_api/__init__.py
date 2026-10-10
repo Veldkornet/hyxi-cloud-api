@@ -4,6 +4,8 @@ from .api import (
     DiscoveryResult,
     HyxiApiClient,
     HyxiAuthError,
+    Subscription,
+    SubscriptionType,
     TokenNetworkError,
     TokenRequestError,
 )
@@ -17,6 +19,8 @@ __all__ = [
     "DiscoveryResult",
     "HyxiApiClient",
     "HyxiAuthError",
+    "Subscription",
+    "SubscriptionType",
     "TokenNetworkError",
     "TokenRequestError",
 ]
