@@ -722,6 +722,17 @@ async def _gather(*aws: Awaitable[Any]) -> list[Any]:
         raise
 
 
+def _control_skipped(res: dict) -> bool:
+    """Whether a control response says HYXI did not forward the command,
+    which it reports as a traceId of "SKIPPED" instead of a task id."""
+    data = res.get("data")
+    return isinstance(data, list) and any(
+        isinstance(entry, dict)
+        and str(entry.get("traceId", "")).strip().upper() == "SKIPPED"
+        for entry in data
+    )
+
+
 def _parse_data_list(data_list: list) -> dict:
     """Extract dataKey and dataValue into a cleaner dictionary."""
     return {
@@ -1529,6 +1540,16 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
     class ControlError(Exception):
         """Raised when a device control command fails."""
+
+    class ControlNotForwardedError(ControlError):
+        """Raised when HYXI accepts a control command but does not forward it
+        to the device, because the credentials lack the authorization the
+        command needs (VPP control commands need VPP authorization).
+        response holds HYXI's answer, including its requestId."""
+
+        def __init__(self, message: str, response: dict) -> None:
+            super().__init__(message)
+            self.response = response
 
     class SubscriptionError(Exception):
         """Raised when a subscription request fails."""
@@ -2773,23 +2794,34 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         control_map keys are HYXI controlIds (1020/1021/1062/1063/1064/1065/...).
         Values are strings per the developer docs ('' for idle/self-consumption,
         a wattage like '100' for 1063/1064, '0'/'1' for switches).
+
+        Raises:
+            ControlNotForwardedError: HYXI accepted the command but did not
+                forward it to the device (its traceId is "SKIPPED"). VPP
+                control commands (1062-1068) are only forwarded for
+                credentials with VPP authorization for the device.
+            ControlError: the request failed or was rejected.
         """
         if not control_map:
             _LOGGER.warning("set_device_control called with empty settings")
             return {}
 
         path = "/api/device/v2/control"
-        body = {
-            "deviceControlMap": {device_sn: {str(k): v for k, v in control_map.items()}}
-        }
-        _LOGGER.debug(
-            "HYXI CONTROL request for %s: %s",
-            _mask_id(device_sn),
-            body["deviceControlMap"][device_sn],
-        )
-        return await self._execute_with_auth_retry(
+        controls = {str(k): v for k, v in control_map.items()}
+        body = {"deviceControlMap": {device_sn: controls}}
+        _LOGGER.debug("HYXI CONTROL request for %s: %s", _mask_id(device_sn), controls)
+        res = await self._execute_with_auth_retry(
             "POST", path, self.ControlError, json=body
         )
+        if _control_skipped(res):
+            raise self.ControlNotForwardedError(
+                f"HYXI accepted control {', '.join(controls)} "
+                "but did not forward it to the device, as it does for VPP "
+                "control commands when the API credentials are not "
+                f"VPP-authorized for the device (requestId {res.get('requestId')})",
+                res,
+            )
+        return res
 
     async def query_control_result(self, trace_id: str) -> dict:
         """Query the execution result of a previously issued control instruction.
