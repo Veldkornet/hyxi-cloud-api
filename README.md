@@ -101,9 +101,13 @@ Control failures raise `HyxiApiClient.ControlError`:
 ```python
 try:
     await client.set_mode_charge(device_sn, watts=3000)
+except client.ControlNotForwardedError as e:
+    print(f"Accepted but not forwarded to the device: {e}")
 except client.ControlError as e:
     print(f"Control command failed: {e}")
 ```
+
+HYXI only forwards its VPP control commands (controlIds 1062-1068; the `set_mode_*` helpers send 1062-1066) to devices the credentials are VPP-authorized for. With other credentials HYXI accepts the request but answers with a `traceId` of `"SKIPPED"` and never sends it on; the client raises `ControlNotForwardedError`, a subclass of `ControlError`, in that case, with HYXI's answer (including its `requestId`) in its `response` attribute.
 
 Control commands are fire-and-forget; poll `query_control_result` with the `traceId` from the response to confirm the device actually applied it:
 

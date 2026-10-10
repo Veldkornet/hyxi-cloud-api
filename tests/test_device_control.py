@@ -487,3 +487,71 @@ async def test_query_control_result_empty_trace_id():
         await api.query_control_result(12345)
 
     api._request.assert_not_called()
+
+
+# The response HYXI returns for a VPP command (1062-1068) sent with
+# credentials that lack VPP authorization: accepted, but never forwarded.
+_SKIPPED_RESPONSE = {
+    "code": "0",
+    "msg": "Success",
+    "requestId": "1411199d18ba402d8931860a1fc3fd22",
+    "data": [{"deviceSn": "SN123", "traceId": "SKIPPED"}],
+    "success": True,
+}
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_command_raises_control_not_forwarded():
+    """A command HYXI accepts but does not forward raises
+    ControlNotForwardedError, which existing ControlError handlers catch."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.ensure_token = AsyncMock()
+    api._request = AsyncMock(return_value=(200, _SKIPPED_RESPONSE))
+
+    with pytest.raises(api.ControlNotForwardedError) as excinfo:
+        await api.set_mode_self_consume("SN123")
+    assert "control 1065" in str(excinfo.value)
+    assert "1411199d18ba402d8931860a1fc3fd22" in str(excinfo.value)
+    assert excinfo.value.response == _SKIPPED_RESPONSE
+    assert isinstance(excinfo.value, api.ControlError)
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_trace_id_is_matched_in_any_case_or_spacing():
+    """SKIPPED is recognised whatever its case or surrounding spaces."""
+    data = [{"deviceSn": "SN123", "traceId": " skipped "}]
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.ensure_token = AsyncMock()
+    api._request = AsyncMock(return_value=(200, {"success": True, "data": data}))
+
+    with pytest.raises(api.ControlNotForwardedError):
+        await api.set_device_control("SN123", {1065: ""})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "data",
+    [
+        [{"deviceSn": "SN123", "traceId": "1858391884548935680"}],
+        [{"deviceSn": "SN123"}],
+        ["SKIPPED"],
+        {"traceId": "SKIPPED"},
+        None,
+    ],
+    ids=[
+        "real-trace-id",
+        "no-trace-id",
+        "entry-not-a-dict",
+        "data-not-a-list",
+        "no-data",
+    ],
+)
+async def test_a_forwarded_command_returns_the_response(data):
+    """Only a traceId of "SKIPPED" in the response's list of devices means
+    the command was not forwarded."""
+    api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
+    api.ensure_token = AsyncMock()
+    response = {"success": True, "data": data}
+    api._request = AsyncMock(return_value=(200, response))
+
+    assert await api.set_device_control("SN123", {1065: ""}) == response
