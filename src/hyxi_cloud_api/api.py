@@ -3009,13 +3009,28 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             raise ValueError("device_sn_list cannot contain more than 1000 device SNs")
 
     @staticmethod
-    def _validate_callback_url(callback_url: str) -> None:
-        """Validate the subscriber callback URL."""
-        if not callback_url or not callback_url.strip():
+    def _validate_callback_url(callback_url: str) -> str:
+        """Return the subscriber callback URL without surrounding whitespace,
+        after checking it is an HTTPS URL with a host, a valid port if any,
+        and no credentials: HYXI sends each push with the AccessKey in its
+        headers, and lists the URL with the subscription."""
+        url = (callback_url or "").strip()
+        if not url:
             raise ValueError("callback_url must be a non-empty string")
-        parsed = urlparse(callback_url.strip())
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            raise ValueError("callback_url must be a valid http/https URL")
+        invalid = "callback_url must be a valid https URL"
+        try:
+            parsed = urlparse(url)
+            if not (
+                parsed.scheme == "https"
+                and parsed.hostname
+                and parsed.port != 0
+                and parsed.username is None
+                and parsed.password is None
+            ):
+                raise ValueError(invalid)
+        except ValueError as err:
+            raise ValueError(invalid) from err
+        return url
 
     @staticmethod
     def _validate_post_rate_ms(post_rate: int) -> None:
@@ -3034,7 +3049,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         Endpoint: POST /api/subscribe/v1/realTimeData
         """
-        self._validate_callback_url(callback_url)
+        callback_url = self._validate_callback_url(callback_url)
         self._validate_subscription_device_sns(device_sn_list)
         self._validate_post_rate_ms(post_rate)
 
@@ -3059,7 +3074,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         Endpoint: POST /api/subscribe/v1/alarm
         """
-        self._validate_callback_url(callback_url)
+        callback_url = self._validate_callback_url(callback_url)
         self._validate_subscription_device_sns(device_sn_list)
         self._validate_post_rate_ms(post_rate)
 
@@ -3086,7 +3101,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         Args:
             post_rate: Push rate in hours. Must be between 1 and 6.
         """
-        self._validate_callback_url(callback_url)
+        callback_url = self._validate_callback_url(callback_url)
         self._validate_subscription_device_sns(device_sn_list)
         if not 1 <= post_rate <= 6:
             raise ValueError("post_rate must be between 1 and 6 hours")
