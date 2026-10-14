@@ -124,6 +124,10 @@ result = await client.query_control_result(trace_id)
 You can subscribe a callback URL to HYXI push notifications for real-time data,
 alarms, and FCAS/frequency-modulation real-time data.
 
+The callback URL must use HTTPS and contain no credentials: HYXI sends each push
+with your AccessKey in its headers and lists the URL with the subscription, so
+`subscribe_*` raises `ValueError` for any other URL.
+
 ```python
 async def subscription_example(client):
     callback_url = "https://your-public-callback-host/hyxi/callback"

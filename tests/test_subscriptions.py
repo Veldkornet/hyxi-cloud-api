@@ -220,33 +220,77 @@ async def test_subscription_validation():
         await api.cancel_subscription(" ")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("subscribe", "post_rate"),
+    [
+        ("subscribe_real_time_data", 60000),
+        ("subscribe_alarm", 60000),
+        ("subscribe_fm_real_time_data", 6),
+    ],
+)
+async def test_a_plain_http_callback_is_never_sent(subscribe, post_rate):
+    """Every subscribe call refuses a plain-HTTP callback URL before
+    sending anything to HYXI."""
+    api = _client()
+
+    with pytest.raises(ValueError, match="valid https URL"):
+        await getattr(api, subscribe)("http://example.com/hyxi", ["SN1"], post_rate)
+
+    api._request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_the_callback_url_is_sent_without_surrounding_whitespace():
+    """The callback URL HYXI stores is the one that was validated."""
+    api = _client()
+    api._post_subscription = AsyncMock(return_value={"success": True})
+
+    await api.subscribe_alarm("  https://example.com/hyxi  ", ["SN1"], 60000)
+
+    body = api._post_subscription.call_args.args[1]
+    assert body["callBackUrl"] == "https://example.com/hyxi"
+
+
 def test_validate_callback_url():
-    """Test validation of subscriber callback URLs."""
-    # Happy paths shouldn't raise any exception
-    HyxiApiClient._validate_callback_url("http://example.com")
-    HyxiApiClient._validate_callback_url("https://example.com/callback")
-    HyxiApiClient._validate_callback_url("  https://example.com/whitespace  ")
-    HyxiApiClient._validate_callback_url("http://localhost:8080")
+    """An HTTPS callback URL is accepted and returned without surrounding
+    whitespace; an empty one is refused."""
+    assert (
+        HyxiApiClient._validate_callback_url("https://example.com/callback")
+        == "https://example.com/callback"
+    )
+    assert (
+        HyxiApiClient._validate_callback_url("  https://example.com/whitespace  ")
+        == "https://example.com/whitespace"
+    )
+    assert HyxiApiClient._validate_callback_url("https://localhost:8443")
 
-    # Empty and whitespace
-    with pytest.raises(ValueError, match="callback_url must be a non-empty string"):
-        HyxiApiClient._validate_callback_url("")
+    for url in ("", "   ", None):
+        with pytest.raises(ValueError, match="callback_url must be a non-empty string"):
+            HyxiApiClient._validate_callback_url(url)
 
-    with pytest.raises(ValueError, match="callback_url must be a non-empty string"):
-        HyxiApiClient._validate_callback_url("   ")
 
-    # Invalid schemas / URLs
-    with pytest.raises(ValueError, match="callback_url must be a valid http/https URL"):
-        HyxiApiClient._validate_callback_url("ftp://example.com")
-
-    with pytest.raises(ValueError, match="callback_url must be a valid http/https URL"):
-        HyxiApiClient._validate_callback_url("example.com")
-
-    with pytest.raises(ValueError, match="callback_url must be a valid http/https URL"):
-        HyxiApiClient._validate_callback_url("http://")
-
-    with pytest.raises(ValueError, match="callback_url must be a valid http/https URL"):
-        HyxiApiClient._validate_callback_url("://example.com")
+@pytest.mark.parametrize(
+    "url",
+    [
+        "ftp://example.com",
+        "http://example.com/callback",
+        "example.com",
+        "http://",
+        "://example.com",
+        "https://:443/callback",
+        "https://example.com:abc/callback",
+        "https://example.com:99999/callback",
+        "https://example.com:0/callback",
+        "https://user:secret@example.com/callback",
+        "https://[::1/callback",
+    ],
+)
+def test_a_callback_url_that_is_not_plain_https_is_refused(url):
+    """Anything but an HTTPS URL with a host, a valid port and no
+    credentials is refused."""
+    with pytest.raises(ValueError, match="callback_url must be a valid https URL"):
+        HyxiApiClient._validate_callback_url(url)
 
 
 @pytest.mark.asyncio
