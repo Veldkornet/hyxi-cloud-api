@@ -135,12 +135,14 @@ async def test_ensure_token_unexpected_exception_propagates():
     ],
 )
 async def test_refresh_token_keeps_status_return_values(side_effect, expected):
-    """_refresh_token maps ensure_token's outcome onto its original return
-    values, which ha-hyxi-cloud's config flow branches on."""
+    """The deprecated _refresh_token warns, and still maps ensure_token's
+    outcome onto its original return values, which ha-hyxi-cloud's config
+    flow up to 1.7.0 branches on."""
     api = HyxiApiClient("ak", "sk", "https://api.com", MagicMock())
     api.ensure_token = AsyncMock(side_effect=side_effect)
 
-    assert await api._refresh_token() == expected
+    with pytest.warns(DeprecationWarning, match="call ensure_token"):
+        assert await api._refresh_token() == expected
 
 
 def _token_session(api, body=None, json_error=None):
