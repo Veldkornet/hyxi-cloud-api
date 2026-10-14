@@ -19,6 +19,7 @@ import os
 import re
 import secrets
 import time
+import warnings
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -1952,6 +1953,10 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         )
         return token_expires_at
 
+    @warnings.deprecated(
+        "HyxiApiClient._refresh_token() is deprecated; call ensure_token(), "
+        "which raises HyxiAuthError or TokenRequestError on failure"
+    )
     async def _refresh_token(self) -> bool | str | None:
         """Status-returning wrapper around ensure_token(), for callers that
         predate its exceptions: True on success, "auth_failed" for rejected
