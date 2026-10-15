@@ -128,6 +128,18 @@ class Subscription:
     devices: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class SubscribeResult:
+    """The subscription HYXI made for a subscribe_* call.
+
+    subscribe_code is what cancel_subscription takes; request_id is HYXI's
+    identifier of the request, for its support, or None if it gave none.
+    """
+
+    subscribe_code: str
+    request_id: str | None = None
+
+
 @dataclass
 class FetchState:
     """State object to hold shared data during a device fetch cycle."""
@@ -794,10 +806,16 @@ def _text(value: Any) -> str | None:
     return value.strip() or None if isinstance(value, str) else None
 
 
+def _subscribe_code(item: Any) -> str | None:
+    """The subscription code in one of HYXI's answers or list entries, or
+    None if it has none."""
+    return _text(item.get("subscribeCode")) if isinstance(item, dict) else None
+
+
 def _subscription(item: dict) -> Subscription | None:
     """A Subscription from one entry of HYXI's subscription list, or None if
     the entry has no subscription code."""
-    code = _text(item.get("subscribeCode"))
+    code = _subscribe_code(item)
     if code is None:
         return None
     raw_devices = item.get("devices")
@@ -3032,6 +3050,18 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             "POST", path, self.SubscriptionError, json=body
         )
 
+    async def _subscribe(self, path: str, body: dict) -> SubscribeResult:
+        """Make a subscription, returning the code HYXI gave it."""
+        res = await self._post_subscription(path, body)
+        request_id = _text(res.get("requestId"))
+        code = _subscribe_code(res.get("data"))
+        if code is None:
+            raise self.SubscriptionError(
+                f"HYXI returned no subscription code from {path} "
+                f"(requestId {request_id})"
+            )
+        return SubscribeResult(subscribe_code=code, request_id=request_id)
+
     @staticmethod
     def _validate_subscription_device_sns(device_sn_list: list[str]) -> None:
         """Validate subscription device SN list constraints."""
@@ -3076,10 +3106,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         device_sn_list: list[str],
         post_rate: int,
         data_code_list: list[str] | None = None,
-    ) -> dict:
+    ) -> SubscribeResult:
         """Subscribe to real-time device data notifications.
 
         Endpoint: POST /api/subscribe/v1/realTimeData
+
+        Raises:
+            ValueError: an argument is out of range or the URL isn't https.
+            SubscriptionError: HYXI refused it or returned no subscription code.
+            aiohttp.ClientError, TimeoutError: HYXI could not be reached.
         """
         callback_url = self._validate_callback_url(callback_url)
         self._validate_subscription_device_sns(device_sn_list)
@@ -3093,7 +3128,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         if data_code_list is not None:
             body["dataCodeList"] = data_code_list
 
-        return await self._post_subscription("/api/subscribe/v1/realTimeData", body)
+        return await self._subscribe("/api/subscribe/v1/realTimeData", body)
 
     async def subscribe_alarm(
         self,
@@ -3101,10 +3136,15 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         device_sn_list: list[str],
         post_rate: int,
         alarm_code_list: list[str] | None = None,
-    ) -> dict:
+    ) -> SubscribeResult:
         """Subscribe to device alarm notifications.
 
         Endpoint: POST /api/subscribe/v1/alarm
+
+        Raises:
+            ValueError: an argument is out of range or the URL isn't https.
+            SubscriptionError: HYXI refused it or returned no subscription code.
+            aiohttp.ClientError, TimeoutError: HYXI could not be reached.
         """
         callback_url = self._validate_callback_url(callback_url)
         self._validate_subscription_device_sns(device_sn_list)
@@ -3118,20 +3158,25 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         if alarm_code_list is not None:
             body["alarmCodeList"] = alarm_code_list
 
-        return await self._post_subscription("/api/subscribe/v1/alarm", body)
+        return await self._subscribe("/api/subscribe/v1/alarm", body)
 
     async def subscribe_fm_real_time_data(
         self,
         callback_url: str,
         device_sn_list: list[str],
         post_rate: int,
-    ) -> dict:
+    ) -> SubscribeResult:
         """Subscribe to FCAS/frequency modulation real-time device data.
 
         Endpoint: POST /api/subscribe/v1/FMRealTimeData
 
         Args:
             post_rate: Push rate in hours. Must be between 1 and 6.
+
+        Raises:
+            ValueError: an argument is out of range or the URL isn't https.
+            SubscriptionError: HYXI refused it or returned no subscription code.
+            aiohttp.ClientError, TimeoutError: HYXI could not be reached.
         """
         callback_url = self._validate_callback_url(callback_url)
         self._validate_subscription_device_sns(device_sn_list)
@@ -3143,7 +3188,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
             "deviceSnList": device_sn_list,
             "postRate": int(post_rate),
         }
-        return await self._post_subscription("/api/subscribe/v1/FMRealTimeData", body)
+        return await self._subscribe("/api/subscribe/v1/FMRealTimeData", body)
 
     async def list_subscriptions(
         self, device_sn: str | None = None

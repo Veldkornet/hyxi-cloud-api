@@ -12,7 +12,7 @@ if "aiohttp" not in sys.modules or not hasattr(sys.modules["aiohttp"], "ClientEr
     m.ContentTypeError = type("ContentTypeError", (Exception,), {})
     sys.modules["aiohttp"] = m
 
-from src.hyxi_cloud_api.api import HyxiApiClient, HyxiAuthError
+from src.hyxi_cloud_api.api import HyxiApiClient, HyxiAuthError, SubscribeResult
 
 
 def _client() -> HyxiApiClient:
@@ -44,7 +44,7 @@ async def test_subscribe_real_time_data():
         data_code_list=["pv1p"],
     )
 
-    assert result["data"]["subscribeCode"] == "sub-code"
+    assert result == SubscribeResult(subscribe_code="sub-code")
     api._request.assert_called_once()
     call_args = api._request.call_args
     assert call_args.args[:2] == ("POST", "/api/subscribe/v1/realTimeData")
@@ -58,43 +58,21 @@ async def test_subscribe_real_time_data():
 
 
 @pytest.mark.asyncio
-async def test_subscribe_real_time_data_mock_post_subscription():
-    """Test real-time data subscription by mocking _post_subscription."""
+async def test_subscribe_real_time_data_without_data_codes():
+    """Without data_code_list, the body leaves dataCodeList out."""
     api = _client()
-    api._post_subscription = AsyncMock(return_value={"success": True, "data": "mocked"})
 
-    # Test with data_code_list
-    result = await api.subscribe_real_time_data(
-        callback_url="https://example.com/hyxi",
-        device_sn_list=["SN1"],
-        post_rate=5000,
-        data_code_list=["pv1p"],
-    )
-    assert result == {"success": True, "data": "mocked"}
-    api._post_subscription.assert_called_with(
-        "/api/subscribe/v1/realTimeData",
-        {
-            "callBackUrl": "https://example.com/hyxi",
-            "deviceSnList": ["SN1"],
-            "postRate": 5000,
-            "dataCodeList": ["pv1p"],
-        },
-    )
-
-    # Test without data_code_list
-    result = await api.subscribe_real_time_data(
+    await api.subscribe_real_time_data(
         callback_url="https://example.com/hyxi",
         device_sn_list=["SN1"],
         post_rate=5000,
     )
-    api._post_subscription.assert_called_with(
-        "/api/subscribe/v1/realTimeData",
-        {
-            "callBackUrl": "https://example.com/hyxi",
-            "deviceSnList": ["SN1"],
-            "postRate": 5000,
-        },
-    )
+
+    assert api._request.call_args.kwargs["json"] == {
+        "callBackUrl": "https://example.com/hyxi",
+        "deviceSnList": ["SN1"],
+        "postRate": 5000,
+    }
 
 
 @pytest.mark.asyncio
@@ -244,11 +222,10 @@ async def test_a_plain_http_callback_is_never_sent(subscribe, post_rate):
 async def test_the_callback_url_is_sent_without_surrounding_whitespace():
     """The callback URL HYXI stores is the one that was validated."""
     api = _client()
-    api._post_subscription = AsyncMock(return_value={"success": True})
 
     await api.subscribe_alarm("  https://example.com/hyxi  ", ["SN1"], 60000)
 
-    body = api._post_subscription.call_args.args[1]
+    body = api._request.call_args.kwargs["json"]
     assert body["callBackUrl"] == "https://example.com/hyxi"
 
 
@@ -323,3 +300,56 @@ async def test_post_subscription_success_false():
     )
     with pytest.raises(api.SubscriptionError, match=r"code=400.*Bad Request"):
         await api._post_subscription("/test/path", {"key": "value"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("subscribe", "post_rate"),
+    [
+        ("subscribe_real_time_data", 60000),
+        ("subscribe_alarm", 60000),
+        ("subscribe_fm_real_time_data", 6),
+    ],
+)
+async def test_each_subscribe_returns_the_code_hyxi_gave(subscribe, post_rate):
+    """Every subscribe call returns the subscription HYXI made, by its code,
+    stripped of surrounding whitespace."""
+    api = _client()
+    api._post_subscription = AsyncMock(
+        return_value={
+            "success": True,
+            "requestId": "req-1",
+            "data": {"subscribeCode": " code-1 "},
+        }
+    )
+
+    result = await getattr(api, subscribe)(
+        "https://example.com/hyxi", ["SN1"], post_rate
+    )
+
+    assert result == SubscribeResult(subscribe_code="code-1", request_id="req-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"success": True},
+        {"success": True, "data": None},
+        {"success": True, "data": "sub-code"},
+        {"success": True, "data": {}},
+        {"success": True, "data": {"subscribeCode": "  "}},
+    ],
+    ids=["no-data", "null-data", "data-not-an-object", "no-code", "blank-code"],
+)
+async def test_an_answer_without_a_code_is_a_subscription_error(answer):
+    """A subscribe answer without a subscription code is refused, rather than
+    returned as a subscription that can't be cancelled."""
+    api = _client()
+    api._post_subscription = AsyncMock(return_value={**answer, "requestId": "req-9"})
+
+    with pytest.raises(
+        api.SubscriptionError,
+        match=r"no subscription code from /api/subscribe/v1/alarm \(requestId req-9\)",
+    ):
+        await api.subscribe_alarm("https://example.com/hyxi", ["SN1"], 60000)
