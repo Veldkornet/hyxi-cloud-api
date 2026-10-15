@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.hyxi_cloud_api.api import HyxiApiClient
+from src.hyxi_cloud_api.api import AuthorizationType, HyxiApiClient
 
 
 @pytest.fixture
@@ -245,3 +245,45 @@ def test_apply_token_response_short_lifetime_refreshes_halfway(mock_time, api_cl
 
     assert api_client._apply_token_response({"token": "xyz", "expiresIn": 100})
     assert api_client.token_expires_at == 1000050.0
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (0, AuthorizationType.USER),
+        (1, AuthorizationType.VPP),
+        (2, AuthorizationType.PLANT),
+        ("0", AuthorizationType.USER),
+        ("2", AuthorizationType.PLANT),
+    ],
+)
+def test_apply_token_response_authorization_type(api_client, raw, expected):
+    """The keys' authorization type is read as a number or numeric text."""
+    data = {"access_token": "t", "authorizationType": raw}
+    assert api_client._apply_token_response(data) is True
+    assert api_client.authorization_type is expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [None, 7, "7", "vpp", "", " 1", "-1", "²", True, False, 1.0, float("inf")],
+)
+def test_apply_token_response_unknown_authorization_type(api_client, raw):
+    """An absent (null) or unlisted authorization type is None, not an
+    error, and replaces the type an earlier token reported."""
+    api_client.authorization_type = AuthorizationType.USER
+    data = {"access_token": "t", "authorizationType": raw}
+    assert api_client._apply_token_response(data) is True
+    assert api_client.authorization_type is None
+
+
+def test_apply_token_response_without_authorization_type(api_client):
+    """A token response without the field leaves the type unknown."""
+    api_client.authorization_type = AuthorizationType.USER
+    assert api_client._apply_token_response({"access_token": "t"}) is True
+    assert api_client.authorization_type is None
+
+
+def test_authorization_type_is_none_before_a_token(api_client):
+    """No authorization type is known before a token was fetched."""
+    assert api_client.authorization_type is None

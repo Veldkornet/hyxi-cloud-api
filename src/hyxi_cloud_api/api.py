@@ -75,6 +75,30 @@ class DiscoveryResult:
     complete: bool
 
 
+class AuthorizationType(IntEnum):
+    """The authorization HYXI granted an AccessKey, as its token response
+    reports in authorizationType."""
+
+    USER = 0
+    VPP = 1
+    PLANT = 2
+
+
+def _authorization_type(raw: Any) -> AuthorizationType | None:
+    """The AuthorizationType HYXI reported, given as an integer or as its
+    digits, or None if it reported none or one not listed there."""
+    if isinstance(raw, str) and raw.isascii() and raw.isdigit():
+        raw = int(raw)
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        try:
+            return AuthorizationType(raw)
+        except ValueError:
+            pass
+    if raw is not None:
+        _LOGGER.debug("HYXI reported an unknown authorizationType: %r", raw)
+    return None
+
+
 class SubscriptionType(IntEnum):
     """The kinds of push subscription HYXI reports in subscribeType."""
 
@@ -1718,6 +1742,8 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
         self.session = session
         self.token: str | None = None
         self.token_expires_at: float = 0.0
+        # Reported with each token.
+        self.authorization_type: AuthorizationType | None = None
         self._token_refresh: asyncio.Task | None = None
         if max_concurrent_requests < 1:
             raise ValueError("max_concurrent_requests must be at least 1")
@@ -1912,6 +1938,7 @@ class HyxiApiClient:  # pylint: disable=too-many-instance-attributes,too-many-pu
 
         self.token = str(f"Bearer {token_val}")
         self.token_expires_at = self._calculate_token_expiration(data)
+        self.authorization_type = _authorization_type(data.get("authorizationType"))
 
         return True
 
