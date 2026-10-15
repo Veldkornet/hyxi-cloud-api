@@ -42,6 +42,15 @@ uv sync --extra test
 Plain `uv sync --extra test` also works locally; the split only matters for
 CI's stricter posture.
 
+CI also requires 100% coverage, checked with:
+
+```bash
+uv run pytest tests/ -p no:warnings --cov --cov-report=
+uv run coverage report -m --fail-under=100
+```
+
+[AGENTS.md](AGENTS.md) lists the conventions changes follow.
+
 ## 🌐 Testing Against the Real API: Bruno
 
 `dev_env/bruno/` is a [Bruno](https://www.usebruno.com/) collection covering
@@ -70,7 +79,10 @@ whether the bug is in this client or the API itself.
 truth for the package version (`pyproject.toml` reads it dynamically via
 `tool.setuptools.dynamic`). Publishing a GitHub Release triggers
 `ci-cd.yml`'s `publish` job, which pushes to PyPI over OIDC (no stored
-token) using the release's tag name.
+token) using the release's tag name. If that job fails while fetching the
+OIDC token with a 5xx from GitHub, re-run the failed job: it's a transient
+GitHub error, not a workflow problem. A new version can take a few minutes
+to appear in PyPI's package index after the release is published.
 
 ## ⚖️ License
 
