@@ -76,6 +76,8 @@ Europe endpoint by default.
 | Europe (default) | `https://open.hyxicloud.com` |
 | North America | `https://open-or.hyxicloud.com` |
 
+After a token is fetched (`await client.ensure_token()`, or any request), `client.authorization_type` says which authorization HYXI granted the keys: `AuthorizationType.USER`, `AuthorizationType.VPP` or `AuthorizationType.PLANT`, or `None` if HYXI's token response didn't report a known type.
+
 ## 🔧 Device Control
 
 You can control inverter operating modes directly through the API. This requires a device serial number, which you can obtain from the device data response above.
