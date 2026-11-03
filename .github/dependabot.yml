@@ -11,7 +11,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Minor and patch bumps share one PR so they can't conflict on workflow files; major bumps get their own.
     groups:
-      codeql:
+      actions:
         patterns:
-          - "github/codeql-action*"
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
