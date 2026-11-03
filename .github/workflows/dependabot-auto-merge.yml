@@ -7,6 +7,11 @@ permissions:
   contents: none
   pull-requests: none
 
+# A newer push to the same PR cancels the run checking the previous head.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   dependabot:
     runs-on: ubuntu-latest
@@ -36,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          ALLOWED_DEPS=("actions/checkout" "actions/dependency-review-action" "actions/setup-python" "actions/stale" "actions/upload-artifact" "dependabot/fetch-metadata" "github/codeql-action" "github/codeql-action/init" "github/codeql-action/analyze" "github/codeql-action/upload-sarif" "gitleaks/gitleaks-action" "google/osv-scanner-action" "ossf/scorecard-action" "pre-commit/action" "pypa/gh-action-pypi-publish" "step-security/harden-runner" "pytest" "pytest-asyncio" "pytest-cov" "hypothesis" "ruff" "setuptools")
+          ALLOWED_DEPS=("actions/checkout" "actions/dependency-review-action" "actions/setup-python" "actions/stale" "actions/upload-artifact" "astral-sh/setup-uv" "dependabot/fetch-metadata" "github/codeql-action" "github/codeql-action/init" "github/codeql-action/analyze" "github/codeql-action/upload-sarif" "gitleaks/gitleaks-action" "google/osv-scanner-action/osv-scanner-action" "ossf/scorecard-action" "pre-commit/action" "pypa/gh-action-pypi-publish" "step-security/harden-runner" "pytest" "pytest-asyncio" "pytest-cov" "hypothesis" "ruff" "setuptools")
 
           # Dependabot outputs a comma-separated string for grouped updates
           IFS=',' read -r -a DEPS <<< "$DEPENDENCY_NAMES" || true
@@ -79,13 +84,27 @@ jobs:
           steps.metadata.outputs.update-type != 'version-update:semver-major' &&
           steps.verify.outputs.is_allowed == 'true'
         run: |
-          if ! OUTPUT=$(gh pr merge --auto --squash "$PR_URL" 2>&1); then
+          if ! OUTPUT=$(gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL" 2>&1); then
             if echo "$OUTPUT" | grep -iq "workflow.*permission"; then
               echo "::notice title=Manual Merge Required::GitHub Actions cannot auto-merge PRs that modify workflow files due to security restrictions. Please merge manually."
             else
               echo "::error::Failed to enable auto-merge: $OUTPUT"
               exit 1
             fi
+          fi
+        env:
+          PR_URL: ${{github.event.pull_request.html_url}}
+          HEAD_SHA: ${{github.event.pull_request.head.sha}}
+          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+
+      # Auto-merge enabled for an earlier head stays on after Dependabot pushes, so turn it off when the current head needs review.
+      - name: Disable auto-merge for PRs that need review
+        if: >
+          steps.metadata.outputs.update-type == 'version-update:semver-major' ||
+          steps.verify.outputs.is_allowed != 'true'
+        run: |
+          if ! OUTPUT=$(gh pr merge --disable-auto "$PR_URL" 2>&1); then
+            echo "::notice title=Auto-merge Not Disabled::$OUTPUT"
           fi
         env:
           PR_URL: ${{github.event.pull_request.html_url}}
